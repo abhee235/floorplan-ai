@@ -2,3 +2,7 @@
 *.png binary
 *.glb binary
 *.ktx2 binary
+# byte-exact fixtures: DXF files are CRLF as CAD programs write them, and the golden
+# export CSV is compared byte for byte, so git must not touch their line endings
+*.dxf -text
+tools/fixtures/**/*.export.csv -text
