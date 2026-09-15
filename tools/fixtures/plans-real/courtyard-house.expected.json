@@ -7,5 +7,6 @@
   "doors": 5,
   "windows": 7,
   "rooms": ["COURTYARD", "LIVING / LOUNGE", "KITCHEN / DINING", "BEDROOM", "BATH", "STUDIO"],
-  "notes": "Hand counted from the drawing on 2026-09-16: four swinging doors and one two-leaf sliding door to the courtyard, all on A-OPENING; seven windows drawn as three parallel lines between end ticks, also on A-OPENING. GROUND FLOOR PLAN is the sheet title, not a room."
+  "enclosedRooms": ["COURTYARD", "LIVING / LOUNGE", "KITCHEN / DINING", "BEDROOM", "BATH", "STUDIO"],
+  "notes": "Hand counted from the drawing on 2026-09-16: four swinging doors and one two-leaf sliding door to the courtyard, all on A-OPENING; seven windows drawn as three parallel lines between end ticks, also on A-OPENING. GROUND FLOOR PLAN is the sheet title, not a room. Enclosed rooms (judged from the drawing): All six are enclosed by walls; LIVING / LOUNGE shares a space with KITCHEN / DINING, and BEDROOM with BATH."
 }

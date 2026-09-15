@@ -7,5 +7,6 @@
   "doors": 4,
   "windows": 4,
   "rooms": ["KITCHEN", "LIVING", "BEDROOM 1", "BEDROOM 2", "BATH"],
-  "notes": "Hand counted from the drawing on 2026-09-16: four door swings on A-DOOR (two drawn with the hinge 0.9 m off the wall), four windows on A-GLAZ. The header claims millimetres but the drawing is in metres (dimension labels 12000 and 9000 over 12 and 9 units). APARTMENT TYPE A - 108 m2 is a title, not a room."
+  "enclosedRooms": ["KITCHEN", "LIVING", "BEDROOM 1", "BEDROOM 2", "BATH"],
+  "notes": "Hand counted from the drawing on 2026-09-16: four door swings on A-DOOR (two drawn with the hinge 0.9 m off the wall), four windows on A-GLAZ. The header claims millimetres but the drawing is in metres (dimension labels 12000 and 9000 over 12 and 9 units). APARTMENT TYPE A - 108 m2 is a title, not a room. Enclosed rooms (judged from the drawing): All five labels sit inside wall-enclosed space; BEDROOM 2 and BATH share one space because the drawing has no wall between them."
 }

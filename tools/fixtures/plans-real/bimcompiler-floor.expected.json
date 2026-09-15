@@ -7,5 +7,6 @@
   "doors": 3,
   "windows": 4,
   "rooms": ["LIVING ROOM", "DINING ROOM", "BEDROOM"],
-  "notes": "Hand counted from the drawing on 2026-09-16 and its door and window schedule: D1 one external door, D2-D3 two internal doors, W1-W4 four windows. Walls are closed outline polylines on A-WALL-FULL and A-WALL-PRTN; A-WALL-PATT repeats the full walls as a hatch pattern outline. The title block on the same sheet is not part of the plan."
+  "enclosedRooms": ["BEDROOM"],
+  "notes": "Hand counted from the drawing on 2026-09-16 and its door and window schedule: D1 one external door, D2-D3 two internal doors, W1-W4 four windows. Walls are closed outline polylines on A-WALL-FULL and A-WALL-PRTN; A-WALL-PATT repeats the full walls as a hatch pattern outline. The title block on the same sheet is not part of the plan. Enclosed rooms (judged from the drawing): LIVING ROOM and DINING ROOM are bounded on the west and south-west by glazing drawn on A-GLAZ and a 30 mm double line on A-FURN, not by walls."
 }

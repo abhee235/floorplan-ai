@@ -28,5 +28,25 @@
     "COVERED DECK",
     "2 CAR GARAGE"
   ],
-  "notes": "Hand counted from the drawing on 2026-09-16: 11 swinging doors, 2 sliding glass doors (6068 S.G.D.) and one garage overhead door; windows are the XO and SH callouts. The header claims millimetres but the drawing is in inches (wall faces 4 and 6 units apart, dimensions in feet and inches)."
+  "enclosedRooms": [
+    "MASTER BEDROOM",
+    "MSTR. BATH",
+    "TOIL.",
+    "W.I.C",
+    "BATH",
+    "W.I.C.",
+    "HALL",
+    "GREAT ROOM",
+    "DINING ROOM",
+    "KITCHEN",
+    "ENTRY",
+    "Pantry",
+    "UTIL.",
+    "BEDROOM 2",
+    "BEDROOM 3",
+    "CLO.",
+    "CLOSET",
+    "2 CAR GARAGE"
+  ],
+  "notes": "Hand counted from the drawing on 2026-09-16: 11 swinging doors, 2 sliding glass doors (6068 S.G.D.) and one garage overhead door; windows are the XO and SH callouts. The header claims millimetres but the drawing is in inches (wall faces 4 and 6 units apart, dimensions in feet and inches). Enclosed rooms (judged from the drawing): COVERED PORCH and COVERED DECK are outside the walls. The garage is enclosed by walls and a 16 foot overhead door."
 }

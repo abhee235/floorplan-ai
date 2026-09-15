@@ -96,6 +96,12 @@ export const importPlan = defineTool({
     answers: z.record(z.string()).optional().describe("answers by question id, e.g. {q1: 'mm'}"),
     confirm: z.boolean().optional().describe("commit the draft"),
     levelId: z.string().optional().describe("level to import onto; default the lowest level"),
+    gapToleranceMm: z
+      .number()
+      .min(0)
+      .max(100)
+      .optional()
+      .describe("gap closing for room detection in mm; default 20 for CAD plans, 100 for images"),
     detail: z.enum(["summary", "full"]).optional(),
   }),
   output: Output,
@@ -243,6 +249,7 @@ export const importPlan = defineTool({
         levelId,
         label: `import ${fileName ?? "plan"}`,
         now: ctx.now(),
+        ...(args.gapToleranceMm !== undefined ? { gapToleranceMm: args.gapToleranceMm } : {}),
       });
     } catch (e) {
       if (e instanceof CommitError) throw new ToolError(e.code, e.message, null, e.hint);

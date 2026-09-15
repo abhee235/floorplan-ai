@@ -107,9 +107,17 @@ amended 2026-09-15):
   A door's `hinge` and `swing` are flipped when the created wall runs
   against the draft wall. Openings the command refuses (overlap, off the
   wall) are skipped and reported.
-- Rule 6: a room with an outline is created from it; otherwise from
-  `labelAt` by detection. A room that cannot be created becomes a label
-  annotation with its name, and is reported.
+- Rule 6 (P2-4, amended 2026-09-16): a room with an outline is created
+  from it. Every other room comes from the enclosures of the level's walls
+  (spec 05 section 4) with a gap tolerance of 20 mm for CAD drafts and
+  100 mm for raster and sketch drafts, settable on `import_plan`. Each
+  enclosure not covered by an outlined room becomes one detected room,
+  named, with purpose and capacity, by the label nearest its pole of
+  inaccessibility; the purpose falls back to the first label in the space
+  that has one. Other labels in the same enclosure become label annotations
+  and a note that walls between them may be missing. Enclosures with no
+  label and at least 1.5 m² become unnamed rooms. Labels in no enclosure
+  become label annotations and are reported as not enclosed.
 - Rule 7: `reader` is `provider:model:promptVersion` for model readers and
   `<source kind>:deterministic` otherwise; `questions` lists unanswered
   questions and every skipped entity.

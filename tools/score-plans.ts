@@ -4,15 +4,20 @@
 // Usage: corepack pnpm exec tsx tools/score-plans.ts [--json]
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { createStore } from "@fpv/commands";
 import {
   decodePlanText,
   dxfToDraft,
   type ExpectedPlan,
+  type PlanDraft,
   type RealPlanExpectation,
   scoreDraft,
   scoreRealPlan,
   sourceWallFaces,
+  withScale,
 } from "@fpv/importers";
+import { derive, sequentialIdGenerator } from "@fpv/ir";
+import { blankProject, catalogSourceOf, commitDraft, memoryCatalog } from "@fpv/tools";
 
 const GENERATED = fileURLToPath(new URL("./fixtures/plans/", import.meta.url));
 const REAL = fileURLToPath(new URL("./fixtures/plans-real/", import.meta.url));
@@ -32,6 +37,10 @@ export interface PlanRow {
   windows: string | null;
   openingRecall: number | null;
   roomRecall: number;
+  /** Share of wall-enclosed rooms that become rooms (by name or as a label inside one) after committing. */
+  enclosedRecall: number;
+  /** Rooms the commit made, and how many of them are unnamed. */
+  roomsMade: string;
   scaleSource: string;
   notes: string[];
 }
@@ -42,6 +51,37 @@ const namesIn = (dir: string) =>
     .map((f) => f.slice(0, -".expected.json".length))
     .sort();
 
+const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/** Commit a draft at its true scale and report which of the named rooms end up inside a room. */
+function commitRooms(draft: PlanDraft, mmPerUnit: number, names: readonly string[]) {
+  const now = "2026-09-16T12:00:00.000Z";
+  const store = createStore(blankProject("score", now), {
+    ids: sequentialIdGenerator(1),
+    now: () => now,
+    catalog: catalogSourceOf(memoryCatalog([]), () => now),
+  });
+  commitDraft(store, withScale(draft, { mmPerUnit }), { levelId: "level_000000", label: "score", now });
+  const p = store.project;
+  const pool = draft.rooms.filter((r) => r.name && r.labelAt).map((r) => ({ r, used: false }));
+  let found = 0;
+  for (const name of names) {
+    const hit = pool.find((x) => !x.used && norm(x.r.name as string) === norm(name));
+    if (!hit) continue;
+    hit.used = true;
+    const at = {
+      x: Math.round((hit.r.labelAt as { x: number }).x * mmPerUnit),
+      y: Math.round((hit.r.labelAt as { y: number }).y * mmPerUnit),
+    };
+    if (p.rooms.some((room) => derive.roomContains(room, at))) found += 1;
+  }
+  const unnamed = p.rooms.filter((r) => r.name === null).length;
+  return {
+    enclosedRecall: names.length === 0 ? 1 : found / names.length,
+    roomsMade: `${p.rooms.length}${unnamed ? ` (${unnamed} unnamed)` : ""}`,
+  };
+}
+
 export function scoreAll(): PlanRow[] {
   const rows: PlanRow[] = [];
   for (const name of namesIn(GENERATED)) {
@@ -51,6 +91,11 @@ export function scoreAll(): PlanRow[] {
     const { draft } = dxfToDraft(text, { file: `${name}.dxf` });
     const ms = performance.now() - start;
     const s = scoreDraft(draft, expected);
+    const made = commitRooms(
+      draft,
+      expected.mmPerUnit,
+      expected.rooms.map((r) => r.name),
+    );
     rows.push({
       name,
       kind: "generated",
@@ -64,6 +109,8 @@ export function scoreAll(): PlanRow[] {
       windows: null,
       openingRecall: s.openingRecall,
       roomRecall: s.roomRecall,
+      enclosedRecall: made.enclosedRecall,
+      roomsMade: made.roomsMade,
       scaleSource: draft.units.scaleSource,
       notes: [
         ...s.missedOpenings.map((o) => `missed ${o.kind}`),
@@ -78,6 +125,7 @@ export function scoreAll(): PlanRow[] {
     const { draft } = dxfToDraft(text, { file: `${name}.dxf` });
     const ms = performance.now() - start;
     const s = scoreRealPlan(draft, sourceWallFaces(text, expected.wallLayers), expected);
+    const made = commitRooms(draft, expected.mmPerUnit, expected.enclosedRooms);
     rows.push({
       name,
       kind: "real",
@@ -91,6 +139,8 @@ export function scoreAll(): PlanRow[] {
       windows: `${s.windowsFound}/${expected.windows ?? "?"}`,
       openingRecall: null,
       roomRecall: s.roomRecall,
+      enclosedRecall: made.enclosedRecall,
+      roomsMade: made.roomsMade,
       scaleSource: draft.units.scaleSource,
       notes: [
         ...(s.missedRooms.length ? [`missed rooms: ${s.missedRooms.join(", ")}`] : []),
@@ -121,6 +171,8 @@ if (process.argv[1]?.endsWith("score-plans.ts")) {
       "window count",
       "openings",
       "rooms",
+      "enclosed",
+      "rooms made",
     ];
     const table = rows.map((r) => [
       r.name,
@@ -136,6 +188,8 @@ if (process.argv[1]?.endsWith("score-plans.ts")) {
       r.windows ?? "-",
       pct(r.openingRecall),
       pct(r.roomRecall),
+      pct(r.enclosedRecall),
+      r.roomsMade,
     ]);
     const widths = header.map((h, i) => Math.max(h.length, ...table.map((t) => (t[i] as string).length)));
     const line = (cells: string[]) => cells.map((c, i) => c.padEnd(widths[i] as number)).join("  ");

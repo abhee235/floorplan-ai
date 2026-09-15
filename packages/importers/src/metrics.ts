@@ -151,6 +151,8 @@ export interface RealPlanExpectation {
   windows: number | null;
   /** Room names as written on the drawing. */
   rooms: string[];
+  /** The rooms among them that walls enclose in the drawing (judged by hand); P2-4 must make each a room. */
+  enclosedRooms: string[];
 }
 
 export interface RealPlanScore {

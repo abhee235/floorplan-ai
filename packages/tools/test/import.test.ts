@@ -163,10 +163,11 @@ describe("import_plan", () => {
     expect(r.result.committed?.skipped).toEqual([]);
     expect(p.walls).toHaveLength(8);
     expect(p.openings).toHaveLength(7);
+    // rooms are created from the enclosures top to bottom, then left to right
     expect(p.rooms.map((x) => [x.name, x.source])).toEqual([
+      ["Reception", "detected"],
       ["Meeting Room", "detected"],
       ["Open Office", "detected"],
-      ["Reception", "detected"],
     ]);
   });
 
@@ -236,5 +237,80 @@ describe("buildChains", () => {
       wall(2, [2000, 0], [2000, 3000]),
     ]);
     expect(chains.map((c) => c.segmentWall)).toEqual([[0], [1], [2]]);
+  });
+});
+
+describe("room detection on imported plans (P2-4)", () => {
+  const REAL = fileURLToPath(new URL("../../../tools/fixtures/plans-real/", import.meta.url));
+  const real = (name: string) => readFileSync(`${REAL}${name}.dxf`, "utf8");
+
+  it("a space holding several labels becomes one room named by the central label; the others stay as labels", async () => {
+    const h = harness(undefined, { plans: reader({ "apartment.dxf": real("apartment-metres") }) });
+    const r = await h.ok<ReviewOut>("import_plan", { path: "apartment.dxf", confirm: true });
+    const p = h.ctx.store.project;
+    // four enclosed spaces: BEDROOM 2 and BATH are drawn in one space with no wall between them
+    expect(p.rooms).toHaveLength(4);
+    expect(p.rooms.every((room) => room.source === "detected")).toBe(true);
+    const names = p.rooms.map((room) => room.name);
+    expect(names).toEqual(expect.arrayContaining(["KITCHEN", "LIVING", "BEDROOM 1"]));
+    const shared = ["BEDROOM 2", "BATH"];
+    expect(shared.filter((n) => names.includes(n))).toHaveLength(1);
+    const labels = p.annotations.filter((a) => a.kind === "label").map((a) => (a as { text: string }).text);
+    expect(shared.filter((n) => labels.includes(n))).toHaveLength(1);
+    expect(r.result.committed?.openQuestions.some((q) => q.includes("share one enclosed space"))).toBe(true);
+    expect(p.rooms.find((room) => room.name === "KITCHEN")?.purpose).toBe("cafeteria");
+  });
+
+  it("enclosures without labels become unnamed detected rooms", async () => {
+    const h = harness(undefined, { plans: reader() });
+    const review = await h.ok<ReviewOut>("import_plan", { path: "office-mm.dxf", detail: "full" });
+    await h.ok("import_plan", {
+      draftId: review.result.draftId,
+      draft: { ...review.result.draft, rooms: [] },
+      confirm: true,
+    });
+    const rooms = h.ctx.store.project.rooms;
+    expect(rooms).toHaveLength(3);
+    expect(rooms.every((room) => room.name === null && room.source === "detected")).toBe(true);
+    expect(rooms.every((room) => room.boundingWallIds.length > 0)).toBe(true);
+  });
+
+  it("a label outside every enclosure stays a label and says why", async () => {
+    const h = harness(undefined, { plans: reader({ "courtyard.dxf": real("courtyard-house") }) });
+    const r = await h.ok<ReviewOut>("import_plan", {
+      path: "courtyard.dxf",
+      confirm: true,
+      scale: { units: "mm" },
+    });
+    const p = h.ctx.store.project;
+    expect(p.rooms.map((room) => room.name)).not.toContain("GROUND FLOOR PLAN");
+    const labels = p.annotations.filter((a) => a.kind === "label").map((a) => (a as { text: string }).text);
+    expect(labels).toContain("GROUND FLOOR PLAN");
+    expect(
+      r.result.committed?.skipped.some((s) =>
+        s.reason.startsWith("room GROUND FLOOR PLAN: no walls enclose its label"),
+      ),
+    ).toBe(true);
+    // every room label of the drawing ends up inside a room
+    const inRoom = (name: string) => {
+      const room = p.rooms.find((x) => x.name === name);
+      const label = p.annotations.find((a) => a.kind === "label" && (a as { text: string }).text === name) as
+        | { position: { x: number; y: number } }
+        | undefined;
+      return (
+        room !== undefined ||
+        (label !== undefined && p.rooms.some((x) => derive.roomContains(x, label.position)))
+      );
+    };
+    for (const name of ["COURTYARD", "LIVING / LOUNGE", "KITCHEN / DINING", "BEDROOM", "BATH", "STUDIO"])
+      expect(inRoom(name), name).toBe(true);
+  });
+
+  it("the gap tolerance for room detection can be set on the import", async () => {
+    const h = harness(undefined, { plans: reader() });
+    const bad = await h.call("import_plan", { path: "office-mm.dxf", confirm: true, gapToleranceMm: 500 });
+    expect(bad.ok).toBe(false);
+    await h.ok("import_plan", { path: "office-mm.dxf", confirm: true, gapToleranceMm: 100 });
+    expect(h.ctx.store.project.rooms).toHaveLength(3);
   });
 });

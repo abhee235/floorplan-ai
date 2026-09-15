@@ -11,6 +11,7 @@ interface Floor {
   windowRecall?: number;
   openingRecall?: number;
   roomRecall: number;
+  enclosedRecall?: number;
   maxScaleErrorPct: number;
 }
 
@@ -34,12 +35,15 @@ describe("plan reader scores", () => {
         windowRecall: r.windowRecall,
         openingRecall: r.openingRecall,
         roomRecall: r.roomRecall,
+        enclosedRecall: r.enclosedRecall,
         scaleErrorPct: r.scaleErrorPct,
       });
       const g = got(row);
       const detail = JSON.stringify({ got: g, floor, notes: row.notes });
       expect(g.wallScore, detail).toBeGreaterThanOrEqual(floor.wallScore);
       expect(g.roomRecall, detail).toBeGreaterThanOrEqual(floor.roomRecall);
+      if (floor.enclosedRecall !== undefined)
+        expect(g.enclosedRecall, detail).toBeGreaterThanOrEqual(floor.enclosedRecall);
       if (floor.doorRecall !== undefined)
         expect(g.doorRecall ?? 0, detail).toBeGreaterThanOrEqual(floor.doorRecall);
       if (floor.windowRecall !== undefined)

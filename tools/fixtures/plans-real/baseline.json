@@ -1,57 +1,65 @@
 {
-  "note": "Floors the DXF reader must not fall below, from tools/score-plans.ts. Raised 2026-09-16 after reader hardening; wall face coverage now leaves out source lines under 400 mm (end caps). Raise a floor when the reader improves; never lower one without saying why in the commit.",
+  "note": "Floors the DXF reader must not fall below, from tools/score-plans.ts. Raised 2026-09-16 after reader hardening; wall face coverage now leaves out source lines under 400 mm (end caps). Raise a floor when the reader improves; never lower one without saying why in the commit. enclosedRecall added 2026-09-16 with P2-4 room detection on imports.",
   "plans": {
     "lshape-metres": {
       "wallScore": 1,
       "openingRecall": 1,
       "roomRecall": 1,
-      "maxScaleErrorPct": 2
+      "maxScaleErrorPct": 2,
+      "enclosedRecall": 1
     },
     "office-mm": {
       "wallScore": 1,
       "openingRecall": 1,
       "roomRecall": 1,
-      "maxScaleErrorPct": 2
+      "maxScaleErrorPct": 2,
+      "enclosedRecall": 1
     },
     "rotated-inches": {
       "wallScore": 1,
       "openingRecall": 1,
       "roomRecall": 1,
-      "maxScaleErrorPct": 2
+      "maxScaleErrorPct": 2,
+      "enclosedRecall": 1
     },
     "apartment-metres": {
       "wallScore": 0.99,
       "doorRecall": 0.5,
       "windowRecall": 1,
       "roomRecall": 1,
-      "maxScaleErrorPct": 2
+      "maxScaleErrorPct": 2,
+      "enclosedRecall": 1
     },
     "bimcompiler-floor": {
       "wallScore": 0.99,
       "doorRecall": 1,
       "windowRecall": 1,
       "roomRecall": 1,
-      "maxScaleErrorPct": 2
+      "maxScaleErrorPct": 2,
+      "enclosedRecall": 1
     },
     "courtyard-house": {
       "wallScore": 0.99,
       "doorRecall": 1,
       "windowRecall": 1,
       "roomRecall": 1,
-      "maxScaleErrorPct": 2
+      "maxScaleErrorPct": 2,
+      "enclosedRecall": 1
     },
     "us-house-imperial": {
       "wallScore": 0.93,
       "doorRecall": 0.71,
       "windowRecall": 1,
       "roomRecall": 1,
-      "maxScaleErrorPct": 2
+      "maxScaleErrorPct": 2,
+      "enclosedRecall": 0.94
     },
     "ceco-architecture": {
       "wallScore": 0.77,
       "doorRecall": 0.66,
       "roomRecall": 1,
-      "maxScaleErrorPct": 2
+      "maxScaleErrorPct": 2,
+      "enclosedRecall": 0
     }
   }
 }

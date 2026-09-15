@@ -1,8 +1,9 @@
 // Committing a reviewed PlanDraft (spec 06 A2, ADR-011 D1, D3): one transaction of wall chains, joins,
 // openings, rooms, labels and provenance. Nothing writes IR directly; every change is a command.
 import type { HistoryEntry, Store } from "@fpv/commands";
+import { detectEnclosures, TOL } from "@fpv/geometry";
 import { type PlanDraft, scaleStatus } from "@fpv/importers";
-import { derive, type Point, type Wall } from "@fpv/ir";
+import { derive, type Point, poly, type Wall } from "@fpv/ir";
 
 export class CommitError extends Error {
   constructor(
@@ -21,6 +22,11 @@ export interface CommitOptions {
   now: string;
   /** Added to every converted coordinate, in millimetres. */
   offsetMm?: { x: number; y: number };
+  /**
+   * Gap closing for room detection (ADR-016 D1): default 20 mm for CAD drafts and 100 mm for raster and sketch
+   * drafts.
+   */
+  gapToleranceMm?: number;
 }
 
 export interface CommitSkip {
@@ -36,7 +42,7 @@ export interface CommitReport {
   /** Labels whose room could not be found, kept as label annotations. */
   annotationIds: string[];
   skipped: CommitSkip[];
-  /** Unanswered questions and skipped entities, as recorded in the project provenance. */
+  /** Unanswered questions, skipped entities and room notes, as recorded in the project provenance. */
   questions: string[];
   entry: HistoryEntry | null;
 }
@@ -45,6 +51,19 @@ export interface CommitReport {
 const JOIN_MM = 20;
 /** Openings must lie this close to an imported wall centreline (spec 06 A2 rule 5). */
 const OPENING_MM = 100;
+/** Enclosures without a label smaller than this (shafts, ducts) do not become rooms. */
+const UNLABELLED_MIN_AREA_MM2 = 1_500_000;
+
+type DraftRoomT = PlanDraft["rooms"][number];
+
+function roomFields(levelId: string, room: DraftRoomT) {
+  return {
+    levelId,
+    ...(room.name !== null ? { name: room.name } : {}),
+    ...(room.purpose !== null ? { purpose: room.purpose } : {}),
+    ...(room.capacity !== null ? { capacity: room.capacity } : {}),
+  };
+}
 
 interface DraftWallMm {
   idx: number;
@@ -370,9 +389,12 @@ export function commitDraft(store: Store, draft: PlanDraft, options: CommitOptio
     else skipped.push({ what: "opening", idx: o.idx, reason: `${o.kind} ${o.idx}: ${r.error.message}` });
   }
 
-  // rule 6: rooms by polygon, or detected around the label; labels without a room stay as labels
+  // rule 6 (P2-4): outlined rooms come from their outlines; every other room comes from the walls' enclosures,
+  // named by the label nearest the enclosure's centre. Other labels in the same space, and labels outside every
+  // space, stay as label annotations with a question, because walls between or around them may be missing.
   const roomIds: string[] = [];
   const annotationIds: string[] = [];
+  const notes: string[] = [];
   const label = (at: Point, text: string) => {
     const r = store.apply(
       {
@@ -383,43 +405,96 @@ export function commitDraft(store: Store, draft: PlanDraft, options: CommitOptio
     );
     if (r.ok) annotationIds.push((r.result as { id: string }).id);
   };
+  const outlined: Point[][] = [];
+  const labelled: { room: DraftRoomT; at: Point }[] = [];
   for (const room of draft.rooms) {
-    const common = {
-      levelId,
-      ...(room.name !== null ? { name: room.name } : {}),
-      ...(room.purpose !== null ? { purpose: room.purpose } : {}),
-      ...(room.capacity !== null ? { capacity: room.capacity } : {}),
-    };
-    let polygon: Point[] | null = null;
     if (room.polygon) {
-      polygon = dedupe(room.polygon.map(toMm));
+      const polygon = dedupe(room.polygon.map(toMm));
       const first = polygon[0] as Point;
       const last = polygon[polygon.length - 1] as Point;
       if (polygon.length > 1 && first.x === last.x && first.y === last.y) polygon.pop();
+      if (polygon.length >= 3) {
+        const r = store.apply(
+          { type: "room.create", payload: { ...roomFields(levelId, room), polygon } },
+          "import",
+        );
+        if (r.ok) {
+          roomIds.push((r.result as { id: string }).id);
+          outlined.push(polygon);
+        } else {
+          skipped.push({
+            what: "room",
+            idx: room.idx,
+            reason: `room ${room.name ?? room.idx}: ${r.error.message}`,
+          });
+          if (room.name) label(room.labelAt ? toMm(room.labelAt) : first, room.name);
+        }
+        continue;
+      }
     }
-    const attempt =
-      polygon && polygon.length >= 3
-        ? store.apply({ type: "room.create", payload: { ...common, polygon } }, "import")
-        : room.labelAt
-          ? store.apply(
-              { type: "room.create", payload: { ...common, atPoint: toMm(room.labelAt) } },
-              "import",
-            )
-          : null;
-    if (attempt?.ok) {
-      roomIds.push((attempt.result as { id: string }).id);
-      continue;
-    }
-    const why = attempt ? attempt.error.message : "it has neither an outline nor a label point";
-    skipped.push({ what: "room", idx: room.idx, reason: `room ${room.name ?? room.idx}: ${why}` });
-    const at = room.labelAt ? toMm(room.labelAt) : polygon?.[0];
-    if (room.name && at) label(at, room.name);
+    if (room.labelAt && room.name) labelled.push({ room, at: toMm(room.labelAt) });
+    else
+      skipped.push({
+        what: "room",
+        idx: room.idx,
+        reason: `room ${room.name ?? room.idx}: it has neither an outline nor a label point`,
+      });
   }
+  const gap =
+    options.gapToleranceMm ??
+    (draft.source.kind === "dxf" || draft.source.kind === "pdf-vector"
+      ? TOL.GAP_CLOSE_DEFAULT
+      : TOL.GAP_CLOSE_MAX);
+  const levelWalls = store.project.walls.filter((w) => w.levelId === levelId);
+  const spaces = detectEnclosures(levelWalls, { gap })
+    .map((e) => ({ ...e, pole: poly.poleOfInaccessibility(e.polygon) }))
+    .filter((e) => !outlined.some((o) => poly.containsPoint(o, e.pole)))
+    .sort((a, b) => b.pole.y - a.pole.y || a.pole.x - b.pole.x);
+  const placed = new Set<number>();
+  for (const space of spaces) {
+    const distance = (p: Point) => Math.hypot(p.x - space.pole.x, p.y - space.pole.y);
+    const inside = labelled
+      .map((l, i) => ({ ...l, i }))
+      .filter((l) => !placed.has(l.i) && poly.containsPoint(space.polygon, l.at))
+      .sort((a, b) => distance(a.at) - distance(b.at));
+    if (inside.length === 0 && space.area < UNLABELLED_MIN_AREA_MM2) continue;
+    const primary = inside[0];
+    const purpose =
+      primary?.room.purpose ?? inside.find((l) => l.room.purpose !== null)?.room.purpose ?? null;
+    const payload = {
+      levelId,
+      atPoint: { x: Math.round(space.pole.x), y: Math.round(space.pole.y) },
+      gapToleranceMm: gap,
+      ...(primary?.room.name ? { name: primary.room.name } : {}),
+      ...(purpose ? { purpose } : {}),
+      ...(primary && primary.room.capacity !== null ? { capacity: primary.room.capacity } : {}),
+    };
+    const r = store.apply({ type: "room.create", payload }, "import");
+    if (!r.ok) continue;
+    roomIds.push((r.result as { id: string }).id);
+    for (const l of inside) placed.add(l.i);
+    const others = inside.slice(1);
+    for (const l of others) label(l.at, l.room.name as string);
+    if (primary && others.length > 0)
+      notes.push(
+        `${others.map((l) => l.room.name).join(", ")} share one enclosed space with ${primary.room.name}; walls between them may be missing`,
+      );
+  }
+  labelled.forEach((l, i) => {
+    if (placed.has(i)) return;
+    label(l.at, l.room.name as string);
+    skipped.push({
+      what: "room",
+      idx: l.room.idx,
+      reason: `room ${l.room.name}: no walls enclose its label at (${l.at.x}, ${l.at.y}); it is kept as a label`,
+    });
+  });
 
   // rule 7: provenance with what is still open
   const questions = [
     ...draft.questions.filter((q) => q.answer === null).map((q) => q.text),
     ...skipped.map((s) => s.reason),
+    ...notes,
   ];
   const reader = draft.reader
     ? `${draft.reader.providerId}:${draft.reader.model}:${draft.reader.promptVersion}`

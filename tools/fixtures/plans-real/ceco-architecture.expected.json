@@ -7,5 +7,6 @@
   "doors": 3,
   "windows": null,
   "rooms": ["HALL", "KITCHEN"],
-  "notes": "Hand counted from the drawing on 2026-09-16: three PUERTA door blocks drawn with lines only, no swing arcs. Glazing runs along the walls on the shared doorswindows layer do not separate into countable windows, so no window count is recorded. Walls are closed outlines on wall high and wall low; the drawing is in metres. Roof projection titles are not rooms."
+  "enclosedRooms": ["HALL", "KITCHEN"],
+  "notes": "Hand counted from the drawing on 2026-09-16: three PUERTA door blocks drawn with lines only, no swing arcs. Glazing runs along the walls on the shared doorswindows layer do not separate into countable windows, so no window count is recorded. Walls are closed outlines on wall high and wall low; the drawing is in metres. Roof projection titles are not rooms. Enclosed rooms (judged from the drawing): HALL and KITCHEN are enclosed by the wall outlines on wall high and wall low."
 }
