@@ -1,0 +1,11 @@
+{
+  "name": "bimcompiler-floor",
+  "source": "https://github.com/red1oon/BIMCompiler/blob/master/deploy/dev/dxf/SH_FLOOR.dxf",
+  "licence": "MIT, Copyright (c) 2025-2026 Redhuan D. Oon",
+  "mmPerUnit": 1,
+  "wallLayers": ["A-WALL-FULL", "A-WALL-PRTN"],
+  "doors": 3,
+  "windows": 4,
+  "rooms": ["LIVING ROOM", "DINING ROOM", "BEDROOM"],
+  "notes": "Hand counted from the drawing on 2026-09-16 and its door and window schedule: D1 one external door, D2-D3 two internal doors, W1-W4 four windows. Walls are closed outline polylines on A-WALL-FULL and A-WALL-PRTN; A-WALL-PATT repeats the full walls as a hatch pattern outline. The title block on the same sheet is not part of the plan."
+}

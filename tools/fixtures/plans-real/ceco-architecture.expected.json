@@ -1,0 +1,11 @@
+{
+  "name": "ceco-architecture",
+  "source": "https://github.com/bjnortier/dxf/blob/develop/test/resources/Ceco.NET-Architecture-Tm-53.dxf",
+  "licence": "MIT, Copyright (c) 2014-2018 Ben Nortier",
+  "mmPerUnit": 1000,
+  "wallLayers": ["wall high", "wall low"],
+  "doors": 3,
+  "windows": null,
+  "rooms": ["HALL", "KITCHEN"],
+  "notes": "Hand counted from the drawing on 2026-09-16: three PUERTA door blocks drawn with lines only, no swing arcs. Glazing runs along the walls on the shared doorswindows layer do not separate into countable windows, so no window count is recorded. Walls are closed outlines on wall high and wall low; the drawing is in metres. Roof projection titles are not rooms."
+}

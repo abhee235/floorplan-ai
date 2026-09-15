@@ -1,0 +1,11 @@
+{
+  "name": "apartment-metres",
+  "source": "https://dwgvieweronline.com/samples (floor-plan-apartment.dxf)",
+  "licence": "Released for any use, personal, educational or commercial, with no attribution required",
+  "mmPerUnit": 1000,
+  "wallLayers": ["A-WALL"],
+  "doors": 4,
+  "windows": 4,
+  "rooms": ["KITCHEN", "LIVING", "BEDROOM 1", "BEDROOM 2", "BATH"],
+  "notes": "Hand counted from the drawing on 2026-09-16: four door swings on A-DOOR (two drawn with the hinge 0.9 m off the wall), four windows on A-GLAZ. The header claims millimetres but the drawing is in metres (dimension labels 12000 and 9000 over 12 and 9 units). APARTMENT TYPE A - 108 m2 is a title, not a room."
+}

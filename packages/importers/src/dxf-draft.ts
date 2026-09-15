@@ -42,23 +42,7 @@ export type LayerRole =
 const ROLE_WORDS: readonly [LayerRole, readonly string[]][] = [
   [
     "ignore",
-    [
-      "defpoints",
-      "grid",
-      "hatch",
-      "title",
-      "border",
-      "xref",
-      "viewport",
-      "vport",
-      "frame",
-      "sheet",
-      "north",
-      "note",
-      "notes",
-      "keynote",
-      "keynotes",
-    ],
+    ["defpoints", "grid", "hatch", "title", "border", "xref", "viewport", "vport", "frame", "sheet", "north"],
   ],
   ["dimension", ["dim", "dims", "dimension", "dimensions", "cote", "cotes", "bemassung"]],
   [
@@ -146,6 +130,10 @@ const ROLE_WORDS: readonly [LayerRole, readonly string[]][] = [
       "txt",
       "iden",
       "tag",
+      "note",
+      "notes",
+      "keynote",
+      "keynotes",
     ],
   ],
   [
@@ -185,6 +173,15 @@ export function layerRole(name: string): LayerRole {
   if (words.length > 1 && last && (ROLE_WORDS.find(([r]) => r === "text")?.[1] ?? []).includes(last))
     return "text";
   for (const [role, keys] of ROLE_WORDS) if (words.some((w) => keys.includes(w))) return role;
+  // words run together ("doorswindows", "wallhigh"): look for the main words inside longer words
+  const joined: readonly [LayerRole, RegExp][] = [
+    ["door", /door/],
+    ["window", /window|glaz/],
+    ["wall", /wall/],
+    ["dimension", /dimension/],
+    ["furniture", /furniture/],
+  ];
+  for (const [role, re] of joined) if (words.some((w) => w.length > 4 && re.test(w))) return role;
   return "unknown";
 }
 
@@ -803,6 +800,9 @@ function classifyText(t: string, role: LayerRole): DraftText["kind"] {
   // window and door callouts ("5050 XO", "6068 S.G.D.") and sized notes ('18" MIN.') start with a size
   if (/^\d{3,}\b/.test(trimmed) || /^\d+(\.\d+)?\s*["']/.test(trimmed)) return "other";
   const hasWord = /[A-Za-zÀ-ÿ]{3,}/.test(trimmed);
+  // room names are short labels ("KITCHEN / DINING" included); notes have colons, commas, quotes or "W/"
+  if (trimmed.split(/\s+/).length > 4 || /[:,"]/.test(trimmed) || /\b[A-Za-z]\/(?=\s|$)/.test(trimmed))
+    return "other";
   if (hasWord && trimmed.length <= 60 && (role === "room" || role === "text" || role === "unknown"))
     return "room-name";
   return "other";

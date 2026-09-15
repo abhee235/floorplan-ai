@@ -44,7 +44,16 @@ export {
   type TextDimension,
   typicalSpacing,
 } from "./dxf-draft.js";
-export { type DraftScore, type ExpectedPlan, scoreDraft } from "./metrics.js";
+export {
+  type DraftScore,
+  type ExpectedPlan,
+  type RealPlanExpectation,
+  type RealPlanScore,
+  scoreDraft,
+  scoreRealPlan,
+  sourceWallFaces,
+  wallFaceCoverage,
+} from "./metrics.js";
 export {
   decodePlanText,
   type PlanFileKind,

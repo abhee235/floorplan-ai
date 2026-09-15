@@ -79,6 +79,11 @@ hand-labelled expected drafts. Reader quality is measured as wall recall,
 opening recall, room recall and scale error, per provider, and reported
 with the evaluation table (ADR-007 D5).
 
+Amendment 2026-09-16: real drawings live in `tools/fixtures/plans-real` with
+their sources and licences, scored against their own wall line work and hand
+counts rather than hand-labelled walls (spec 06 A4). Generated plans stay in
+`tools/fixtures/plans`.
+
 ### Amendment 2026-09-15 (P2-1)
 
 The DXF path uses an own ASCII DXF parser in `packages/importers` instead of

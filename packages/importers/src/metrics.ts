@@ -2,6 +2,7 @@
 // centreline overlap within 150 mm, opening recall within 300 mm, room recall by label and area within 10
 // percent, and the scale error in percent. All comparisons happen in millimetres.
 import type { PlanDraft } from "./draft.js";
+import { flatten, parseDxf } from "./dxf.js";
 
 export interface ExpectedPlan {
   name: string;
@@ -129,4 +130,129 @@ export function scoreDraft(draft: PlanDraft, expected: ExpectedPlan): DraftScore
     missedOpenings,
     missedRooms,
   };
+}
+
+// ---- real drawings --------------------------------------------------------------------------------------------
+// Real plans are not hand-labelled wall by wall. Walls are scored against the drawing itself: the share of
+// wall-layer line work lying along a face of some draft wall. Openings are scored by count against the
+// drawing's hand count, and rooms by name.
+
+export interface RealPlanExpectation {
+  name: string;
+  /** Where the drawing comes from and under which licence. */
+  source: string;
+  licence: string;
+  /** The true millimetres per drawing unit, read from the drawing's dimensions. */
+  mmPerUnit: number;
+  /** Layers that really hold the walls (the source line work walls are scored against). */
+  wallLayers: string[];
+  /** Hand counts from the drawing; null when the drawing does not allow an honest count. */
+  doors: number | null;
+  windows: number | null;
+  /** Room names as written on the drawing. */
+  rooms: string[];
+}
+
+export interface RealPlanScore {
+  /** Share of wall-layer line length lying along a draft wall face. */
+  wallFaceCoverage: number;
+  scaleErrorPct: number | null;
+  /** Null when the expectation has no count. */
+  doorRecall: number | null;
+  windowRecall: number | null;
+  roomRecall: number;
+  missedRooms: string[];
+  extraRooms: string[];
+}
+
+type Segment = [number, number, number, number];
+
+/** Face coverage: each sample on a source wall line counts when it lies within half a wall's thickness (plus
+ * 30 mm) of that wall's centreline and runs within 10 degrees of it. */
+export function wallFaceCoverage(draft: PlanDraft, faces: readonly Segment[], mmPerUnit: number): number {
+  const tol = 30 / mmPerUnit;
+  const cosTol = Math.cos((10 * Math.PI) / 180);
+  const walls = draft.walls.flatMap((w) =>
+    w.points.slice(1).map((q, i) => ({ a: w.points[i] as P, b: q, half: (w.thickness ?? 0) / 2 })),
+  );
+  const step = 50 / mmPerUnit;
+  let total = 0;
+  let covered = 0;
+  for (const [x1, y1, x2, y2] of faces) {
+    const l = Math.hypot(x2 - x1, y2 - y1);
+    if (l === 0) continue;
+    const ux = (x2 - x1) / l;
+    const uy = (y2 - y1) / l;
+    const n = Math.max(1, Math.round(l / step));
+    for (let i = 0; i < n; i += 1) {
+      const t = ((i + 0.5) / n) * l;
+      const p = { x: x1 + ux * t, y: y1 + uy * t };
+      total += l / n;
+      const hit = walls.some(({ a, b, half }) => {
+        const m = Math.hypot(b.x - a.x, b.y - a.y);
+        if (m === 0) return false;
+        if (Math.abs((ux * (b.x - a.x) + uy * (b.y - a.y)) / m) < cosTol) return false;
+        return distanceToSegment(p, a, b) <= half + tol;
+      });
+      if (hit) covered += l / n;
+    }
+  }
+  return total === 0 ? 1 : covered / total;
+}
+
+export function scoreRealPlan(
+  draft: PlanDraft,
+  faces: readonly Segment[],
+  expected: RealPlanExpectation,
+): RealPlanScore {
+  const count = (kind: string) => draft.openings.filter((o) => o.kind === kind).length;
+  const recallOf = (found: number, of: number | null) =>
+    of === null ? null : of === 0 ? 1 : Math.min(found, of) / of;
+  const names = draft.rooms.map((r) => (r.name ? norm(r.name) : "")).filter(Boolean);
+  const wanted = expected.rooms.map(norm);
+  const pool = [...names];
+  const missedRooms: string[] = [];
+  expected.rooms.forEach((room, i) => {
+    const at = pool.indexOf(wanted[i] as string);
+    if (at >= 0) pool.splice(at, 1);
+    else missedRooms.push(room);
+  });
+  const extraRooms = draft.rooms.map((r) => r.name ?? "").filter((n) => n && !wanted.includes(norm(n)));
+  return {
+    wallFaceCoverage: wallFaceCoverage(draft, faces, expected.mmPerUnit),
+    scaleErrorPct:
+      draft.units.mmPerUnit === null
+        ? null
+        : (Math.abs(draft.units.mmPerUnit - expected.mmPerUnit) / expected.mmPerUnit) * 100,
+    doorRecall: recallOf(count("door"), expected.doors),
+    windowRecall: recallOf(count("window"), expected.windows),
+    roomRecall: recallOf(expected.rooms.length - missedRooms.length, expected.rooms.length) ?? 1,
+    missedRooms,
+    extraRooms,
+  };
+}
+
+/**
+ * The drawing's own wall line work, in drawing units: lines and polyline edges on the given layers, with
+ * blocks flattened and frozen or off layers left out. Face coverage is scored against these.
+ */
+export function sourceWallFaces(text: string, wallLayers: readonly string[]): Segment[] {
+  const doc = parseDxf(text);
+  const hidden = new Set([...doc.layers.values()].filter((l) => l.frozen || l.off).map((l) => l.name));
+  const wanted = new Set(wallLayers);
+  const out: Segment[] = [];
+  for (const { entity: e } of flatten(doc).placed) {
+    if (!wanted.has(e.layer) || hidden.has(e.layer)) continue;
+    if (e.type === "LINE") out.push([e.a.x, e.a.y, e.b.x, e.b.y]);
+    else if (e.type === "POLYLINE") {
+      const v = e.vertices;
+      const edges = e.closed ? v.length : v.length - 1;
+      for (let i = 0; i < edges; i += 1) {
+        const a = v[i] as { x: number; y: number };
+        const b = v[(i + 1) % v.length] as { x: number; y: number };
+        out.push([a.x, a.y, b.x, b.y]);
+      }
+    }
+  }
+  return out;
 }

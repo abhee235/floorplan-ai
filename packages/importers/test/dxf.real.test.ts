@@ -63,7 +63,11 @@ describe("real-drawing behaviours", () => {
     expect(layerRole("SITE$0$A-OPENING")).toBe("door");
     expect(layerRole("Level1|A-GLAZ")).toBe("window");
     expect(layerRole("XREF")).toBe("ignore");
-    expect(layerRole("A-NOTE")).toBe("ignore");
+    expect(layerRole("A-NOTE")).toBe("text");
+    expect(layerRole("doorswindows")).toBe("door");
+    expect(layerRole("wallhigh")).toBe("wall");
+    expect(layerRole("drywindows")).toBe("window");
+    expect(layerRole("doormat")).toBe("door");
   });
 
   it("a header in mm on a drawing in metres is overruled by dimension labels drawn as text and lines", () => {
@@ -98,7 +102,7 @@ describe("real-drawing behaviours", () => {
     expect(draft.walls).toHaveLength(4);
   });
 
-  it("window and door callouts and notes are not room names", () => {
+  it("window and door callouts and notes are not room names; short labels on note layers are", () => {
     const { draft } = dxfToDraft(
       dxf([
         ...box("A-WALL", 12000, 9000, 250),
@@ -106,10 +110,13 @@ describe("real-drawing behaviours", () => {
         ...text("A-TEXT", 6000, 100, 150, "5050 XO"),
         ...text("A-TEXT", 9000, 100, 150, "6068 S.G.D."),
         ...text("A-TEXT", 9000, 8800, 150, '18" MIN. RAISED'),
-        ...text("A-NOTE", 5000, 5000, 150, "VERIFY ON SITE"),
+        ...text("A-NOTE", 5000, 5000, 150, "NOTE: VERIFY ON SITE"),
+        ...text("A-NOTE", 7000, 7000, 150, "PROVIDE 20 MIN. DOOR W/ SELF CLOSING"),
+        ...text("A-NOTE", 9000, 3000, 250, "%%uKITCHEN"),
+        ...text("A-TEXT", 3000, 7000, 250, "KITCHEN / DINING"),
       ]),
     );
-    expect(draft.rooms.map((r) => r.name)).toEqual(["LIVING ROOM"]);
+    expect(draft.rooms.map((r) => r.name)).toEqual(["LIVING ROOM", "KITCHEN", "KITCHEN / DINING"]);
   });
 
   it("structural walls are left out when architectural wall layers exist", () => {

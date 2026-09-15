@@ -1,0 +1,32 @@
+{
+  "name": "us-house-imperial",
+  "source": "https://github.com/bjnortier/dxf/blob/develop/test/resources/floorplan.dxf (also jscad/sample-files dxf/dxf-parser/floorplan.dxf)",
+  "licence": "MIT, Copyright (c) 2014-2018 Ben Nortier",
+  "mmPerUnit": 25.4,
+  "wallLayers": ["xref-Bishop-Overland-08$0$A-WALL"],
+  "doors": 14,
+  "windows": 7,
+  "rooms": [
+    "MASTER BEDROOM",
+    "MSTR. BATH",
+    "TOIL.",
+    "W.I.C",
+    "BATH",
+    "W.I.C.",
+    "HALL",
+    "GREAT ROOM",
+    "DINING ROOM",
+    "KITCHEN",
+    "ENTRY",
+    "Pantry",
+    "UTIL.",
+    "BEDROOM 2",
+    "BEDROOM 3",
+    "CLO.",
+    "CLOSET",
+    "COVERED PORCH",
+    "COVERED DECK",
+    "2 CAR GARAGE"
+  ],
+  "notes": "Hand counted from the drawing on 2026-09-16: 11 swinging doors, 2 sliding glass doors (6068 S.G.D.) and one garage overhead door; windows are the XO and SH callouts. The header claims millimetres but the drawing is in inches (wall faces 4 and 6 units apart, dimensions in feet and inches)."
+}

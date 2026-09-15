@@ -1,0 +1,57 @@
+{
+  "note": "Floors the DXF reader must not fall below, from tools/score-plans.ts on 2026-09-16. Raise a floor when the reader improves; never lower one without saying why in the commit.",
+  "plans": {
+    "lshape-metres": {
+      "wallScore": 1,
+      "openingRecall": 1,
+      "roomRecall": 1,
+      "maxScaleErrorPct": 2
+    },
+    "office-mm": {
+      "wallScore": 1,
+      "openingRecall": 1,
+      "roomRecall": 1,
+      "maxScaleErrorPct": 2
+    },
+    "rotated-inches": {
+      "wallScore": 1,
+      "openingRecall": 1,
+      "roomRecall": 1,
+      "maxScaleErrorPct": 2
+    },
+    "apartment-metres": {
+      "wallScore": 0.99,
+      "doorRecall": 0.5,
+      "windowRecall": 1,
+      "roomRecall": 1,
+      "maxScaleErrorPct": 2
+    },
+    "bimcompiler-floor": {
+      "wallScore": 0.83,
+      "doorRecall": 0.66,
+      "windowRecall": 1,
+      "roomRecall": 1,
+      "maxScaleErrorPct": 2
+    },
+    "courtyard-house": {
+      "wallScore": 0.93,
+      "doorRecall": 0.8,
+      "windowRecall": 0,
+      "roomRecall": 1,
+      "maxScaleErrorPct": 2
+    },
+    "us-house-imperial": {
+      "wallScore": 0.91,
+      "doorRecall": 0.71,
+      "windowRecall": 0,
+      "roomRecall": 0.75,
+      "maxScaleErrorPct": 2
+    },
+    "ceco-architecture": {
+      "wallScore": 0.76,
+      "doorRecall": 0.66,
+      "roomRecall": 1,
+      "maxScaleErrorPct": 2
+    }
+  }
+}
