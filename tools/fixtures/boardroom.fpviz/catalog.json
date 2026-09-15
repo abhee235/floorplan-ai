@@ -1,0 +1,511 @@
+{
+  "id": "fixture-av",
+  "name": "Fixture infrastructure products",
+  "version": "1.0.0",
+  "licence": {
+    "id": "own",
+    "author": null,
+    "sourceUrl": null,
+    "attribution": null
+  },
+  "products": [
+    {
+      "id": "acme-vm-600",
+      "make": "Acme",
+      "model": "VM-600",
+      "name": "Acme VESA wall mount up to 600 x 400",
+      "category": "mount",
+      "dims": {
+        "w": 620,
+        "d": 60,
+        "h": 420
+      },
+      "mount": {
+        "kinds": [
+          "wall"
+        ]
+      },
+      "specs": {
+        "vesa": "200x200, 300x300, 400x400, 600x400",
+        "maxKg": 60
+      },
+      "price": {
+        "amount": 149,
+        "currency": "USD",
+        "type": "list",
+        "sourceUrl": "https://example.com/acme/acme-vm-600",
+        "capturedAt": "2026-09-15T12:00:00.000Z",
+        "expiresAt": "2026-12-14T12:00:00.000Z"
+      },
+      "verification": {
+        "status": "verified",
+        "confidence": 0.9,
+        "sources": [
+          "https://example.com/acme/acme-vm-600"
+        ],
+        "verifiedAt": "2026-09-15T12:00:00.000Z",
+        "notes": "fixture product for the golden BOM, not a real item"
+      },
+      "lifecycle": "active",
+      "createdAt": "2026-09-15T12:00:00.000Z",
+      "updatedAt": "2026-09-15T12:00:00.000Z"
+    },
+    {
+      "id": "acme-amp-4",
+      "make": "Acme",
+      "model": "AMP-4",
+      "name": "Acme 4 channel amplifier",
+      "category": "amplifier",
+      "dims": {
+        "w": 440,
+        "d": 300,
+        "h": 44
+      },
+      "mount": {
+        "kinds": [
+          "floor"
+        ]
+      },
+      "specs": {
+        "channels": 4,
+        "powerPerChannelW": 60
+      },
+      "price": {
+        "amount": 420,
+        "currency": "USD",
+        "type": "list",
+        "sourceUrl": "https://example.com/acme/acme-amp-4",
+        "capturedAt": "2026-09-15T12:00:00.000Z",
+        "expiresAt": "2026-12-14T12:00:00.000Z"
+      },
+      "verification": {
+        "status": "verified",
+        "confidence": 0.9,
+        "sources": [
+          "https://example.com/acme/acme-amp-4"
+        ],
+        "verifiedAt": "2026-09-15T12:00:00.000Z",
+        "notes": "fixture product for the golden BOM, not a real item"
+      },
+      "lifecycle": "active",
+      "createdAt": "2026-09-15T12:00:00.000Z",
+      "updatedAt": "2026-09-15T12:00:00.000Z"
+    },
+    {
+      "id": "acme-amp-8",
+      "make": "Acme",
+      "model": "AMP-8",
+      "name": "Acme 8 channel amplifier",
+      "category": "amplifier",
+      "dims": {
+        "w": 440,
+        "d": 300,
+        "h": 44
+      },
+      "mount": {
+        "kinds": [
+          "floor"
+        ]
+      },
+      "specs": {
+        "channels": 8,
+        "powerPerChannelW": 60
+      },
+      "price": {
+        "amount": 690,
+        "currency": "USD",
+        "type": "list",
+        "sourceUrl": "https://example.com/acme/acme-amp-8",
+        "capturedAt": "2026-09-15T12:00:00.000Z",
+        "expiresAt": "2026-12-14T12:00:00.000Z"
+      },
+      "verification": {
+        "status": "verified",
+        "confidence": 0.9,
+        "sources": [
+          "https://example.com/acme/acme-amp-8"
+        ],
+        "verifiedAt": "2026-09-15T12:00:00.000Z",
+        "notes": "fixture product for the golden BOM, not a real item"
+      },
+      "lifecycle": "active",
+      "createdAt": "2026-09-15T12:00:00.000Z",
+      "updatedAt": "2026-09-15T12:00:00.000Z"
+    },
+    {
+      "id": "acme-dsp-12",
+      "make": "Acme",
+      "model": "DSP-12",
+      "name": "Acme DSP 12 inputs",
+      "category": "dsp",
+      "dims": {
+        "w": 440,
+        "d": 300,
+        "h": 44
+      },
+      "mount": {
+        "kinds": [
+          "floor"
+        ]
+      },
+      "specs": {
+        "inputs": 12,
+        "outputs": 8,
+        "dante": true
+      },
+      "price": {
+        "amount": 1800,
+        "currency": "USD",
+        "type": "list",
+        "sourceUrl": "https://example.com/acme/acme-dsp-12",
+        "capturedAt": "2026-09-15T12:00:00.000Z",
+        "expiresAt": "2026-12-14T12:00:00.000Z"
+      },
+      "verification": {
+        "status": "verified",
+        "confidence": 0.9,
+        "sources": [
+          "https://example.com/acme/acme-dsp-12"
+        ],
+        "verifiedAt": "2026-09-15T12:00:00.000Z",
+        "notes": "fixture product for the golden BOM, not a real item"
+      },
+      "lifecycle": "active",
+      "createdAt": "2026-09-15T12:00:00.000Z",
+      "updatedAt": "2026-09-15T12:00:00.000Z"
+    },
+    {
+      "id": "acme-dsp-24",
+      "make": "Acme",
+      "model": "DSP-24",
+      "name": "Acme DSP 24 inputs",
+      "category": "dsp",
+      "dims": {
+        "w": 440,
+        "d": 300,
+        "h": 44
+      },
+      "mount": {
+        "kinds": [
+          "floor"
+        ]
+      },
+      "specs": {
+        "inputs": 24,
+        "outputs": 12,
+        "dante": true
+      },
+      "price": {
+        "amount": 2600,
+        "currency": "USD",
+        "type": "list",
+        "sourceUrl": "https://example.com/acme/acme-dsp-24",
+        "capturedAt": "2026-09-15T12:00:00.000Z",
+        "expiresAt": "2026-12-14T12:00:00.000Z"
+      },
+      "verification": {
+        "status": "verified",
+        "confidence": 0.9,
+        "sources": [
+          "https://example.com/acme/acme-dsp-24"
+        ],
+        "verifiedAt": "2026-09-15T12:00:00.000Z",
+        "notes": "fixture product for the golden BOM, not a real item"
+      },
+      "lifecycle": "active",
+      "createdAt": "2026-09-15T12:00:00.000Z",
+      "updatedAt": "2026-09-15T12:00:00.000Z"
+    },
+    {
+      "id": "acme-hdmi-3m",
+      "make": "Acme",
+      "model": "HDMI-3M",
+      "name": "Acme HDMI cable 3 m",
+      "category": "cable",
+      "dims": {
+        "w": 10,
+        "d": 10,
+        "h": 10
+      },
+      "mount": {
+        "kinds": [
+          "floor"
+        ]
+      },
+      "specs": {
+        "type": "HDMI",
+        "lengthMm": 3000,
+        "connectors": "HDMI-A"
+      },
+      "price": {
+        "amount": 25,
+        "currency": "USD",
+        "type": "list",
+        "sourceUrl": "https://example.com/acme/acme-hdmi-3m",
+        "capturedAt": "2026-09-15T12:00:00.000Z",
+        "expiresAt": "2026-12-14T12:00:00.000Z"
+      },
+      "verification": {
+        "status": "verified",
+        "confidence": 0.9,
+        "sources": [
+          "https://example.com/acme/acme-hdmi-3m"
+        ],
+        "verifiedAt": "2026-09-15T12:00:00.000Z",
+        "notes": "fixture product for the golden BOM, not a real item"
+      },
+      "lifecycle": "active",
+      "createdAt": "2026-09-15T12:00:00.000Z",
+      "updatedAt": "2026-09-15T12:00:00.000Z"
+    },
+    {
+      "id": "acme-hdmi-5m",
+      "make": "Acme",
+      "model": "HDMI-5M",
+      "name": "Acme HDMI cable 5 m",
+      "category": "cable",
+      "dims": {
+        "w": 10,
+        "d": 10,
+        "h": 10
+      },
+      "mount": {
+        "kinds": [
+          "floor"
+        ]
+      },
+      "specs": {
+        "type": "HDMI",
+        "lengthMm": 5000,
+        "connectors": "HDMI-A"
+      },
+      "price": {
+        "amount": 35,
+        "currency": "USD",
+        "type": "list",
+        "sourceUrl": "https://example.com/acme/acme-hdmi-5m",
+        "capturedAt": "2026-09-15T12:00:00.000Z",
+        "expiresAt": "2026-12-14T12:00:00.000Z"
+      },
+      "verification": {
+        "status": "verified",
+        "confidence": 0.9,
+        "sources": [
+          "https://example.com/acme/acme-hdmi-5m"
+        ],
+        "verifiedAt": "2026-09-15T12:00:00.000Z",
+        "notes": "fixture product for the golden BOM, not a real item"
+      },
+      "lifecycle": "active",
+      "createdAt": "2026-09-15T12:00:00.000Z",
+      "updatedAt": "2026-09-15T12:00:00.000Z"
+    },
+    {
+      "id": "acme-hdmi-10m",
+      "make": "Acme",
+      "model": "HDMI-10M",
+      "name": "Acme HDMI cable 10 m",
+      "category": "cable",
+      "dims": {
+        "w": 10,
+        "d": 10,
+        "h": 10
+      },
+      "mount": {
+        "kinds": [
+          "floor"
+        ]
+      },
+      "specs": {
+        "type": "HDMI",
+        "lengthMm": 10000,
+        "connectors": "HDMI-A"
+      },
+      "price": {
+        "amount": 60,
+        "currency": "USD",
+        "type": "list",
+        "sourceUrl": "https://example.com/acme/acme-hdmi-10m",
+        "capturedAt": "2026-09-15T12:00:00.000Z",
+        "expiresAt": "2026-12-14T12:00:00.000Z"
+      },
+      "verification": {
+        "status": "verified",
+        "confidence": 0.9,
+        "sources": [
+          "https://example.com/acme/acme-hdmi-10m"
+        ],
+        "verifiedAt": "2026-09-15T12:00:00.000Z",
+        "notes": "fixture product for the golden BOM, not a real item"
+      },
+      "lifecycle": "active",
+      "createdAt": "2026-09-15T12:00:00.000Z",
+      "updatedAt": "2026-09-15T12:00:00.000Z"
+    },
+    {
+      "id": "acme-usb-5m",
+      "make": "Acme",
+      "model": "USB-5M",
+      "name": "Acme USB cable 5 m",
+      "category": "cable",
+      "dims": {
+        "w": 10,
+        "d": 10,
+        "h": 10
+      },
+      "mount": {
+        "kinds": [
+          "floor"
+        ]
+      },
+      "specs": {
+        "type": "USB",
+        "lengthMm": 5000,
+        "connectors": "USB-C"
+      },
+      "price": {
+        "amount": 30,
+        "currency": "USD",
+        "type": "list",
+        "sourceUrl": "https://example.com/acme/acme-usb-5m",
+        "capturedAt": "2026-09-15T12:00:00.000Z",
+        "expiresAt": "2026-12-14T12:00:00.000Z"
+      },
+      "verification": {
+        "status": "verified",
+        "confidence": 0.9,
+        "sources": [
+          "https://example.com/acme/acme-usb-5m"
+        ],
+        "verifiedAt": "2026-09-15T12:00:00.000Z",
+        "notes": "fixture product for the golden BOM, not a real item"
+      },
+      "lifecycle": "active",
+      "createdAt": "2026-09-15T12:00:00.000Z",
+      "updatedAt": "2026-09-15T12:00:00.000Z"
+    },
+    {
+      "id": "acme-usb-10m",
+      "make": "Acme",
+      "model": "USB-10M",
+      "name": "Acme active USB cable 10 m",
+      "category": "cable",
+      "dims": {
+        "w": 10,
+        "d": 10,
+        "h": 10
+      },
+      "mount": {
+        "kinds": [
+          "floor"
+        ]
+      },
+      "specs": {
+        "type": "USB",
+        "lengthMm": 10000,
+        "connectors": "USB-C"
+      },
+      "price": {
+        "amount": 55,
+        "currency": "USD",
+        "type": "list",
+        "sourceUrl": "https://example.com/acme/acme-usb-10m",
+        "capturedAt": "2026-09-15T12:00:00.000Z",
+        "expiresAt": "2026-12-14T12:00:00.000Z"
+      },
+      "verification": {
+        "status": "verified",
+        "confidence": 0.9,
+        "sources": [
+          "https://example.com/acme/acme-usb-10m"
+        ],
+        "verifiedAt": "2026-09-15T12:00:00.000Z",
+        "notes": "fixture product for the golden BOM, not a real item"
+      },
+      "lifecycle": "active",
+      "createdAt": "2026-09-15T12:00:00.000Z",
+      "updatedAt": "2026-09-15T12:00:00.000Z"
+    },
+    {
+      "id": "acme-table-box",
+      "make": "Acme",
+      "model": "TABLE-BOX",
+      "name": "Acme table power and data module",
+      "category": "connector",
+      "dims": {
+        "w": 300,
+        "d": 150,
+        "h": 100
+      },
+      "mount": {
+        "kinds": [
+          "table"
+        ]
+      },
+      "specs": {
+        "kind": "table-power"
+      },
+      "price": {
+        "amount": 210,
+        "currency": "USD",
+        "type": "list",
+        "sourceUrl": "https://example.com/acme/acme-table-box",
+        "capturedAt": "2026-09-15T12:00:00.000Z",
+        "expiresAt": "2026-12-14T12:00:00.000Z"
+      },
+      "verification": {
+        "status": "verified",
+        "confidence": 0.9,
+        "sources": [
+          "https://example.com/acme/acme-table-box"
+        ],
+        "verifiedAt": "2026-09-15T12:00:00.000Z",
+        "notes": "fixture product for the golden BOM, not a real item"
+      },
+      "lifecycle": "active",
+      "createdAt": "2026-09-15T12:00:00.000Z",
+      "updatedAt": "2026-09-15T12:00:00.000Z"
+    },
+    {
+      "id": "acme-room-panel",
+      "make": "Acme",
+      "model": "ROOM-PANEL",
+      "name": "Acme room booking panel",
+      "category": "scheduler",
+      "dims": {
+        "w": 230,
+        "d": 30,
+        "h": 150
+      },
+      "mount": {
+        "kinds": [
+          "wall"
+        ]
+      },
+      "specs": {
+        "screenIn": 8,
+        "poe": true
+      },
+      "price": {
+        "amount": 540,
+        "currency": "USD",
+        "type": "list",
+        "sourceUrl": "https://example.com/acme/acme-room-panel",
+        "capturedAt": "2026-09-15T12:00:00.000Z",
+        "expiresAt": "2026-12-14T12:00:00.000Z"
+      },
+      "verification": {
+        "status": "verified",
+        "confidence": 0.9,
+        "sources": [
+          "https://example.com/acme/acme-room-panel"
+        ],
+        "verifiedAt": "2026-09-15T12:00:00.000Z",
+        "notes": "fixture product for the golden BOM, not a real item"
+      },
+      "lifecycle": "active",
+      "createdAt": "2026-09-15T12:00:00.000Z",
+      "updatedAt": "2026-09-15T12:00:00.000Z"
+    }
+  ]
+}

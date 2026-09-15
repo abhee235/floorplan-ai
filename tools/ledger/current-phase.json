@@ -1,0 +1,5 @@
+{
+  "phase": 0,
+  "gate": true,
+  "note": "Phase 0 gate is on (spec 08 section 3): pnpm ledger:coverage fails when an adopt, reverse or reject id due in phase 0 has no test."
+}

@@ -1,0 +1,30 @@
+{
+  "name": "@fpv/host",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Session host: project state, tool registry, optional MCP adapter over stdio, later the viewer bridge, project files, catalog db and agent runner (ADR-005).",
+  "type": "module",
+  "main": "./src/index.ts",
+  "dependencies": {
+    "@fpv/agents": "workspace:*",
+    "@fpv/assets": "workspace:*",
+    "@fpv/catalog": "workspace:*",
+    "@fpv/commands": "workspace:*",
+    "@fpv/engine": "workspace:*",
+    "@fpv/exporters": "workspace:*",
+    "@fpv/importers": "workspace:*",
+    "@fpv/ir": "workspace:*",
+    "@fpv/tools": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "ws": "^8.21.3",
+    "zod": "^3.25.0"
+  },
+  "scripts": {
+    "mcp": "tsx src/cli.ts --mcp",
+    "serve": "tsx src/cli.ts --serve",
+    "dev": "tsx src/cli.ts --serve --mcp"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "@fpv/tools",
+  "version": "0.0.1",
+  "private": true,
+  "description": "The tool registry: schemas, descriptions, functions (spec 04)",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@fpv/ir": "workspace:*",
+    "@fpv/commands": "workspace:*",
+    "@fpv/engine": "workspace:*",
+    "@fpv/catalog": "workspace:*",
+    "@fpv/geometry": "workspace:*",
+    "@fpv/assets": "workspace:*",
+    "@fpv/exporters": "workspace:*",
+    "@fpv/importers": "workspace:*",
+    "zod": "^3.25.0"
+  }
+}

@@ -1,0 +1,17 @@
+level,room,category,product_id,recipe,make,model,description,quantity,unit,unit_price,currency,total,status,reason,ids,rule
+Ground,,door,generic-door-900,,Generic,Door 900,Generic single door 900 x 2100,1,each,,,,verified,opening,opening_000001,
+Ground,Boardroom,amplifier,acme-amp-4,,Acme,AMP-4,Acme 4 channel amplifier,1,each,420.00,USD,420.00,verified,rule,item_00000g item_00000h,speaker-amp
+Ground,Boardroom,cable,acme-hdmi-5m,,Acme,HDMI-5M,Acme HDMI cable 5 m,1,each,35.00,USD,35.00,verified,rule,item_00000c item_00000d,display-hdmi
+Ground,Boardroom,cable,acme-usb-10m,,Acme,USB-10M,Acme active USB cable 10 m,1,each,55.00,USD,55.00,verified,rule,item_000001 item_00000d,bar-usb
+Ground,Boardroom,ceiling-mic,shure-mxa920-s,,Shure,MXA920-S,Shure MXA920 square ceiling array microphone,2,each,,,,unverified,item,item_00000e item_00000f,
+Ground,Boardroom,ceiling-speaker,biamp-desono-c-ic6,,Biamp,Desono C-IC6,Biamp Desono C-IC6 6.5 inch ceiling speaker,2,each,,,,unverified,item,item_00000g item_00000h,
+Ground,Boardroom,chair,herman-miller-aeron-b,,Herman Miller,Aeron size B,Herman Miller Aeron chair size B,10,each,,,,unverified,item,item_000002 item_000003 item_000004 item_000005 item_000006 item_000007 item_000008 item_000009 item_00000a item_00000b,
+Ground,Boardroom,connector,acme-table-box,,Acme,TABLE-BOX,Acme table power and data module,3,each,210.00,USD,630.00,verified,rule,room_000001,table-power
+Ground,Boardroom,display,samsung-qm75c,,Samsung,QM75C,Samsung QM75C 75 inch 4K display,1,each,,,,unverified,item,item_00000c,
+Ground,Boardroom,dsp,acme-dsp-24,,Acme,DSP-24,Acme DSP 24 inputs,1,each,2600.00,USD,2600.00,verified,rule,item_00000e item_00000f,mic-dsp
+Ground,Boardroom,mount,acme-vm-600,,Acme,VM-600,Acme VESA wall mount up to 600 x 400,1,each,149.00,USD,149.00,verified,rule,item_00000c,display-mount
+Ground,Boardroom,scheduler,acme-room-panel,,Acme,ROOM-PANEL,Acme room booking panel,1,each,540.00,USD,540.00,verified,rule,room_000001,scheduler
+Ground,Boardroom,switch,,,,,PoE switch port,6,each,,,,placeholder,rule,room_000001,network-ports
+Ground,Boardroom,table,steelcase-convene-3600x1400,,Steelcase,Convene 3600 x 1400,Steelcase Convene boardroom table 3600 x 1400,1,each,,,,unverified,item,item_000001,
+Ground,Boardroom,touch-panel,logitech-tap-ip,,Logitech,Tap IP,Logitech Tap IP touch controller,1,each,,,,unverified,item,item_00000i,
+Ground,Boardroom,video-bar,logitech-rally-bar,,Logitech,Rally Bar,Logitech Rally Bar video bar,1,each,,,,unverified,item,item_00000d,

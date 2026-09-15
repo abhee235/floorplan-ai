@@ -1,0 +1,182 @@
+{
+  "name": "lshape-metres",
+  "mmPerUnit": 1000,
+  "walls": [
+    {
+      "points": [
+        {
+          "x": 0,
+          "y": 0
+        },
+        {
+          "x": 14000,
+          "y": 0
+        }
+      ],
+      "thickness": 300
+    },
+    {
+      "points": [
+        {
+          "x": 14000,
+          "y": 0
+        },
+        {
+          "x": 14000,
+          "y": 6000
+        }
+      ],
+      "thickness": 300
+    },
+    {
+      "points": [
+        {
+          "x": 14000,
+          "y": 6000
+        },
+        {
+          "x": 6000,
+          "y": 6000
+        }
+      ],
+      "thickness": 300
+    },
+    {
+      "points": [
+        {
+          "x": 6000,
+          "y": 6000
+        },
+        {
+          "x": 6000,
+          "y": 11000
+        }
+      ],
+      "thickness": 300
+    },
+    {
+      "points": [
+        {
+          "x": 6000,
+          "y": 11000
+        },
+        {
+          "x": 0,
+          "y": 11000
+        }
+      ],
+      "thickness": 300
+    },
+    {
+      "points": [
+        {
+          "x": 0,
+          "y": 11000
+        },
+        {
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "thickness": 300
+    },
+    {
+      "points": [
+        {
+          "x": 6000,
+          "y": 0
+        },
+        {
+          "x": 6000,
+          "y": 6000
+        }
+      ],
+      "thickness": 120
+    },
+    {
+      "points": [
+        {
+          "x": 0,
+          "y": 6000
+        },
+        {
+          "x": 6000,
+          "y": 6000
+        }
+      ],
+      "thickness": 120
+    }
+  ],
+  "openings": [
+    {
+      "at": {
+        "x": 3000,
+        "y": 11000
+      },
+      "kind": "door",
+      "width": 1000
+    },
+    {
+      "at": {
+        "x": 6000,
+        "y": 3000
+      },
+      "kind": "door",
+      "width": 900
+    },
+    {
+      "at": {
+        "x": 4000,
+        "y": 6000
+      },
+      "kind": "passage",
+      "width": 1500
+    },
+    {
+      "at": {
+        "x": 3000,
+        "y": 0
+      },
+      "kind": "window",
+      "width": 2000
+    },
+    {
+      "at": {
+        "x": 10000,
+        "y": 0
+      },
+      "kind": "window",
+      "width": 2400
+    },
+    {
+      "at": {
+        "x": 14000,
+        "y": 3000
+      },
+      "kind": "window",
+      "width": 1800
+    },
+    {
+      "at": {
+        "x": 6000,
+        "y": 8500
+      },
+      "kind": "window",
+      "width": 1600
+    }
+  ],
+  "rooms": [
+    {
+      "name": "Meeting Room",
+      "areaM2": null
+    },
+    {
+      "name": "Open Office",
+      "areaM2": null
+    },
+    {
+      "name": "Reception",
+      "areaM2": null
+    }
+  ]
+}

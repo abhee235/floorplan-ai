@@ -1,0 +1,26 @@
+{
+  "name": "@fpv/web",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Replica web app: plan canvas, three.js viewer, bridge client (ADR-003, ADR-005). Editor chrome arrives in phase 3.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "dependencies": {
+    "@fpv/assets": "workspace:*",
+    "@fpv/commands": "workspace:*",
+    "@fpv/engine": "workspace:*",
+    "@fpv/geometry": "workspace:*",
+    "@fpv/importers": "workspace:*",
+    "@fpv/ir": "workspace:*",
+    "immer": "^10.1.1",
+    "three": "^0.186.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0",
+    "vite": "^8.3.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  }
+}

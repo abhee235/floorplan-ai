@@ -1,0 +1,30 @@
+// @fpv/web: replica web app: plan canvas, three.js viewer, bridge client (ADR-003, ADR-005).
+// This index exports the DOM-free parts for tests and for the host's render path.
+export const PACKAGE = "web" as const;
+export {
+  BridgeClient,
+  type BridgeClientOptions,
+  type BridgeStatus,
+  bridgeUrl,
+  type SocketLike,
+} from "./bridge/client.js";
+export { type Ctx2D, type PlanLayers, PlanRenderer, type PlanView } from "./plan/plan.js";
+export { Replica, type ReplicaListener } from "./replica.js";
+export {
+  type BindingOptions,
+  frameScheduler,
+  immediateScheduler,
+  SceneBinding,
+  type Scheduler,
+  toGeometry,
+} from "./viewer/binding.js";
+export { type Clipping, clippingFor } from "./viewer/clipping.js";
+export { MaterialCache } from "./viewer/materials.js";
+export {
+  type Capture,
+  type CapturedImage,
+  camerasFor,
+  focusBounds,
+  renderViews,
+  type ViewCamera,
+} from "./viewer/render.js";

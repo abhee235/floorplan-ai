@@ -1,0 +1,19 @@
+{
+  "name": "@fpv/agents",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Provider interface, agent runner, roles, prompts (ADR-007)",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@fpv/catalog": "workspace:*",
+    "@fpv/importers": "workspace:*",
+    "@fpv/ir": "workspace:*",
+    "@fpv/tools": "workspace:*",
+    "zod": "^3.25.0"
+  }
+}

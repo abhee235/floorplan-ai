@@ -1,0 +1,69 @@
+// @fpv/importers: DXF, PDF, raster clean-up to PlanDraft (spec 06, ADR-011). Pure: text or bytes in, drafts out.
+export const PACKAGE = "importers" as const;
+export {
+  DraftOpening,
+  DraftQuestion,
+  DraftRoom,
+  DraftText,
+  DraftUnits,
+  DraftWall,
+  PlanDraft,
+  ScaleSource,
+} from "./draft.js";
+export {
+  cleanText,
+  type DxfArc,
+  type DxfBlock,
+  type DxfCircle,
+  type DxfDimension,
+  type DxfDocument,
+  type DxfEntity,
+  DxfError,
+  type DxfInsert,
+  type DxfLayer,
+  type DxfLine,
+  type DxfPoint,
+  type DxfPolyline,
+  type DxfText,
+  flatten,
+  insUnitsToMm,
+  type Placed,
+  parseDxf,
+} from "./dxf.js";
+export {
+  baseLayerName,
+  blockRole,
+  capacityFromText,
+  type DxfImport,
+  type DxfImportReport,
+  dxfToDraft,
+  type LayerRole,
+  layerRole,
+  parseLengthMm,
+  purposeFromName,
+  type TextDimension,
+  typicalSpacing,
+} from "./dxf-draft.js";
+export { type DraftScore, type ExpectedPlan, scoreDraft } from "./metrics.js";
+export {
+  decodePlanText,
+  type PlanFileKind,
+  PlanFormatError,
+  type PlanPreview,
+  type PlanReadResult,
+  planFileKind,
+  readPlanText,
+} from "./read.js";
+export {
+  applyAnswers,
+  type DraftBounds,
+  draftBounds,
+  draftId,
+  parseScaleAnswer,
+  SCALE_AGREEMENT,
+  type ScaleInput,
+  type ScaleStatus,
+  scaleStatus,
+  UNIT_MM,
+  withScale,
+} from "./review.js";

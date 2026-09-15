@@ -1,0 +1,32 @@
+{
+  "name": "floorplan-viz",
+  "private": true,
+  "version": "0.0.1",
+  "description": "Floor plans and briefs to editable 3D office models and a bill of materials",
+  "type": "module",
+  "packageManager": "pnpm@10.15.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "lint": "biome check . && tsx tools/check-boundaries.ts",
+    "format": "biome format --write .",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "ledger:coverage": "tsx tools/ledger-coverage.ts",
+    "check": "biome check . && tsx tools/check-boundaries.ts && tsc -p tsconfig.json --noEmit && vitest run && tsx tools/ledger-coverage.ts",
+    "host:mcp": "tsx --disable-warning=ExperimentalWarning apps/host/src/cli.ts --mcp",
+    "host:serve": "tsx --disable-warning=ExperimentalWarning apps/host/src/cli.ts --serve",
+    "host:dev": "tsx --disable-warning=ExperimentalWarning apps/host/src/cli.ts --serve --mcp",
+    "web:build": "vite build apps/web",
+    "web:dev": "vite apps/web"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.2.0",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

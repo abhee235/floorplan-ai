@@ -1,0 +1,1157 @@
+{
+  "schemaVersion": 1,
+  "meta": {
+    "name": "Boardroom task card",
+    "createdAt": "2026-09-15T12:00:00.000Z",
+    "updatedAt": "2026-09-15T12:00:00.000Z",
+    "currency": "USD",
+    "north": 90,
+    "units": "mm"
+  },
+  "levels": [
+    {
+      "id": "level_000000",
+      "name": "Ground",
+      "elevation": 0,
+      "height": 2700,
+      "floorThickness": 300,
+      "index": 0,
+      "viewable": true,
+      "backgroundImage": null
+    }
+  ],
+  "walls": [
+    {
+      "id": "wall_000001",
+      "levelId": "level_000000",
+      "start": {
+        "x": 0,
+        "y": 0
+      },
+      "end": {
+        "x": 8000,
+        "y": 0
+      },
+      "thickness": 100,
+      "height": null,
+      "heightAtEnd": null,
+      "arcExtent": null,
+      "kind": "interior",
+      "joins": {
+        "start": {
+          "wallId": "wall_000004",
+          "end": "end"
+        },
+        "end": {
+          "wallId": "wall_000002",
+          "end": "start"
+        }
+      },
+      "finishes": {
+        "left": null,
+        "right": null,
+        "top": null
+      },
+      "skirting": {
+        "left": null,
+        "right": null
+      },
+      "properties": {}
+    },
+    {
+      "id": "wall_000002",
+      "levelId": "level_000000",
+      "start": {
+        "x": 8000,
+        "y": 0
+      },
+      "end": {
+        "x": 8000,
+        "y": 5000
+      },
+      "thickness": 100,
+      "height": null,
+      "heightAtEnd": null,
+      "arcExtent": null,
+      "kind": "interior",
+      "joins": {
+        "start": {
+          "wallId": "wall_000001",
+          "end": "end"
+        },
+        "end": {
+          "wallId": "wall_000003",
+          "end": "start"
+        }
+      },
+      "finishes": {
+        "left": null,
+        "right": null,
+        "top": null
+      },
+      "skirting": {
+        "left": null,
+        "right": null
+      },
+      "properties": {}
+    },
+    {
+      "id": "wall_000003",
+      "levelId": "level_000000",
+      "start": {
+        "x": 8000,
+        "y": 5000
+      },
+      "end": {
+        "x": 0,
+        "y": 5000
+      },
+      "thickness": 100,
+      "height": null,
+      "heightAtEnd": null,
+      "arcExtent": null,
+      "kind": "interior",
+      "joins": {
+        "start": {
+          "wallId": "wall_000002",
+          "end": "end"
+        },
+        "end": {
+          "wallId": "wall_000004",
+          "end": "start"
+        }
+      },
+      "finishes": {
+        "left": null,
+        "right": null,
+        "top": null
+      },
+      "skirting": {
+        "left": null,
+        "right": null
+      },
+      "properties": {}
+    },
+    {
+      "id": "wall_000004",
+      "levelId": "level_000000",
+      "start": {
+        "x": 0,
+        "y": 5000
+      },
+      "end": {
+        "x": 0,
+        "y": 0
+      },
+      "thickness": 100,
+      "height": null,
+      "heightAtEnd": null,
+      "arcExtent": null,
+      "kind": "interior",
+      "joins": {
+        "start": {
+          "wallId": "wall_000003",
+          "end": "end"
+        },
+        "end": {
+          "wallId": "wall_000001",
+          "end": "start"
+        }
+      },
+      "finishes": {
+        "left": null,
+        "right": null,
+        "top": null
+      },
+      "skirting": {
+        "left": null,
+        "right": null
+      },
+      "properties": {}
+    }
+  ],
+  "openings": [
+    {
+      "id": "opening_000001",
+      "levelId": "level_000000",
+      "wallId": "wall_000001",
+      "kind": "door",
+      "position": 0.15,
+      "width": 900,
+      "height": 2100,
+      "sill": 0,
+      "swing": {
+        "hinge": "start",
+        "direction": "left"
+      },
+      "mirrored": false,
+      "productId": "generic-door-900",
+      "recipe": {
+        "style": "single"
+      },
+      "finishes": {
+        "frame": null,
+        "leaf": null
+      },
+      "properties": {}
+    }
+  ],
+  "rooms": [
+    {
+      "id": "room_000001",
+      "levelId": "level_000000",
+      "name": "Boardroom",
+      "polygon": [
+        {
+          "x": 50,
+          "y": 50
+        },
+        {
+          "x": 750,
+          "y": 50
+        },
+        {
+          "x": 750,
+          "y": 0
+        },
+        {
+          "x": 1650,
+          "y": 0
+        },
+        {
+          "x": 1650,
+          "y": 50
+        },
+        {
+          "x": 7950,
+          "y": 50
+        },
+        {
+          "x": 7950,
+          "y": 4950
+        },
+        {
+          "x": 50,
+          "y": 4950
+        }
+      ],
+      "holes": [],
+      "purpose": "boardroom",
+      "capacity": 10,
+      "ceilingHeight": null,
+      "finishes": {
+        "floor": null,
+        "ceiling": null
+      },
+      "floorVisible": true,
+      "ceilingVisible": true,
+      "label": {
+        "offset": {
+          "x": 0,
+          "y": 0
+        },
+        "angle": 0,
+        "showArea": true
+      },
+      "source": "detected",
+      "boundingWallIds": [
+        "wall_000001",
+        "wall_000002",
+        "wall_000003",
+        "wall_000004"
+      ],
+      "properties": {}
+    }
+  ],
+  "items": [
+    {
+      "id": "item_000001",
+      "levelId": "level_000000",
+      "ref": {
+        "kind": "product",
+        "productId": "steelcase-convene-3600x1400"
+      },
+      "position": {
+        "x": 4000,
+        "y": 2500
+      },
+      "rotation": 0,
+      "elevation": 0,
+      "size": null,
+      "mirrored": false,
+      "mount": {
+        "kind": "floor",
+        "targetId": null,
+        "height": null
+      },
+      "parentId": null,
+      "roomId": "room_000001",
+      "finish": null,
+      "materials": {},
+      "pose": null,
+      "visible": true,
+      "tags": [],
+      "properties": {}
+    },
+    {
+      "id": "item_000002",
+      "levelId": "level_000000",
+      "ref": {
+        "kind": "product",
+        "productId": "herman-miller-aeron-b"
+      },
+      "position": {
+        "x": 2650,
+        "y": 1400
+      },
+      "rotation": 180,
+      "elevation": 0,
+      "size": null,
+      "mirrored": false,
+      "mount": {
+        "kind": "floor",
+        "targetId": null,
+        "height": null
+      },
+      "parentId": null,
+      "roomId": "room_000001",
+      "finish": null,
+      "materials": {},
+      "pose": null,
+      "visible": true,
+      "tags": [],
+      "properties": {}
+    },
+    {
+      "id": "item_000003",
+      "levelId": "level_000000",
+      "ref": {
+        "kind": "product",
+        "productId": "herman-miller-aeron-b"
+      },
+      "position": {
+        "x": 2650,
+        "y": 3600
+      },
+      "rotation": 0,
+      "elevation": 0,
+      "size": null,
+      "mirrored": false,
+      "mount": {
+        "kind": "floor",
+        "targetId": null,
+        "height": null
+      },
+      "parentId": null,
+      "roomId": "room_000001",
+      "finish": null,
+      "materials": {},
+      "pose": null,
+      "visible": true,
+      "tags": [],
+      "properties": {}
+    },
+    {
+      "id": "item_000004",
+      "levelId": "level_000000",
+      "ref": {
+        "kind": "product",
+        "productId": "herman-miller-aeron-b"
+      },
+      "position": {
+        "x": 3550,
+        "y": 1400
+      },
+      "rotation": 180,
+      "elevation": 0,
+      "size": null,
+      "mirrored": false,
+      "mount": {
+        "kind": "floor",
+        "targetId": null,
+        "height": null
+      },
+      "parentId": null,
+      "roomId": "room_000001",
+      "finish": null,
+      "materials": {},
+      "pose": null,
+      "visible": true,
+      "tags": [],
+      "properties": {}
+    },
+    {
+      "id": "item_000005",
+      "levelId": "level_000000",
+      "ref": {
+        "kind": "product",
+        "productId": "herman-miller-aeron-b"
+      },
+      "position": {
+        "x": 3550,
+        "y": 3600
+      },
+      "rotation": 0,
+      "elevation": 0,
+      "size": null,
+      "mirrored": false,
+      "mount": {
+        "kind": "floor",
+        "targetId": null,
+        "height": null
+      },
+      "parentId": null,
+      "roomId": "room_000001",
+      "finish": null,
+      "materials": {},
+      "pose": null,
+      "visible": true,
+      "tags": [],
+      "properties": {}
+    },
+    {
+      "id": "item_000006",
+      "levelId": "level_000000",
+      "ref": {
+        "kind": "product",
+        "productId": "herman-miller-aeron-b"
+      },
+      "position": {
+        "x": 4450,
+        "y": 1400
+      },
+      "rotation": 180,
+      "elevation": 0,
+      "size": null,
+      "mirrored": false,
+      "mount": {
+        "kind": "floor",
+        "targetId": null,
+        "height": null
+      },
+      "parentId": null,
+      "roomId": "room_000001",
+      "finish": null,
+      "materials": {},
+      "pose": null,
+      "visible": true,
+      "tags": [],
+      "properties": {}
+    },
+    {
+      "id": "item_000007",
+      "levelId": "level_000000",
+      "ref": {
+        "kind": "product",
+        "productId": "herman-miller-aeron-b"
+      },
+      "position": {
+        "x": 4450,
+        "y": 3600
+      },
+      "rotation": 0,
+      "elevation": 0,
+      "size": null,
+      "mirrored": false,
+      "mount": {
+        "kind": "floor",
+        "targetId": null,
+        "height": null
+      },
+      "parentId": null,
+      "roomId": "room_000001",
+      "finish": null,
+      "materials": {},
+      "pose": null,
+      "visible": true,
+      "tags": [],
+      "properties": {}
+    },
+    {
+      "id": "item_000008",
+      "levelId": "level_000000",
+      "ref": {
+        "kind": "product",
+        "productId": "herman-miller-aeron-b"
+      },
+      "position": {
+        "x": 5350,
+        "y": 1400
+      },
+      "rotation": 180,
+      "elevation": 0,
+      "size": null,
+      "mirrored": false,
+      "mount": {
+        "kind": "floor",
+        "targetId": null,
+        "height": null
+      },
+      "parentId": null,
+      "roomId": "room_000001",
+      "finish": null,
+      "materials": {},
+      "pose": null,
+      "visible": true,
+      "tags": [],
+      "properties": {}
+    },
+    {
+      "id": "item_000009",
+      "levelId": "level_000000",
+      "ref": {
+        "kind": "product",
+        "productId": "herman-miller-aeron-b"
+      },
+      "position": {
+        "x": 5350,
+        "y": 3600
+      },
+      "rotation": 0,
+      "elevation": 0,
+      "size": null,
+      "mirrored": false,
+      "mount": {
+        "kind": "floor",
+        "targetId": null,
+        "height": null
+      },
+      "parentId": null,
+      "roomId": "room_000001",
+      "finish": null,
+      "materials": {},
+      "pose": null,
+      "visible": true,
+      "tags": [],
+      "properties": {}
+    },
+    {
+      "id": "item_00000a",
+      "levelId": "level_000000",
+      "ref": {
+        "kind": "product",
+        "productId": "herman-miller-aeron-b"
+      },
+      "position": {
+        "x": 1800,
+        "y": 2500
+      },
+      "rotation": 90,
+      "elevation": 0,
+      "size": null,
+      "mirrored": false,
+      "mount": {
+        "kind": "floor",
+        "targetId": null,
+        "height": null
+      },
+      "parentId": null,
+      "roomId": "room_000001",
+      "finish": null,
+      "materials": {},
+      "pose": null,
+      "visible": true,
+      "tags": [],
+      "properties": {}
+    },
+    {
+      "id": "item_00000b",
+      "levelId": "level_000000",
+      "ref": {
+        "kind": "product",
+        "productId": "herman-miller-aeron-b"
+      },
+      "position": {
+        "x": 6200,
+        "y": 2500
+      },
+      "rotation": 270,
+      "elevation": 0,
+      "size": null,
+      "mirrored": false,
+      "mount": {
+        "kind": "floor",
+        "targetId": null,
+        "height": null
+      },
+      "parentId": null,
+      "roomId": "room_000001",
+      "finish": null,
+      "materials": {},
+      "pose": null,
+      "visible": true,
+      "tags": [],
+      "properties": {}
+    },
+    {
+      "id": "item_00000c",
+      "levelId": "level_000000",
+      "ref": {
+        "kind": "product",
+        "productId": "samsung-qm75c"
+      },
+      "position": {
+        "x": 4000,
+        "y": 4928
+      },
+      "rotation": 0,
+      "elevation": 919,
+      "size": null,
+      "mirrored": false,
+      "mount": {
+        "kind": "wall",
+        "targetId": "wall_000003",
+        "height": null
+      },
+      "parentId": null,
+      "roomId": "room_000001",
+      "finish": null,
+      "materials": {},
+      "pose": null,
+      "visible": true,
+      "tags": [],
+      "properties": {}
+    },
+    {
+      "id": "item_00000d",
+      "levelId": "level_000000",
+      "ref": {
+        "kind": "product",
+        "productId": "logitech-rally-bar"
+      },
+      "position": {
+        "x": 4000,
+        "y": 4887
+      },
+      "rotation": 0,
+      "elevation": 753,
+      "size": null,
+      "mirrored": false,
+      "mount": {
+        "kind": "wall",
+        "targetId": "wall_000003",
+        "height": null
+      },
+      "parentId": null,
+      "roomId": "room_000001",
+      "finish": null,
+      "materials": {},
+      "pose": null,
+      "visible": true,
+      "tags": [],
+      "properties": {}
+    },
+    {
+      "id": "item_00000e",
+      "levelId": "level_000000",
+      "ref": {
+        "kind": "product",
+        "productId": "shure-mxa920-s"
+      },
+      "position": {
+        "x": 2800,
+        "y": 2500
+      },
+      "rotation": 0,
+      "elevation": 2645,
+      "size": null,
+      "mirrored": false,
+      "mount": {
+        "kind": "ceiling",
+        "targetId": null,
+        "height": null
+      },
+      "parentId": null,
+      "roomId": "room_000001",
+      "finish": null,
+      "materials": {},
+      "pose": null,
+      "visible": true,
+      "tags": [],
+      "properties": {}
+    },
+    {
+      "id": "item_00000f",
+      "levelId": "level_000000",
+      "ref": {
+        "kind": "product",
+        "productId": "shure-mxa920-s"
+      },
+      "position": {
+        "x": 5200,
+        "y": 2500
+      },
+      "rotation": 0,
+      "elevation": 2645,
+      "size": null,
+      "mirrored": false,
+      "mount": {
+        "kind": "ceiling",
+        "targetId": null,
+        "height": null
+      },
+      "parentId": null,
+      "roomId": "room_000001",
+      "finish": null,
+      "materials": {},
+      "pose": null,
+      "visible": true,
+      "tags": [],
+      "properties": {}
+    },
+    {
+      "id": "item_00000g",
+      "levelId": "level_000000",
+      "ref": {
+        "kind": "product",
+        "productId": "biamp-desono-c-ic6"
+      },
+      "position": {
+        "x": 2000,
+        "y": 2500
+      },
+      "rotation": 0,
+      "elevation": 2510,
+      "size": null,
+      "mirrored": false,
+      "mount": {
+        "kind": "ceiling",
+        "targetId": null,
+        "height": null
+      },
+      "parentId": null,
+      "roomId": "room_000001",
+      "finish": null,
+      "materials": {},
+      "pose": null,
+      "visible": true,
+      "tags": [],
+      "properties": {}
+    },
+    {
+      "id": "item_00000h",
+      "levelId": "level_000000",
+      "ref": {
+        "kind": "product",
+        "productId": "biamp-desono-c-ic6"
+      },
+      "position": {
+        "x": 6000,
+        "y": 2500
+      },
+      "rotation": 0,
+      "elevation": 2510,
+      "size": null,
+      "mirrored": false,
+      "mount": {
+        "kind": "ceiling",
+        "targetId": null,
+        "height": null
+      },
+      "parentId": null,
+      "roomId": "room_000001",
+      "finish": null,
+      "materials": {},
+      "pose": null,
+      "visible": true,
+      "tags": [],
+      "properties": {}
+    },
+    {
+      "id": "item_00000i",
+      "levelId": "level_000000",
+      "ref": {
+        "kind": "product",
+        "productId": "logitech-tap-ip"
+      },
+      "position": {
+        "x": 4000,
+        "y": 2500
+      },
+      "rotation": 0,
+      "elevation": 740,
+      "size": null,
+      "mirrored": false,
+      "mount": {
+        "kind": "floor",
+        "targetId": null,
+        "height": null
+      },
+      "parentId": "item_000001",
+      "roomId": "room_000001",
+      "finish": null,
+      "materials": {},
+      "pose": null,
+      "visible": true,
+      "tags": [],
+      "properties": {}
+    }
+  ],
+  "zones": [],
+  "annotations": [],
+  "catalogRefs": {
+    "biamp-desono-c-ic6": {
+      "id": "biamp-desono-c-ic6",
+      "snapshotAt": "2026-09-15T12:00:00.000Z",
+      "assetKey": null,
+      "category": "ceiling-speaker",
+      "clearance": null,
+      "deformable": false,
+      "dims": {
+        "w": 250,
+        "d": 250,
+        "h": 190
+      },
+      "make": "Biamp",
+      "materialSlots": [],
+      "meshRotation": null,
+      "model": "Desono C-IC6",
+      "mount": {
+        "kinds": [
+          "ceiling"
+        ],
+        "vesa": null,
+        "defaultHeight": null
+      },
+      "mountPoints": [],
+      "name": "Biamp Desono C-IC6 6.5 inch ceiling speaker",
+      "opening": null,
+      "price": null,
+      "specs": {
+        "coverageRadiusMm": 3000,
+        "impedanceOhm": 8,
+        "powerW": 30,
+        "transformer70V": true
+      },
+      "verification": {
+        "status": "unverified",
+        "confidence": 0.5,
+        "sources": [],
+        "verifiedAt": null,
+        "notes": "Seed record from general product knowledge; run verify_product before quoting."
+      },
+      "weightKg": 2.3
+    },
+    "generic-door-900": {
+      "id": "generic-door-900",
+      "snapshotAt": "2026-09-15T12:00:00.000Z",
+      "assetKey": null,
+      "category": "door",
+      "clearance": null,
+      "deformable": true,
+      "dims": {
+        "w": 900,
+        "d": 40,
+        "h": 2100
+      },
+      "make": "Generic",
+      "materialSlots": [],
+      "meshRotation": null,
+      "model": "Door 900",
+      "mount": {
+        "kinds": [
+          "wall"
+        ],
+        "vesa": null,
+        "defaultHeight": null
+      },
+      "mountPoints": [],
+      "name": "Generic single door 900 x 2100",
+      "opening": {
+        "embed": {
+          "thickness": 1,
+          "distance": 0,
+          "width": 1,
+          "left": 0,
+          "height": 1,
+          "top": 0
+        },
+        "cutOutPath": null,
+        "cutBothSides": true,
+        "sashes": [
+          {
+            "xAxis": 0,
+            "yAxis": 0,
+            "width": 1,
+            "startAngle": 0,
+            "endAngle": 90
+          }
+        ]
+      },
+      "price": null,
+      "specs": {
+        "leaves": 1
+      },
+      "verification": {
+        "status": "manual",
+        "confidence": 1,
+        "sources": [],
+        "verifiedAt": "2026-09-15T00:00:00.000Z",
+        "notes": "Built-in parametric placeholder, not a purchasable product."
+      },
+      "weightKg": null
+    },
+    "herman-miller-aeron-b": {
+      "id": "herman-miller-aeron-b",
+      "snapshotAt": "2026-09-15T12:00:00.000Z",
+      "assetKey": null,
+      "category": "chair",
+      "clearance": null,
+      "deformable": false,
+      "dims": {
+        "w": 686,
+        "d": 640,
+        "h": 1040
+      },
+      "make": "Herman Miller",
+      "materialSlots": [],
+      "meshRotation": null,
+      "model": "Aeron size B",
+      "mount": {
+        "kinds": [
+          "floor"
+        ],
+        "vesa": null,
+        "defaultHeight": null
+      },
+      "mountPoints": [],
+      "name": "Herman Miller Aeron chair size B",
+      "opening": null,
+      "price": null,
+      "specs": {
+        "armrests": true,
+        "swivel": true
+      },
+      "verification": {
+        "status": "unverified",
+        "confidence": 0.5,
+        "sources": [],
+        "verifiedAt": null,
+        "notes": "Seed record from general product knowledge; run verify_product before quoting."
+      },
+      "weightKg": 19
+    },
+    "logitech-rally-bar": {
+      "id": "logitech-rally-bar",
+      "snapshotAt": "2026-09-15T12:00:00.000Z",
+      "assetKey": null,
+      "category": "video-bar",
+      "clearance": null,
+      "deformable": false,
+      "dims": {
+        "w": 1092,
+        "d": 125,
+        "h": 136
+      },
+      "make": "Logitech",
+      "materialSlots": [],
+      "meshRotation": null,
+      "model": "Rally Bar",
+      "mount": {
+        "kinds": [
+          "wall",
+          "table"
+        ],
+        "vesa": null,
+        "defaultHeight": 1400
+      },
+      "mountPoints": [],
+      "name": "Logitech Rally Bar video bar",
+      "opening": null,
+      "price": null,
+      "specs": {
+        "fovDeg": 90,
+        "maxRoomDepthMm": 7000,
+        "interfaces": "USB-C, HDMI, Ethernet"
+      },
+      "verification": {
+        "status": "unverified",
+        "confidence": 0.5,
+        "sources": [],
+        "verifiedAt": null,
+        "notes": "Seed record from general product knowledge; run verify_product before quoting."
+      },
+      "weightKg": null
+    },
+    "logitech-tap-ip": {
+      "id": "logitech-tap-ip",
+      "snapshotAt": "2026-09-15T12:00:00.000Z",
+      "assetKey": null,
+      "category": "touch-panel",
+      "clearance": null,
+      "deformable": false,
+      "dims": {
+        "w": 244,
+        "d": 120,
+        "h": 174
+      },
+      "make": "Logitech",
+      "materialSlots": [],
+      "meshRotation": null,
+      "model": "Tap IP",
+      "mount": {
+        "kinds": [
+          "table"
+        ],
+        "vesa": null,
+        "defaultHeight": null
+      },
+      "mountPoints": [],
+      "name": "Logitech Tap IP touch controller",
+      "opening": null,
+      "price": null,
+      "specs": {
+        "screenIn": 10.1,
+        "poe": true
+      },
+      "verification": {
+        "status": "unverified",
+        "confidence": 0.5,
+        "sources": [],
+        "verifiedAt": null,
+        "notes": "Seed record from general product knowledge; run verify_product before quoting."
+      },
+      "weightKg": null
+    },
+    "samsung-qm75c": {
+      "id": "samsung-qm75c",
+      "snapshotAt": "2026-09-15T12:00:00.000Z",
+      "assetKey": null,
+      "category": "display",
+      "clearance": null,
+      "deformable": false,
+      "dims": {
+        "w": 1672,
+        "d": 45,
+        "h": 962
+      },
+      "make": "Samsung",
+      "materialSlots": [],
+      "meshRotation": null,
+      "model": "QM75C",
+      "mount": {
+        "kinds": [
+          "wall",
+          "floor"
+        ],
+        "vesa": "400x400",
+        "defaultHeight": 1100
+      },
+      "mountPoints": [],
+      "name": "Samsung QM75C 75 inch 4K display",
+      "opening": null,
+      "price": null,
+      "specs": {
+        "diagonalIn": 75,
+        "resolution": "3840x2160",
+        "vesa": "400x400",
+        "powerW": 210
+      },
+      "verification": {
+        "status": "unverified",
+        "confidence": 0.5,
+        "sources": [],
+        "verifiedAt": null,
+        "notes": "Seed record from general product knowledge; run verify_product before quoting."
+      },
+      "weightKg": 32
+    },
+    "shure-mxa920-s": {
+      "id": "shure-mxa920-s",
+      "snapshotAt": "2026-09-15T12:00:00.000Z",
+      "assetKey": null,
+      "category": "ceiling-mic",
+      "clearance": null,
+      "deformable": false,
+      "dims": {
+        "w": 600,
+        "d": 600,
+        "h": 55
+      },
+      "make": "Shure",
+      "materialSlots": [],
+      "meshRotation": null,
+      "model": "MXA920-S",
+      "mount": {
+        "kinds": [
+          "ceiling"
+        ],
+        "vesa": null,
+        "defaultHeight": null
+      },
+      "mountPoints": [],
+      "name": "Shure MXA920 square ceiling array microphone",
+      "opening": null,
+      "price": null,
+      "specs": {
+        "coverageRadiusMm": 4500,
+        "channels": 8,
+        "dante": true,
+        "poe": true
+      },
+      "verification": {
+        "status": "unverified",
+        "confidence": 0.5,
+        "sources": [],
+        "verifiedAt": null,
+        "notes": "Seed record from general product knowledge; run verify_product before quoting."
+      },
+      "weightKg": 5.4
+    },
+    "steelcase-convene-3600x1400": {
+      "id": "steelcase-convene-3600x1400",
+      "snapshotAt": "2026-09-15T12:00:00.000Z",
+      "assetKey": null,
+      "category": "table",
+      "clearance": {
+        "front": 900,
+        "back": 900,
+        "left": 900,
+        "right": 900
+      },
+      "deformable": false,
+      "dims": {
+        "w": 3600,
+        "d": 1400,
+        "h": 740
+      },
+      "make": "Steelcase",
+      "materialSlots": [],
+      "meshRotation": null,
+      "model": "Convene 3600 x 1400",
+      "mount": {
+        "kinds": [
+          "floor"
+        ],
+        "vesa": null,
+        "defaultHeight": null
+      },
+      "mountPoints": [
+        {
+          "name": "top",
+          "kind": "surface",
+          "dropRatio": 1,
+          "offset": null
+        }
+      ],
+      "name": "Steelcase Convene boardroom table 3600 x 1400",
+      "opening": null,
+      "price": null,
+      "specs": {
+        "seats": 12,
+        "shape": "rect"
+      },
+      "verification": {
+        "status": "unverified",
+        "confidence": 0.5,
+        "sources": [],
+        "verifiedAt": null,
+        "notes": "Seed record from general product knowledge; run verify_product before quoting."
+      },
+      "weightKg": null
+    }
+  },
+  "textures": {},
+  "provenance": null,
+  "properties": {}
+}

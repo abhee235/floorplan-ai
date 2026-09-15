@@ -1,0 +1,164 @@
+{
+  "name": "office-mm",
+  "mmPerUnit": 1,
+  "walls": [
+    {
+      "points": [
+        {
+          "x": 0,
+          "y": 0
+        },
+        {
+          "x": 12000,
+          "y": 0
+        }
+      ],
+      "thickness": 250
+    },
+    {
+      "points": [
+        {
+          "x": 12000,
+          "y": 0
+        },
+        {
+          "x": 12000,
+          "y": 8000
+        }
+      ],
+      "thickness": 250
+    },
+    {
+      "points": [
+        {
+          "x": 12000,
+          "y": 8000
+        },
+        {
+          "x": 0,
+          "y": 8000
+        }
+      ],
+      "thickness": 250
+    },
+    {
+      "points": [
+        {
+          "x": 0,
+          "y": 8000
+        },
+        {
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "thickness": 250
+    },
+    {
+      "points": [
+        {
+          "x": 5000,
+          "y": 0
+        },
+        {
+          "x": 5000,
+          "y": 8000
+        }
+      ],
+      "thickness": 100
+    },
+    {
+      "points": [
+        {
+          "x": 5000,
+          "y": 4500
+        },
+        {
+          "x": 12000,
+          "y": 4500
+        }
+      ],
+      "thickness": 100
+    }
+  ],
+  "openings": [
+    {
+      "at": {
+        "x": 8500,
+        "y": 0
+      },
+      "kind": "door",
+      "width": 1000
+    },
+    {
+      "at": {
+        "x": 5000,
+        "y": 2000
+      },
+      "kind": "door",
+      "width": 900
+    },
+    {
+      "at": {
+        "x": 5000,
+        "y": 6000
+      },
+      "kind": "door",
+      "width": 900
+    },
+    {
+      "at": {
+        "x": 10500,
+        "y": 4500
+      },
+      "kind": "passage",
+      "width": 1200
+    },
+    {
+      "at": {
+        "x": 2500,
+        "y": 0
+      },
+      "kind": "window",
+      "width": 1800
+    },
+    {
+      "at": {
+        "x": 12000,
+        "y": 2200
+      },
+      "kind": "window",
+      "width": 1500
+    },
+    {
+      "at": {
+        "x": 9000,
+        "y": 8000
+      },
+      "kind": "window",
+      "width": 1800
+    },
+    {
+      "at": {
+        "x": 0,
+        "y": 4000
+      },
+      "kind": "window",
+      "width": 2400
+    }
+  ],
+  "rooms": [
+    {
+      "name": "BOARDROOM",
+      "areaM2": 37.39
+    },
+    {
+      "name": "OPEN OFFICE",
+      "areaM2": 29.52
+    },
+    {
+      "name": "MEETING ROOM",
+      "areaM2": 22.69
+    }
+  ]
+}

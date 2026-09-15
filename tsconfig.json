@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": { "@fpv/catalog/store": ["packages/catalog/src/node"], "@fpv/*": ["packages/*/src"] },
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
+  },
+  "include": ["packages/*/src", "packages/*/test", "apps/*/src", "apps/*/test", "tools/*.ts", "tools/test"]
+}

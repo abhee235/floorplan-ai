@@ -1,0 +1,27 @@
+﻿# floorplan-viz bill of materials
+"# project: Boardroom task card"
+"# scope: project"
+"# exported at: 2026-09-15T12:00:00.000Z"
+"# app version: 0.0.1"
+"# rules pack: av-core 1.0.0"
+"# catalog snapshot: 2026-09-15T12:00:00.000Z"
+"# currency: USD"
+"# units: quantities as counted; lengths in mm"
+"# verification: contains unverified or placeholder lines; check before ordering"
+scope,room,category,make,model,product id,description,quantity,unit,unit price,currency,total,price type,price captured,status,reason,rule,source URLs
+Ground,,door,Generic,Door 900,generic-door-900,Generic single door 900 x 2100,1,each,,,,,,verified,opening: opening_000001,,
+Ground,Boardroom,amplifier,Acme,AMP-4,acme-amp-4,Acme 4 channel amplifier,1,each,420.00,USD,420.00,list,2026-09-15,verified,rule: item_00000g item_00000h,speaker-amp,https://example.com/acme/acme-amp-4
+Ground,Boardroom,cable,Acme,HDMI-5M,acme-hdmi-5m,Acme HDMI cable 5 m,1,each,35.00,USD,35.00,list,2026-09-15,verified,rule: item_00000c item_00000d,display-hdmi,https://example.com/acme/acme-hdmi-5m
+Ground,Boardroom,cable,Acme,USB-10M,acme-usb-10m,Acme active USB cable 10 m,1,each,55.00,USD,55.00,list,2026-09-15,verified,rule: item_000001 item_00000d,bar-usb,https://example.com/acme/acme-usb-10m
+Ground,Boardroom,ceiling-mic,Shure,MXA920-S,shure-mxa920-s,Shure MXA920 square ceiling array microphone,2,each,,,,,,unverified,item: item_00000e item_00000f,,
+Ground,Boardroom,ceiling-speaker,Biamp,Desono C-IC6,biamp-desono-c-ic6,Biamp Desono C-IC6 6.5 inch ceiling speaker,2,each,,,,,,unverified,item: item_00000g item_00000h,,
+Ground,Boardroom,chair,Herman Miller,Aeron size B,herman-miller-aeron-b,Herman Miller Aeron chair size B,10,each,,,,,,unverified,item: item_000002 item_000003 item_000004 item_000005 item_000006 item_000007 item_000008 item_000009 item_00000a item_00000b,,
+Ground,Boardroom,connector,Acme,TABLE-BOX,acme-table-box,Acme table power and data module,3,each,210.00,USD,630.00,list,2026-09-15,verified,rule: room_000001,table-power,https://example.com/acme/acme-table-box
+Ground,Boardroom,display,Samsung,QM75C,samsung-qm75c,Samsung QM75C 75 inch 4K display,1,each,,,,,,unverified,item: item_00000c,,
+Ground,Boardroom,dsp,Acme,DSP-24,acme-dsp-24,Acme DSP 24 inputs,1,each,2600.00,USD,2600.00,list,2026-09-15,verified,rule: item_00000e item_00000f,mic-dsp,https://example.com/acme/acme-dsp-24
+Ground,Boardroom,mount,Acme,VM-600,acme-vm-600,Acme VESA wall mount up to 600 x 400,1,each,149.00,USD,149.00,list,2026-09-15,verified,rule: item_00000c,display-mount,https://example.com/acme/acme-vm-600
+Ground,Boardroom,scheduler,Acme,ROOM-PANEL,acme-room-panel,Acme room booking panel,1,each,540.00,USD,540.00,list,2026-09-15,verified,rule: room_000001,scheduler,https://example.com/acme/acme-room-panel
+Ground,Boardroom,switch,,,,PoE switch port,6,each,,,,,,placeholder,rule: room_000001,network-ports,
+Ground,Boardroom,table,Steelcase,Convene 3600 x 1400,steelcase-convene-3600x1400,Steelcase Convene boardroom table 3600 x 1400,1,each,,,,,,unverified,item: item_000001,,
+Ground,Boardroom,touch-panel,Logitech,Tap IP,logitech-tap-ip,Logitech Tap IP touch controller,1,each,,,,,,unverified,item: item_00000i,,
+Ground,Boardroom,video-bar,Logitech,Rally Bar,logitech-rally-bar,Logitech Rally Bar video bar,1,each,,,,,,unverified,item: item_00000d,,

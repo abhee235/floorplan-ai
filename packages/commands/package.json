@@ -1,0 +1,19 @@
+{
+  "name": "@fpv/commands",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Commands as data, reducers, transactions, history (spec 03)",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@fpv/ir": "workspace:*",
+    "@fpv/geometry": "workspace:*",
+    "@fpv/catalog": "workspace:*",
+    "immer": "^10.1.0",
+    "zod": "^3.25.0"
+  }
+}

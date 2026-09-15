@@ -1,0 +1,2105 @@
+[
+  {
+    "from": "C-001",
+    "to": "C-002",
+    "disposition": "adopt",
+    "package": "catalog",
+    "phase": 1
+  },
+  {
+    "from": "C-003",
+    "disposition": "reverse",
+    "package": "catalog",
+    "phase": 1
+  },
+  {
+    "from": "C-004",
+    "to": "C-010",
+    "disposition": "adopt",
+    "package": "catalog",
+    "phase": 1
+  },
+  {
+    "from": "C-011",
+    "disposition": "reverse",
+    "package": "catalog",
+    "phase": 1,
+    "note": "single default"
+  },
+  {
+    "from": "C-012",
+    "to": "C-016",
+    "disposition": "adopt",
+    "package": "catalog",
+    "phase": 1
+  },
+  {
+    "from": "C-017",
+    "disposition": "reverse",
+    "package": "catalog",
+    "phase": 1,
+    "note": "strict 9 values"
+  },
+  {
+    "from": "C-018",
+    "to": "C-025",
+    "disposition": "adopt",
+    "package": "catalog",
+    "phase": 1
+  },
+  {
+    "from": "C-026",
+    "disposition": "reverse",
+    "package": "catalog",
+    "phase": 1,
+    "note": "duplicates rejected"
+  },
+  {
+    "from": "C-027",
+    "to": "C-029",
+    "disposition": "adopt",
+    "package": "catalog",
+    "phase": 1
+  },
+  {
+    "from": "C-030",
+    "to": "C-033",
+    "disposition": "omit",
+    "note": "closed category enum"
+  },
+  {
+    "from": "C-034",
+    "to": "C-035",
+    "disposition": "adopt",
+    "package": "catalog",
+    "phase": 1
+  },
+  {
+    "from": "C-036",
+    "to": "C-037",
+    "disposition": "omit"
+  },
+  {
+    "from": "C-038",
+    "to": "C-039",
+    "disposition": "adopt",
+    "package": "assets",
+    "phase": 1
+  },
+  {
+    "from": "C-040",
+    "disposition": "adopt",
+    "package": "catalog",
+    "phase": 1
+  },
+  {
+    "from": "C-041",
+    "to": "C-048",
+    "disposition": "defer",
+    "package": "assets",
+    "phase": 3
+  },
+  {
+    "from": "C-049",
+    "disposition": "omit"
+  },
+  {
+    "from": "C-050",
+    "disposition": "adopt",
+    "package": "catalog",
+    "phase": 1,
+    "note": "unparseable cut-out path warns and falls back to the rectangle (spec 02 section 7)"
+  },
+  {
+    "from": "F-001",
+    "to": "F-003",
+    "disposition": "adopt",
+    "package": "ir",
+    "phase": 0
+  },
+  {
+    "from": "F-004",
+    "to": "F-005",
+    "disposition": "omit",
+    "note": "no pitch or roll"
+  },
+  {
+    "from": "F-006",
+    "to": "F-007",
+    "disposition": "adopt",
+    "package": "ir",
+    "phase": 0
+  },
+  {
+    "from": "F-008",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "F-009",
+    "to": "F-011",
+    "disposition": "omit"
+  },
+  {
+    "from": "F-012",
+    "disposition": "adopt",
+    "package": "ir",
+    "phase": 0
+  },
+  {
+    "from": "F-013",
+    "to": "F-015",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "F-016",
+    "to": "F-017",
+    "disposition": "reverse",
+    "package": "ir",
+    "phase": 0,
+    "note": "explicit levelId"
+  },
+  {
+    "from": "F-018",
+    "to": "F-021",
+    "disposition": "adopt",
+    "package": "ir",
+    "phase": 0
+  },
+  {
+    "from": "F-021",
+    "disposition": "reverse",
+    "package": "commands",
+    "phase": 0,
+    "note": "duplicates keep their level"
+  },
+  {
+    "from": "F-022",
+    "to": "F-028",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "F-029",
+    "to": "F-061",
+    "disposition": "reverse",
+    "package": "commands",
+    "phase": 0,
+    "note": "groups replaced by parent links"
+  },
+  {
+    "from": "F-029",
+    "to": "F-034",
+    "disposition": "omit",
+    "note": "groups replaced by parent links"
+  },
+  {
+    "from": "F-036",
+    "to": "F-039",
+    "disposition": "omit",
+    "note": "groups replaced by parent links"
+  },
+  {
+    "from": "F-043",
+    "to": "F-058",
+    "disposition": "omit",
+    "note": "groups replaced by parent links; F-041, F-042 and F-059 cover the parent semantics"
+  },
+  {
+    "from": "F-061",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3,
+    "note": "draw-order reorder is an editor action"
+  },
+  {
+    "from": "F-062",
+    "to": "F-069",
+    "disposition": "adopt",
+    "package": "geometry",
+    "phase": 1
+  },
+  {
+    "from": "F-070",
+    "disposition": "reverse",
+    "package": "commands",
+    "phase": 0,
+    "note": "parent link"
+  },
+  {
+    "from": "F-071",
+    "to": "F-072",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "F-073",
+    "to": "F-074",
+    "disposition": "omit",
+    "note": "shelf boxes"
+  },
+  {
+    "from": "F-075",
+    "to": "F-082",
+    "disposition": "adopt",
+    "package": "geometry",
+    "phase": 1
+  },
+  {
+    "from": "F-083",
+    "disposition": "reverse",
+    "package": "geometry",
+    "phase": 1
+  },
+  {
+    "from": "F-084",
+    "to": "F-086",
+    "disposition": "adopt",
+    "package": "geometry",
+    "phase": 1
+  },
+  {
+    "from": "F-087",
+    "disposition": "reverse",
+    "package": "geometry",
+    "phase": 1,
+    "note": "symmetric epsilon"
+  },
+  {
+    "from": "F-088",
+    "to": "F-096",
+    "disposition": "adopt",
+    "package": "geometry",
+    "phase": 1
+  },
+  {
+    "from": "F-097",
+    "disposition": "reverse",
+    "package": "geometry",
+    "phase": 1,
+    "note": "footprint, not depth"
+  },
+  {
+    "from": "F-098",
+    "to": "F-099",
+    "disposition": "adopt",
+    "package": "geometry",
+    "phase": 1
+  },
+  {
+    "from": "F-100",
+    "to": "F-106",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "F-103",
+    "disposition": "omit",
+    "note": "openings are not items"
+  },
+  {
+    "from": "F-104",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "F-105",
+    "disposition": "omit",
+    "note": "openings are not items"
+  },
+  {
+    "from": "F-106",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "F-107",
+    "disposition": "omit"
+  },
+  {
+    "from": "F-108",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "F-108",
+    "disposition": "omit",
+    "note": "no tilt"
+  },
+  {
+    "from": "F-109",
+    "to": "F-110",
+    "disposition": "omit",
+    "note": "no tilt"
+  },
+  {
+    "from": "F-111",
+    "to": "F-112",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "F-111",
+    "to": "F-112",
+    "disposition": "omit",
+    "note": "groups replaced by parent links"
+  },
+  {
+    "from": "F-113",
+    "to": "F-115",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "F-116",
+    "to": "F-118",
+    "disposition": "omit"
+  },
+  {
+    "from": "F-119",
+    "to": "F-127",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "F-128",
+    "disposition": "reverse",
+    "package": "engine",
+    "phase": 0,
+    "note": "error on empty bounds"
+  },
+  {
+    "from": "F-129",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "F-130",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "F-131",
+    "to": "F-132",
+    "disposition": "adopt",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "F-133",
+    "to": "F-144",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "F-145",
+    "to": "F-153",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "F-149",
+    "to": "F-153",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3,
+    "note": "clipboard is an editor feature"
+  },
+  {
+    "from": "F-154",
+    "to": "F-163",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "F-164",
+    "to": "F-170",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "F-171",
+    "to": "F-172",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "F-171",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "F-173",
+    "disposition": "omit"
+  },
+  {
+    "from": "F-174",
+    "to": "F-176",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "F-176",
+    "disposition": "omit",
+    "note": "no base-plan lock"
+  },
+  {
+    "from": "F-177",
+    "to": "F-185",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "F-186",
+    "to": "F-187",
+    "disposition": "adopt",
+    "package": "ir",
+    "phase": 0
+  },
+  {
+    "from": "F-187",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3,
+    "note": "light power is a UI concern"
+  },
+  {
+    "from": "F-188",
+    "to": "F-195",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "F-196",
+    "disposition": "adopt",
+    "package": "geometry",
+    "phase": 0
+  },
+  {
+    "from": "O-001",
+    "to": "O-003",
+    "disposition": "adopt",
+    "package": "catalog",
+    "phase": 1
+  },
+  {
+    "from": "O-004",
+    "disposition": "reverse",
+    "package": "ir",
+    "phase": 0,
+    "note": "no bound flag"
+  },
+  {
+    "from": "O-005",
+    "disposition": "reject",
+    "package": "catalog",
+    "phase": 1
+  },
+  {
+    "from": "O-006",
+    "disposition": "adopt",
+    "package": "catalog",
+    "phase": 1
+  },
+  {
+    "from": "O-007",
+    "to": "O-010",
+    "disposition": "adopt",
+    "package": "catalog",
+    "phase": 1
+  },
+  {
+    "from": "O-011",
+    "disposition": "reverse",
+    "package": "catalog",
+    "phase": 1,
+    "note": "null means rectangle"
+  },
+  {
+    "from": "O-012",
+    "to": "O-013",
+    "disposition": "adopt",
+    "package": "catalog",
+    "phase": 1
+  },
+  {
+    "from": "O-014",
+    "to": "O-016",
+    "disposition": "omit",
+    "note": "opening geometry is explicit"
+  },
+  {
+    "from": "O-017",
+    "disposition": "reverse",
+    "package": "geometry",
+    "phase": 1,
+    "note": "single containment pass"
+  },
+  {
+    "from": "O-018",
+    "to": "O-026",
+    "disposition": "adopt",
+    "package": "geometry",
+    "phase": 1,
+    "note": "placement pipeline for items"
+  },
+  {
+    "from": "O-027",
+    "to": "O-029",
+    "disposition": "omit",
+    "note": "opening depth is the wall thickness"
+  },
+  {
+    "from": "O-030",
+    "to": "O-037",
+    "disposition": "adopt",
+    "package": "geometry",
+    "phase": 1
+  },
+  {
+    "from": "O-038",
+    "to": "O-050",
+    "disposition": "reverse",
+    "package": "commands",
+    "phase": 0,
+    "note": "openings bound by id"
+  },
+  {
+    "from": "O-051",
+    "to": "O-054",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "O-055",
+    "to": "O-056",
+    "disposition": "reverse",
+    "package": "engine",
+    "phase": 0,
+    "note": "head clipped to the sloping top; corners are not shifted"
+  },
+  {
+    "from": "O-057",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "O-058",
+    "disposition": "omit",
+    "note": "openings always parallel to their wall"
+  },
+  {
+    "from": "O-059",
+    "disposition": "defer",
+    "package": "engine",
+    "phase": 3
+  },
+  {
+    "from": "O-060",
+    "to": "O-064",
+    "disposition": "reverse",
+    "package": "ir",
+    "phase": 0,
+    "note": "overlap rejected"
+  },
+  {
+    "from": "O-065",
+    "to": "O-068",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "O-069",
+    "to": "O-076",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 2
+  },
+  {
+    "from": "O-077",
+    "to": "O-078",
+    "disposition": "omit",
+    "note": "no mesh-derived cut-outs"
+  },
+  {
+    "from": "O-079",
+    "disposition": "reverse",
+    "package": "engine",
+    "phase": 2
+  },
+  {
+    "from": "O-080",
+    "to": "O-082",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 2
+  },
+  {
+    "from": "O-083",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "O-084",
+    "to": "O-087",
+    "disposition": "adopt",
+    "package": "catalog",
+    "phase": 1
+  },
+  {
+    "from": "O-088",
+    "to": "O-091",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "O-092",
+    "to": "O-094",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "O-095",
+    "disposition": "reverse",
+    "package": "web",
+    "phase": 3,
+    "note": "height not width"
+  },
+  {
+    "from": "O-096",
+    "to": "O-099",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "O-100",
+    "to": "O-101",
+    "disposition": "adopt",
+    "package": "geometry",
+    "phase": 0,
+    "note": "threshold patching"
+  },
+  {
+    "from": "O-102",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "O-103",
+    "disposition": "reject",
+    "package": "engine",
+    "phase": 0,
+    "note": "openings have no roll or pitch in the IR"
+  },
+  {
+    "from": "O-104",
+    "disposition": "reverse",
+    "package": "engine",
+    "phase": 0,
+    "note": "not all walls"
+  },
+  {
+    "from": "O-105",
+    "to": "O-108",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "O-109",
+    "disposition": "reverse",
+    "package": "engine",
+    "phase": 0,
+    "note": "exact wall binding, no AABB dirtying"
+  },
+  {
+    "from": "O-110",
+    "to": "O-111",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "O-112",
+    "disposition": "omit",
+    "note": "nothing to test"
+  },
+  {
+    "from": "P-001",
+    "to": "P-003",
+    "disposition": "omit",
+    "note": "no zip container in the working format"
+  },
+  {
+    "from": "P-004",
+    "disposition": "adopt",
+    "package": "host",
+    "phase": 0
+  },
+  {
+    "from": "P-005",
+    "disposition": "reverse",
+    "package": "host",
+    "phase": 0,
+    "note": "rename, not copy"
+  },
+  {
+    "from": "P-006",
+    "to": "P-007",
+    "disposition": "adopt",
+    "package": "host",
+    "phase": 0
+  },
+  {
+    "from": "P-008",
+    "to": "P-012",
+    "disposition": "reverse",
+    "package": "host",
+    "phase": 0,
+    "note": "manifest hashes"
+  },
+  {
+    "from": "P-013",
+    "to": "P-019",
+    "disposition": "omit",
+    "note": "hash-named assets instead"
+  },
+  {
+    "from": "P-020",
+    "disposition": "reverse",
+    "package": "host",
+    "phase": 0
+  },
+  {
+    "from": "P-021",
+    "disposition": "omit"
+  },
+  {
+    "from": "P-022",
+    "to": "P-023",
+    "disposition": "adopt",
+    "package": "ir",
+    "phase": 0
+  },
+  {
+    "from": "P-024",
+    "disposition": "reverse",
+    "package": "ir",
+    "phase": 0,
+    "note": "NaN rejected"
+  },
+  {
+    "from": "P-025",
+    "to": "P-026",
+    "disposition": "adopt",
+    "package": "ir",
+    "phase": 0
+  },
+  {
+    "from": "P-025",
+    "disposition": "adopt",
+    "package": "catalog",
+    "phase": 1,
+    "note": "mesh rotation lives in the catalog"
+  },
+  {
+    "from": "P-027",
+    "to": "P-030",
+    "disposition": "reverse",
+    "package": "ir",
+    "phase": 0,
+    "note": "explicit fields"
+  },
+  {
+    "from": "P-031",
+    "to": "P-032",
+    "disposition": "adopt",
+    "package": "ir",
+    "phase": 0
+  },
+  {
+    "from": "P-033",
+    "disposition": "reverse",
+    "package": "ir",
+    "phase": 0,
+    "note": "problem, not null"
+  },
+  {
+    "from": "P-034",
+    "disposition": "adopt",
+    "package": "ir",
+    "phase": 0
+  },
+  {
+    "from": "P-035",
+    "disposition": "reverse",
+    "package": "ir",
+    "phase": 0
+  },
+  {
+    "from": "P-036",
+    "to": "P-039",
+    "disposition": "adopt",
+    "package": "ir",
+    "phase": 0
+  },
+  {
+    "from": "P-036",
+    "disposition": "reverse",
+    "package": "ir",
+    "phase": 0,
+    "note": "dangling join is a problem"
+  },
+  {
+    "from": "P-040",
+    "to": "P-046",
+    "disposition": "omit",
+    "note": "reference migrations"
+  },
+  {
+    "from": "P-047",
+    "disposition": "adopt",
+    "package": "ir",
+    "phase": 0,
+    "note": "migration fixture pattern"
+  },
+  {
+    "from": "P-048",
+    "to": "P-049",
+    "disposition": "omit"
+  },
+  {
+    "from": "P-050",
+    "disposition": "adopt",
+    "package": "ir",
+    "phase": 0
+  },
+  {
+    "from": "P-051",
+    "disposition": "reverse",
+    "package": "host",
+    "phase": 0,
+    "note": "refuse newer files"
+  },
+  {
+    "from": "P-052",
+    "to": "P-054",
+    "disposition": "adopt",
+    "package": "ir",
+    "phase": 0
+  },
+  {
+    "from": "P-055",
+    "to": "P-057",
+    "disposition": "omit"
+  },
+  {
+    "from": "P-058",
+    "disposition": "defer",
+    "package": "assets",
+    "phase": 2,
+    "note": "custom asset resolution arrives with asset packs"
+  },
+  {
+    "from": "P-059",
+    "disposition": "reject",
+    "package": "host",
+    "phase": 0,
+    "note": "sizes come from catalog snapshots, never backfilled from files"
+  },
+  {
+    "from": "P-060",
+    "disposition": "adopt",
+    "package": "host",
+    "phase": 0,
+    "note": "mm, degrees, #RRGGBB, ISO timestamps"
+  },
+  {
+    "from": "P-061",
+    "disposition": "reverse",
+    "package": "host",
+    "phase": 0,
+    "note": "an aborted save leaves the destination untouched and no temporary"
+  },
+  {
+    "from": "R-001",
+    "disposition": "reject",
+    "package": "ir",
+    "phase": 0
+  },
+  {
+    "from": "R-002",
+    "disposition": "adopt",
+    "package": "ir",
+    "phase": 0
+  },
+  {
+    "from": "R-003",
+    "disposition": "omit",
+    "note": "legacy"
+  },
+  {
+    "from": "R-004",
+    "to": "R-006",
+    "disposition": "adopt",
+    "package": "geometry",
+    "phase": 0
+  },
+  {
+    "from": "R-007",
+    "to": "R-009",
+    "disposition": "reverse",
+    "package": "geometry",
+    "phase": 0,
+    "note": "non-simple rejected"
+  },
+  {
+    "from": "R-010",
+    "disposition": "adopt",
+    "package": "geometry",
+    "phase": 0
+  },
+  {
+    "from": "R-011",
+    "disposition": "adopt",
+    "package": "ir",
+    "phase": 0
+  },
+  {
+    "from": "R-012",
+    "disposition": "reverse",
+    "package": "ir",
+    "phase": 0,
+    "note": "pole of inaccessibility"
+  },
+  {
+    "from": "R-013",
+    "to": "R-014",
+    "disposition": "adopt",
+    "package": "ir",
+    "phase": 0
+  },
+  {
+    "from": "R-013",
+    "disposition": "omit",
+    "note": "derived values are pure functions, no caches"
+  },
+  {
+    "from": "R-014",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "R-015",
+    "disposition": "reject",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "R-016",
+    "to": "R-020",
+    "disposition": "adopt",
+    "package": "ir",
+    "phase": 0
+  },
+  {
+    "from": "R-019",
+    "disposition": "reverse",
+    "package": "commands",
+    "phase": 0,
+    "note": "duplicates keep their level"
+  },
+  {
+    "from": "R-021",
+    "to": "R-023",
+    "disposition": "adopt",
+    "package": "geometry",
+    "phase": 0
+  },
+  {
+    "from": "R-024",
+    "disposition": "reverse",
+    "package": "geometry",
+    "phase": 0,
+    "note": "gap tolerance"
+  },
+  {
+    "from": "R-025",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "R-026",
+    "disposition": "reverse",
+    "package": "geometry",
+    "phase": 0,
+    "note": "smallest enclosure"
+  },
+  {
+    "from": "R-027",
+    "to": "R-031",
+    "disposition": "adopt",
+    "package": "geometry",
+    "phase": 0
+  },
+  {
+    "from": "R-032",
+    "to": "R-039",
+    "disposition": "reverse",
+    "package": "geometry",
+    "phase": 0,
+    "note": "thresholds from bound openings"
+  },
+  {
+    "from": "R-040",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "R-041",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "R-042",
+    "disposition": "omit"
+  },
+  {
+    "from": "R-043",
+    "to": "R-049",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "R-050",
+    "to": "R-055",
+    "disposition": "adopt",
+    "package": "geometry",
+    "phase": 0
+  },
+  {
+    "from": "R-054",
+    "to": "R-055",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3,
+    "note": "ray alignment and cross-level candidates are viewer concerns"
+  },
+  {
+    "from": "R-056",
+    "disposition": "reverse",
+    "package": "commands",
+    "phase": 0,
+    "note": "projected onto edge"
+  },
+  {
+    "from": "R-057",
+    "disposition": "reject",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "R-058",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "R-059",
+    "to": "R-060",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "R-061",
+    "to": "R-067",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "R-068",
+    "to": "R-071",
+    "disposition": "reverse",
+    "package": "engine",
+    "phase": 0,
+    "note": "ceiling from level height"
+  },
+  {
+    "from": "R-072",
+    "to": "R-074",
+    "disposition": "defer",
+    "package": "engine",
+    "phase": 3
+  },
+  {
+    "from": "R-075",
+    "to": "R-080",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "R-081",
+    "disposition": "omit"
+  },
+  {
+    "from": "R-082",
+    "to": "R-084",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "R-085",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 1,
+    "note": "viewer transparency mode"
+  },
+  {
+    "from": "R-086",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "R-087",
+    "to": "R-088",
+    "disposition": "adopt",
+    "package": "web",
+    "phase": 0
+  },
+  {
+    "from": "R-089",
+    "to": "R-100",
+    "disposition": "defer",
+    "package": "engine",
+    "phase": 2
+  },
+  {
+    "from": "R-101",
+    "to": "R-102",
+    "disposition": "reverse",
+    "package": "ir",
+    "phase": 0,
+    "note": "always one level"
+  },
+  {
+    "from": "R-103",
+    "to": "R-112",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "R-107",
+    "disposition": "omit",
+    "note": "reference migration"
+  },
+  {
+    "from": "R-113",
+    "disposition": "reverse",
+    "package": "ir",
+    "phase": 0,
+    "note": "explicit levelId"
+  },
+  {
+    "from": "R-114",
+    "to": "R-123",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "R-114",
+    "to": "R-115",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "R-117",
+    "to": "R-118",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "R-123",
+    "disposition": "adopt",
+    "package": "ir",
+    "phase": 0
+  },
+  {
+    "from": "R-124",
+    "disposition": "omit"
+  },
+  {
+    "from": "R-125",
+    "to": "R-130",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "R-131",
+    "disposition": "adopt",
+    "package": "geometry",
+    "phase": 0,
+    "note": "our six-wall fixture"
+  },
+  {
+    "from": "R-132",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "R-133",
+    "disposition": "reverse",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "R-134",
+    "to": "R-137",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "R-138",
+    "to": "R-141",
+    "disposition": "defer",
+    "package": "commands",
+    "phase": 3
+  },
+  {
+    "from": "R-142",
+    "to": "R-148",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "R-149",
+    "disposition": "reverse",
+    "package": "geometry",
+    "phase": 0
+  },
+  {
+    "from": "R-150",
+    "disposition": "reject",
+    "package": "ir",
+    "phase": 0
+  },
+  {
+    "from": "S-001",
+    "disposition": "adopt",
+    "package": "web",
+    "phase": 0
+  },
+  {
+    "from": "S-002",
+    "disposition": "reverse",
+    "package": "web",
+    "phase": 2
+  },
+  {
+    "from": "S-003",
+    "disposition": "adopt",
+    "package": "web",
+    "phase": 0
+  },
+  {
+    "from": "S-004",
+    "to": "S-008",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "S-009",
+    "disposition": "reverse",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "S-010",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "S-011",
+    "disposition": "reject",
+    "package": "engine",
+    "phase": 0,
+    "note": "no wall pattern in the IR"
+  },
+  {
+    "from": "S-012",
+    "disposition": "reverse",
+    "package": "engine",
+    "phase": 0,
+    "note": "rooms are explicit polygons; wall changes never rebuild them"
+  },
+  {
+    "from": "S-013",
+    "to": "S-014",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "S-015",
+    "disposition": "reverse",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "S-016",
+    "to": "S-018",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "S-019",
+    "disposition": "reject",
+    "package": "engine",
+    "phase": 0,
+    "note": "no lights in the IR"
+  },
+  {
+    "from": "S-020",
+    "to": "S-021",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "S-022",
+    "disposition": "reverse",
+    "package": "engine",
+    "phase": 0,
+    "note": "items do not cut the ground"
+  },
+  {
+    "from": "S-023",
+    "to": "S-026",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "S-027",
+    "disposition": "reject",
+    "package": "engine",
+    "phase": 0,
+    "note": "expand is synchronous"
+  },
+  {
+    "from": "S-028",
+    "disposition": "reverse",
+    "package": "engine",
+    "phase": 0,
+    "note": "only the room and rooms it overlaps"
+  },
+  {
+    "from": "S-029",
+    "to": "S-031",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "S-032",
+    "disposition": "reverse",
+    "package": "engine",
+    "phase": 0,
+    "note": "level changes rebuild the ground too"
+  },
+  {
+    "from": "S-033",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "S-034",
+    "disposition": "adopt",
+    "package": "web",
+    "phase": 0
+  },
+  {
+    "from": "S-035",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "S-036",
+    "disposition": "reverse",
+    "package": "engine",
+    "phase": 0,
+    "note": "all environment properties listened"
+  },
+  {
+    "from": "S-037",
+    "to": "S-038",
+    "disposition": "adopt",
+    "package": "web",
+    "phase": 0
+  },
+  {
+    "from": "S-039",
+    "to": "S-041",
+    "disposition": "defer",
+    "package": "assets",
+    "phase": 2,
+    "note": "glTF loading and clone cache arrive with asset packs"
+  },
+  {
+    "from": "S-042",
+    "disposition": "adopt",
+    "package": "web",
+    "phase": 0,
+    "note": "placeholder box at the product size"
+  },
+  {
+    "from": "S-043",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 2,
+    "note": "red box on a failed asset load, once assets load"
+  },
+  {
+    "from": "S-044",
+    "to": "S-046",
+    "disposition": "defer",
+    "package": "assets",
+    "phase": 2
+  },
+  {
+    "from": "S-047",
+    "disposition": "adopt",
+    "package": "web",
+    "phase": 0
+  },
+  {
+    "from": "S-048",
+    "disposition": "reverse",
+    "package": "web",
+    "phase": 0,
+    "note": "one visibility rule for bounds and rendering"
+  },
+  {
+    "from": "S-049",
+    "disposition": "reverse",
+    "package": "web",
+    "phase": 0,
+    "note": "exact bounds from the geometry buffers"
+  },
+  {
+    "from": "S-050",
+    "disposition": "adopt",
+    "package": "web",
+    "phase": 0,
+    "note": "simplified: near = max(0.05, d/1000), far = d + diag * 4"
+  },
+  {
+    "from": "S-051",
+    "disposition": "reverse",
+    "package": "web",
+    "phase": 0,
+    "note": "a plane under the bounds; floors are drawn above it"
+  },
+  {
+    "from": "S-052",
+    "to": "S-053",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 2,
+    "note": "background images and textures arrive with the importer and asset packs"
+  },
+  {
+    "from": "S-054",
+    "disposition": "adopt",
+    "package": "web",
+    "phase": 0
+  },
+  {
+    "from": "S-055",
+    "disposition": "adopt",
+    "package": "web",
+    "phase": 0
+  },
+  {
+    "from": "W-001",
+    "to": "W-003",
+    "disposition": "adopt",
+    "package": "geometry",
+    "phase": 0
+  },
+  {
+    "from": "W-004",
+    "disposition": "reject",
+    "package": "ir",
+    "phase": 0
+  },
+  {
+    "from": "W-005",
+    "disposition": "adopt",
+    "package": "geometry",
+    "phase": 0
+  },
+  {
+    "from": "W-006",
+    "to": "W-007",
+    "disposition": "reject",
+    "package": "ir",
+    "phase": 0
+  },
+  {
+    "from": "W-008",
+    "disposition": "adopt",
+    "package": "geometry",
+    "phase": 0
+  },
+  {
+    "from": "W-009",
+    "to": "W-011",
+    "disposition": "reverse",
+    "package": "engine",
+    "phase": 0,
+    "note": "single invalidation path"
+  },
+  {
+    "from": "W-012",
+    "disposition": "adopt",
+    "package": "geometry",
+    "phase": 0
+  },
+  {
+    "from": "W-013",
+    "to": "W-014",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "W-015",
+    "disposition": "reject",
+    "package": "ir",
+    "phase": 0
+  },
+  {
+    "from": "W-016",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "W-017",
+    "disposition": "reject",
+    "package": "ir",
+    "phase": 0
+  },
+  {
+    "from": "W-018",
+    "to": "W-027",
+    "disposition": "adopt",
+    "package": "geometry",
+    "phase": 0
+  },
+  {
+    "from": "W-028",
+    "disposition": "reverse",
+    "package": "geometry",
+    "phase": 0,
+    "note": "symmetric join pass"
+  },
+  {
+    "from": "W-029",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "W-030",
+    "disposition": "reverse",
+    "package": "commands",
+    "phase": 0,
+    "note": "both ends detached"
+  },
+  {
+    "from": "W-031",
+    "to": "W-035",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "W-036",
+    "disposition": "defer",
+    "package": "commands",
+    "phase": 3
+  },
+  {
+    "from": "W-037",
+    "to": "W-038",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "W-039",
+    "disposition": "reverse",
+    "package": "commands",
+    "phase": 0,
+    "note": "arc halved on split"
+  },
+  {
+    "from": "W-040",
+    "to": "W-047",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "W-041",
+    "disposition": "defer",
+    "package": "commands",
+    "phase": 3,
+    "note": "wall duplicate arrives with the editor"
+  },
+  {
+    "from": "W-042",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "W-046",
+    "disposition": "omit",
+    "note": "wall.join takes explicit ends"
+  },
+  {
+    "from": "W-048",
+    "to": "W-049",
+    "disposition": "adopt",
+    "package": "geometry",
+    "phase": 0
+  },
+  {
+    "from": "W-050",
+    "disposition": "reverse",
+    "package": "ir",
+    "phase": 0,
+    "note": "zero arc normalised to null"
+  },
+  {
+    "from": "W-051",
+    "to": "W-053",
+    "disposition": "adopt",
+    "package": "geometry",
+    "phase": 0
+  },
+  {
+    "from": "W-054",
+    "disposition": "omit",
+    "note": "legacy asymmetric tessellation"
+  },
+  {
+    "from": "W-055",
+    "to": "W-056",
+    "disposition": "adopt",
+    "package": "geometry",
+    "phase": 0
+  },
+  {
+    "from": "W-057",
+    "disposition": "reverse",
+    "package": "engine",
+    "phase": 3,
+    "note": "skirting radius clamped"
+  },
+  {
+    "from": "W-058",
+    "to": "W-059",
+    "disposition": "adopt",
+    "package": "geometry",
+    "phase": 0
+  },
+  {
+    "from": "W-060",
+    "disposition": "adopt",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "W-061",
+    "disposition": "reverse",
+    "package": "web",
+    "phase": 3,
+    "note": "correct argument order"
+  },
+  {
+    "from": "W-062",
+    "to": "W-066",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "W-062",
+    "to": "W-065",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "W-067",
+    "to": "W-071",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "W-071",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "W-072",
+    "to": "W-076",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "W-077",
+    "to": "W-086",
+    "disposition": "adopt",
+    "package": "geometry",
+    "phase": 0
+  },
+  {
+    "from": "W-083",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0,
+    "note": "commands filter snapping candidates by level"
+  },
+  {
+    "from": "W-084",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "W-085",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "W-086",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "W-087",
+    "disposition": "reverse",
+    "package": "commands",
+    "phase": 0,
+    "note": "one mutation path"
+  },
+  {
+    "from": "W-088",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "W-089",
+    "to": "W-091",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "W-092",
+    "to": "W-095",
+    "disposition": "adopt",
+    "package": "ir",
+    "phase": 0
+  },
+  {
+    "from": "W-096",
+    "disposition": "reverse",
+    "package": "ir",
+    "phase": 0,
+    "note": "explicit levelId"
+  },
+  {
+    "from": "W-097",
+    "to": "W-098",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "W-099",
+    "to": "W-100",
+    "disposition": "defer",
+    "package": "engine",
+    "phase": 3
+  },
+  {
+    "from": "W-101",
+    "disposition": "reject",
+    "package": "ir",
+    "phase": 0
+  },
+  {
+    "from": "W-102",
+    "to": "W-103",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "W-104",
+    "disposition": "reject",
+    "package": "engine",
+    "phase": 0,
+    "note": "the wall bottom already runs through the slab (W-097); no nudge needed"
+  },
+  {
+    "from": "W-105",
+    "disposition": "defer",
+    "package": "engine",
+    "phase": 1,
+    "note": "validation warns opening.overlap; split bands later"
+  },
+  {
+    "from": "W-106",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "W-107",
+    "disposition": "defer",
+    "package": "engine",
+    "phase": 3
+  },
+  {
+    "from": "W-108",
+    "to": "W-111",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "W-112",
+    "to": "W-118",
+    "disposition": "defer",
+    "package": "engine",
+    "phase": 3
+  },
+  {
+    "from": "W-116",
+    "disposition": "omit",
+    "note": "no such constructor"
+  },
+  {
+    "from": "W-119",
+    "disposition": "reverse",
+    "package": "engine",
+    "phase": 0,
+    "note": "rooms not rebuilt on wall change"
+  },
+  {
+    "from": "W-120",
+    "to": "W-123",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "W-124",
+    "disposition": "omit",
+    "note": "no lighting-driven subdivision"
+  },
+  {
+    "from": "W-125",
+    "to": "W-126",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "W-127",
+    "disposition": "adopt",
+    "package": "geometry",
+    "phase": 0
+  },
+  {
+    "from": "W-128",
+    "disposition": "defer",
+    "package": "engine",
+    "phase": 2,
+    "note": "custom cut-outs arrive with asset packs"
+  },
+  {
+    "from": "W-129",
+    "disposition": "reverse",
+    "package": "engine",
+    "phase": 2,
+    "note": "rectangle fallback with warning"
+  },
+  {
+    "from": "W-130",
+    "to": "W-131",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 2
+  },
+  {
+    "from": "W-132",
+    "to": "W-133",
+    "disposition": "adopt",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "W-134",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 0
+  },
+  {
+    "from": "W-135",
+    "to": "W-140",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0
+  },
+  {
+    "from": "W-140",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "W-141",
+    "to": "W-154",
+    "disposition": "adopt",
+    "package": "commands",
+    "phase": 0,
+    "note": "fixtures converted to mm"
+  },
+  {
+    "from": "W-142",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "W-149",
+    "disposition": "defer",
+    "package": "commands",
+    "phase": 3
+  },
+  {
+    "from": "W-151",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "W-153",
+    "to": "W-154",
+    "disposition": "defer",
+    "package": "web",
+    "phase": 3
+  },
+  {
+    "from": "C-006",
+    "disposition": "reverse",
+    "package": "catalog",
+    "phase": 1,
+    "note": "dims must be > 0 (spec 02 section 1)"
+  },
+  {
+    "from": "C-020",
+    "to": "C-021",
+    "disposition": "reverse",
+    "package": "catalog",
+    "phase": 1,
+    "note": "one file per asset by hash; multi-part models refused"
+  },
+  {
+    "from": "C-025",
+    "disposition": "adopt",
+    "package": "catalog",
+    "phase": 1,
+    "note": "declared digests carried, never trusted; library hashes verified on install"
+  },
+  {
+    "from": "F-067",
+    "to": "F-068",
+    "disposition": "omit",
+    "note": "shelf elevations and shelf boxes are not modelled (as F-073, F-074)"
+  },
+  {
+    "from": "F-091",
+    "disposition": "reverse",
+    "package": "commands",
+    "phase": 1,
+    "note": "door and window products are openings bound to walls by id, never items (O-013)"
+  }
+]

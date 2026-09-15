@@ -1,0 +1,141 @@
+{
+  "schemaVersion": 1,
+  "meta": {
+    "name": "Six-wall L-shaped room",
+    "createdAt": "2026-09-15T00:00:00.000Z",
+    "updatedAt": "2026-09-15T00:00:00.000Z",
+    "currency": "USD",
+    "north": 90,
+    "units": "mm"
+  },
+  "levels": [
+    {
+      "id": "level_000000",
+      "name": "Ground",
+      "elevation": 0,
+      "height": 2700,
+      "floorThickness": 300,
+      "index": 0,
+      "viewable": true,
+      "backgroundImage": null
+    }
+  ],
+  "walls": [
+    {
+      "id": "wall_000001",
+      "levelId": "level_000000",
+      "start": { "x": 0, "y": 0 },
+      "end": { "x": 8000, "y": 0 },
+      "thickness": 100,
+      "height": null,
+      "heightAtEnd": null,
+      "arcExtent": null,
+      "kind": "interior",
+      "joins": { "start": { "wallId": "wall_000006", "end": "end" }, "end": { "wallId": "wall_000002", "end": "start" } },
+      "finishes": { "left": null, "right": null, "top": null },
+      "skirting": { "left": null, "right": null },
+      "properties": {}
+    },
+    {
+      "id": "wall_000002",
+      "levelId": "level_000000",
+      "start": { "x": 8000, "y": 0 },
+      "end": { "x": 8000, "y": 3000 },
+      "thickness": 100,
+      "height": null,
+      "heightAtEnd": null,
+      "arcExtent": null,
+      "kind": "interior",
+      "joins": { "start": { "wallId": "wall_000001", "end": "end" }, "end": { "wallId": "wall_000003", "end": "start" } },
+      "finishes": { "left": null, "right": null, "top": null },
+      "skirting": { "left": null, "right": null },
+      "properties": {}
+    },
+    {
+      "id": "wall_000003",
+      "levelId": "level_000000",
+      "start": { "x": 8000, "y": 3000 },
+      "end": { "x": 5000, "y": 3000 },
+      "thickness": 100,
+      "height": null,
+      "heightAtEnd": null,
+      "arcExtent": null,
+      "kind": "interior",
+      "joins": { "start": { "wallId": "wall_000002", "end": "end" }, "end": { "wallId": "wall_000004", "end": "start" } },
+      "finishes": { "left": null, "right": null, "top": null },
+      "skirting": { "left": null, "right": null },
+      "properties": {}
+    },
+    {
+      "id": "wall_000004",
+      "levelId": "level_000000",
+      "start": { "x": 5000, "y": 3000 },
+      "end": { "x": 5000, "y": 5000 },
+      "thickness": 100,
+      "height": null,
+      "heightAtEnd": null,
+      "arcExtent": null,
+      "kind": "interior",
+      "joins": { "start": { "wallId": "wall_000003", "end": "end" }, "end": { "wallId": "wall_000005", "end": "start" } },
+      "finishes": { "left": null, "right": null, "top": null },
+      "skirting": { "left": null, "right": null },
+      "properties": {}
+    },
+    {
+      "id": "wall_000005",
+      "levelId": "level_000000",
+      "start": { "x": 5000, "y": 5000 },
+      "end": { "x": 0, "y": 5000 },
+      "thickness": 100,
+      "height": null,
+      "heightAtEnd": null,
+      "arcExtent": null,
+      "kind": "interior",
+      "joins": { "start": { "wallId": "wall_000004", "end": "end" }, "end": { "wallId": "wall_000006", "end": "start" } },
+      "finishes": { "left": null, "right": null, "top": null },
+      "skirting": { "left": null, "right": null },
+      "properties": {}
+    },
+    {
+      "id": "wall_000006",
+      "levelId": "level_000000",
+      "start": { "x": 0, "y": 5000 },
+      "end": { "x": 0, "y": 0 },
+      "thickness": 100,
+      "height": null,
+      "heightAtEnd": null,
+      "arcExtent": null,
+      "kind": "interior",
+      "joins": { "start": { "wallId": "wall_000005", "end": "end" }, "end": { "wallId": "wall_000001", "end": "start" } },
+      "finishes": { "left": null, "right": null, "top": null },
+      "skirting": { "left": null, "right": null },
+      "properties": {}
+    }
+  ],
+  "openings": [
+    {
+      "id": "opening_000001",
+      "levelId": "level_000000",
+      "wallId": "wall_000001",
+      "kind": "door",
+      "position": 0.5,
+      "width": 900,
+      "height": 2100,
+      "sill": 0,
+      "swing": { "hinge": "start", "direction": "left" },
+      "mirrored": false,
+      "productId": null,
+      "recipe": { "style": "single" },
+      "finishes": { "frame": null, "leaf": null },
+      "properties": {}
+    }
+  ],
+  "rooms": [],
+  "items": [],
+  "zones": [],
+  "annotations": [],
+  "catalogRefs": {},
+  "textures": {},
+  "provenance": null,
+  "properties": {}
+}
