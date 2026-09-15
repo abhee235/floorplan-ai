@@ -240,6 +240,11 @@ export function startApp(el: AppElements): {
     onDraft: (msg) => {
       const wasActive = review.active;
       review.open(msg);
+      if (msg.image) {
+        const img = new Image();
+        img.onload = () => review.setImage(img);
+        img.src = msg.image.dataUrl;
+      }
       if (review.active && !wasActive) fitDraft();
       if (!review.active) {
         plan.fit();
@@ -316,7 +321,13 @@ export function startApp(el: AppElements): {
       if (!file) return;
       el.status.textContent = `reading ${file.name}…`;
       try {
-        const r = await client.tool("import_plan", { content: await file.text(), fileName: file.name });
+        const isImage = file.type.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp)$/i.test(file.name);
+        const r = await client.tool(
+          "import_plan",
+          isImage
+            ? { contentBase64: await fileToBase64(file), fileName: file.name }
+            : { content: await file.text(), fileName: file.name },
+        );
         // the host shows the draft through a draft message; only failures need handling here
         if (!r.ok) el.status.textContent = `import failed: ${r.error?.message ?? "unknown error"}`;
         else updateStatus();
@@ -329,4 +340,13 @@ export function startApp(el: AppElements): {
   updateStatus();
   requestAnimationFrame(loop);
   return { replica, binding, plan, review };
+}
+
+/** A file's bytes as base64, in chunks so large images do not overflow the argument list. */
+async function fileToBase64(file: Blob): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000)
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(binary);
 }

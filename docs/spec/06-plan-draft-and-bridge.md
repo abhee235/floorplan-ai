@@ -124,6 +124,54 @@ amended 2026-09-15):
 - A failed `wall.createChain` or provenance command rolls the whole
   transaction back; nothing is half imported.
 
+Raster implementation (P2-2, 2026-09-16): `packages/importers/src/raster.ts`
+reads image sizes from PNG, JPEG, GIF, WebP and BMP headers without decoding.
+The model replies with coordinates of 0 to 1000 on each axis of the image, y
+downward (the grounding convention vision models are trained on; an
+aspect-correct box was tried first and the model ignored it), scaled on
+reading to the long-side box of A1, with walls as centreline
+segments, openings at their gap centres, room labels with a point, dimension
+strings with the two points they measure, an optional scale bar and notes
+(`RasterReply`). `rasterReplyToDraft` flips y once and applies rule 3 when
+the image is read, not at commit, so the review shows the cleaned geometry:
+segments within 5 degrees of an axis are made axis-aligned; collinear axis
+segments merge when they touch within 1 percent of the image diagonal or an
+opening lies in the gap; endpoints within 1 percent meet, and free ends reach a
+wall within 1 percent; walls shorter than 0.5 percent of the diagonal are
+dropped (the millimetre threshold needs a scale the draft does not have yet);
+openings attach to the nearest wall within half its thickness plus 1.5 percent.
+Room outlines from the model are not used (they are several percent off);
+rooms keep their label point and are detected from the walls when the draft is
+committed (rule 6). Two dimension strings agreeing within 2 percent set `dimension-text` as a
+suggestion only: a scale read from an image is never confirmed without a
+person (amended 2026-09-16, after qwen3.6 read two agreeing dimensions whose
+end points put the scale 10 percent off); `scaleStatus` refuses image,
+raster PDF and sketch drafts unless the source is `user`, and the draft always
+asks the scale question. One
+string or a scale bar sets a scale that still needs confirming; with neither,
+`mmPerUnit` stays null. Model notes become `ambiguity` questions. The
+`planReader` role in `packages/agents` sends the image as a data URL and
+retries invalid JSON three times. When the image's pixels are available (PNG,
+decoded by `decodePngGray` in the importers package with inflate supplied by
+the host), `refineRasterDraft` corrects the model's positions, which are
+roughly 3 to 5 percent of the image off: for each axis-aligned wall it searches
+4 percent of the image plus one wall thickness for ink, ranks a pair of face
+lines or a solid band above a single thin line, favours candidates that are
+well inked, near the model's position and bridged by ink at both ends (the
+walls they meet, which a dimension line beside a wall is not), snaps the
+centreline and thickness to it, lets wall ends follow the drawn lines and join
+the perpendicular wall they meet, and drops short walls with no ink. Evidence
+must include one unbroken ink run over 20 percent of the wall, so text and
+hatching strokes do not count. Where a wall's face lines resume within 12
+percent of the image past its end and the model reported nothing there, the
+missing piece is added, clipped at the next reported wall on that line.
+Collinear pieces across a gap of up to 12 percent become one wall, with a
+passage recorded when the gap is at least one wall thickness and the model put
+no opening there. When 70 percent or more of the model's walls are confirmed,
+unconfirmed walls of any length are dropped; otherwise only short ones are. JPEG and
+other formats are read without refinement. The host picks the model from
+`roles.reader` or `FPV_READER_*`.
+
 ### A3. Reader prompt contract
 
 System prompt version `reader-v1` asks for exactly the PlanDraft JSON with

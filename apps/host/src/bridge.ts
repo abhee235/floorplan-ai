@@ -290,9 +290,10 @@ export class Bridge implements ViewerRenderer {
           draftId: presentation.draftId,
           draft: presentation.draft,
           preview: presentation.preview,
+          image: presentation.image,
           warnings: presentation.warnings,
         }
-      : { type: "draft", draftId: null, draft: null, preview: null, warnings: [] };
+      : { type: "draft", draftId: null, draft: null, preview: null, image: null, warnings: [] };
     this.draft = presentation ? msg : null;
     this.broadcast(msg);
   }

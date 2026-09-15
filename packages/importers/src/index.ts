@@ -54,6 +54,24 @@ export {
   sourceWallFaces,
   wallFaceCoverage,
 } from "./metrics.js";
+export { decodePngGray, type GrayBitmap, PngDecodeError } from "./png.js";
+export {
+  cleanupRasterDraft,
+  type ImageBox,
+  type ImageFormat,
+  type ImageInfo,
+  imageBox,
+  imageInfo,
+  RASTER_REPLY_JSON_SCHEMA,
+  type RasterDraftOptions,
+  RasterReply,
+  READER_PROMPT_VERSION,
+  READER_SYSTEM,
+  rasterReplyToDraft,
+  readerSystemPrompt,
+  readerUserPrompt,
+} from "./raster.js";
+export { INK_THRESHOLD, type RefineReport, refineRasterDraft } from "./raster-refine.js";
 export {
   decodePlanText,
   type PlanFileKind,

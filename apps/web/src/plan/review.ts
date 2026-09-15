@@ -4,6 +4,7 @@
 import {
   applyAnswers,
   draftBounds,
+  imageBox,
   type PlanDraft,
   type PlanPreview,
   type ScaleInput,
@@ -17,6 +18,7 @@ export interface DraftOpenMsg {
   draftId: string | null;
   draft: unknown;
   preview: PlanPreview | null;
+  image?: { dataUrl: string; width: number; height: number } | null;
   warnings: string[];
 }
 
@@ -71,6 +73,9 @@ export class DraftReview {
   draftId: string | null = null;
   draft: PlanDraft | null = null;
   preview: PlanPreview | null = null;
+  /** The loaded source image of a raster draft (an HTMLImageElement in the app), and its pixel size. */
+  image: unknown = null;
+  imageSize: { width: number; height: number } | null = null;
   warnings: string[] = [];
   selectedWall: number | null = null;
   /** True once the draft differs from what the host sent, so the commit sends the edited draft. */
@@ -107,6 +112,8 @@ export class DraftReview {
     this.draftId = msg.draftId;
     this.draft = msg.draft as PlanDraft;
     this.preview = msg.preview;
+    this.image = null;
+    this.imageSize = msg.image ? { width: msg.image.width, height: msg.image.height } : null;
     this.warnings = msg.warnings;
     this.selectedWall = null;
     this.edited = false;
@@ -117,9 +124,17 @@ export class DraftReview {
     this.draftId = null;
     this.draft = null;
     this.preview = null;
+    this.image = null;
+    this.imageSize = null;
     this.warnings = [];
     this.selectedWall = null;
     this.edited = false;
+    this.changed(false);
+  }
+
+  /** The source image finished loading: draw it under the draft. */
+  setImage(image: unknown): void {
+    this.image = image;
     this.changed(false);
   }
 
@@ -230,6 +245,16 @@ export class DraftReview {
     if (!d) return;
     const f = this.mmPerUnit;
     const px = 1 / view.scale;
+    if (this.visible.source && this.image && this.imageSize && ctx.drawImage) {
+      const box = imageBox(this.imageSize.width, this.imageSize.height);
+      const w = box.width * f * view.scale;
+      const h = box.height * f * view.scale;
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      if (ctx.globalAlpha !== undefined) ctx.globalAlpha = 0.55;
+      ctx.drawImage(this.image as never, view.offsetX, view.offsetY - h, w, h);
+      ctx.restore();
+    }
     if (this.visible.source && this.preview) {
       ctx.strokeStyle = COLOURS.source;
       ctx.lineWidth = px;

@@ -56,6 +56,12 @@ two measured segments within 2 percent. The app shows a dimension overlay on
 the image and asks the user to confirm or type one known length. This is the
 single biggest guard against a silently wrong model.
 
+Amendment 2026-09-16 (P2-2): for image, raster PDF and sketch drafts the
+dimension-text cross-check is not enough, because the model reads the
+measured end points from pixels a few percent off; two strings agreed within
+2 percent while the scale was 10 percent wrong. Those drafts always need a
+person to confirm the scale.
+
 ### D4. Reader prompts and validation
 
 The reader model is asked for JSON matching the PlanDraft schema with a

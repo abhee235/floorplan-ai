@@ -3,7 +3,7 @@
 
 import type { RulesPack, VerifyOutcome, VerifyRequest } from "@fpv/catalog";
 import type { Store } from "@fpv/commands";
-import type { PlanDraft, PlanPreview, PlanReadResult } from "@fpv/importers";
+import type { PlanDraft, PlanPreview } from "@fpv/importers";
 import type { PrimitiveRecipe, Project, Size3 } from "@fpv/ir";
 import { derive } from "@fpv/ir";
 
@@ -72,7 +72,24 @@ export interface DraftPresentation {
   draftId: string;
   draft: PlanDraft;
   preview: PlanPreview | null;
+  /** The source image of a raster draft, drawn under it in the review. */
+  image: PlanImage | null;
   warnings: string[];
+}
+
+export interface PlanImage {
+  dataUrl: string;
+  width: number;
+  height: number;
+}
+
+/** What a plan reader returns: the draft, what it could not read, and what the review draws underneath. */
+export interface PlanReadOutcome {
+  draft: PlanDraft;
+  report: { warnings: string[]; skipped: Record<string, number> };
+  preview: PlanPreview | null;
+  image: PlanImage | null;
+  fileName: string;
 }
 
 export interface PlanReadRequest {
@@ -80,14 +97,16 @@ export interface PlanReadRequest {
   path?: string;
   /** The file's text, when the caller has it (the app's file picker). */
   content?: string;
-  /** Names the content's format, e.g. "plan.dxf". */
+  /** The file's bytes in base64, for images from the app's file picker. */
+  contentBase64?: string;
+  /** Names the content's format, e.g. "plan.dxf" or "level1.png". */
   fileName?: string;
   page?: number;
 }
 
 /** Reads plan files into drafts (ADR-011 D2); supplied by the host. Throws ToolError. */
 export interface PlanReader {
-  read(req: PlanReadRequest): Promise<PlanReadResult & { fileName: string }>;
+  read(req: PlanReadRequest): Promise<PlanReadOutcome>;
 }
 
 export interface OpenOptions {

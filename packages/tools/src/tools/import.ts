@@ -80,14 +80,16 @@ const Output = z.object({
 export const importPlan = defineTool({
   name: "import_plan",
   description:
-    "Import a floor plan file (DXF now; PDF and images later) as walls, openings and rooms. First call with path: returns a draft id, the detected scale, counts and questions, and shows the draft in the viewer for review; nothing changes. Then call again with confirm=true and the draftId, answering the scale question (answers: {q1: 'mm'} or 'yes') or passing scale {units} / {mmPerUnit} / {measuredUnits, lengthMm}. A draft commits only when its scale is confirmed by a person or by two agreeing dimension texts. detail='full' returns the whole draft; draft accepts an edited draft.",
+    "Import a floor plan file (DXF, or a PNG/JPEG image read by the configured vision model; PDF later) as walls, openings and rooms. First call with path: returns a draft id, the detected scale, counts and questions, and shows the draft in the viewer for review; nothing changes. Then call again with confirm=true and the draftId, answering the scale question (answers: {q1: 'mm'} or 'yes') or passing scale {units} / {mmPerUnit} / {measuredUnits, lengthMm}. A draft commits only when its scale is confirmed by a person or by two agreeing dimension texts. detail='full' returns the whole draft; draft accepts an edited draft.",
   tier: "both",
   mutating: true,
-  timeoutMs: TIMEOUTS.slow,
+  // a local vision model can take minutes on a laptop; DXF plans return in well under a second
+  timeoutMs: 15 * 60_000,
   resultCapBytes: 8 * 1024 * 1024,
   input: z.object({
     path: z.string().optional().describe("plan file path, e.g. plans/level1.dxf"),
     content: z.string().optional().describe("the file's text instead of a path"),
+    contentBase64: z.string().optional().describe("the file's bytes in base64 instead of a path, for images"),
     fileName: z.string().optional().describe("names the content's format, e.g. level1.dxf"),
     page: z.number().int().min(1).optional(),
     draftId: z.string().optional().describe("the draft returned by an earlier call"),
@@ -134,12 +136,13 @@ export const importPlan = defineTool({
           draftId: idOf(parsed.data),
           draft: parsed.data,
           preview: base?.presentation.preview ?? null,
+          image: base?.presentation.image ?? null,
           warnings: base?.presentation.warnings ?? [],
         },
       };
     } else if (args.draftId !== undefined && keep(store).byId.has(args.draftId)) {
       kept = keep(store).byId.get(args.draftId);
-    } else if (args.path !== undefined || args.content !== undefined) {
+    } else if (args.path !== undefined || args.content !== undefined || args.contentBase64 !== undefined) {
       const known = source ? keep(store).bySource.get(source) : undefined;
       if (known && args.confirm && keep(store).byId.has(known)) kept = keep(store).byId.get(known);
       else {
@@ -147,6 +150,7 @@ export const importPlan = defineTool({
         const read = await ctx.plans.read({
           ...(args.path !== undefined ? { path: args.path } : {}),
           ...(args.content !== undefined ? { content: args.content } : {}),
+          ...(args.contentBase64 !== undefined ? { contentBase64: args.contentBase64 } : {}),
           ...(args.fileName !== undefined ? { fileName: args.fileName } : {}),
           ...(args.page !== undefined ? { page: args.page } : {}),
         });
@@ -157,7 +161,13 @@ export const importPlan = defineTool({
         ];
         kept = {
           draft: read.draft,
-          presentation: { draftId: idOf(read.draft), draft: read.draft, preview: read.preview, warnings },
+          presentation: {
+            draftId: idOf(read.draft),
+            draft: read.draft,
+            preview: read.preview,
+            image: read.image,
+            warnings,
+          },
         };
       }
     } else if (args.draftId !== undefined) {

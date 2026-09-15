@@ -1,0 +1,332 @@
+{
+  "model": "qwen3.6:35b",
+  "recordedAt": "2026-09-15T19:27:34.043Z",
+  "promptVersion": "reader-v1",
+  "note": "Raw replies of a local vision model to the fixture images, kept so the clean-up and refinement can be tested without a model.",
+  "replies": {
+    "lshape-metres": {
+      "walls": [
+        {
+          "from": [125, 160],
+          "to": [375, 160],
+          "thickness": 8,
+          "exterior": true
+        },
+        {
+          "from": [375, 160],
+          "to": [425, 160],
+          "thickness": 8,
+          "exterior": true
+        },
+        {
+          "from": [425, 160],
+          "to": [425, 390],
+          "thickness": 8,
+          "exterior": true
+        },
+        {
+          "from": [425, 390],
+          "to": [425, 490],
+          "thickness": 8,
+          "exterior": false
+        },
+        {
+          "from": [425, 490],
+          "to": [475, 490],
+          "thickness": 8,
+          "exterior": false
+        },
+        {
+          "from": [475, 490],
+          "to": [475, 690],
+          "thickness": 8,
+          "exterior": false
+        },
+        {
+          "from": [475, 690],
+          "to": [475, 840],
+          "thickness": 8,
+          "exterior": false
+        },
+        {
+          "from": [475, 840],
+          "to": [125, 840],
+          "thickness": 8,
+          "exterior": true
+        },
+        {
+          "from": [125, 840],
+          "to": [125, 690],
+          "thickness": 8,
+          "exterior": true
+        },
+        {
+          "from": [125, 690],
+          "to": [325, 690],
+          "thickness": 8,
+          "exterior": false
+        },
+        {
+          "from": [325, 690],
+          "to": [325, 490],
+          "thickness": 8,
+          "exterior": false
+        },
+        {
+          "from": [325, 490],
+          "to": [125, 490],
+          "thickness": 8,
+          "exterior": false
+        },
+        {
+          "from": [125, 490],
+          "to": [125, 390],
+          "thickness": 8,
+          "exterior": false
+        },
+        {
+          "from": [125, 390],
+          "to": [125, 160],
+          "thickness": 8,
+          "exterior": true
+        },
+        {
+          "from": [475, 490],
+          "to": [875, 490],
+          "thickness": 8,
+          "exterior": false
+        },
+        {
+          "from": [875, 490],
+          "to": [875, 690],
+          "thickness": 8,
+          "exterior": true
+        },
+        {
+          "from": [875, 690],
+          "to": [875, 840],
+          "thickness": 8,
+          "exterior": true
+        },
+        {
+          "from": [875, 840],
+          "to": [475, 840],
+          "thickness": 8,
+          "exterior": true
+        }
+      ],
+      "openings": [
+        {
+          "kind": "door",
+          "at": [250, 160],
+          "width": 75
+        },
+        {
+          "kind": "window",
+          "at": [425, 390],
+          "width": 50
+        },
+        {
+          "kind": "door",
+          "at": [475, 690],
+          "width": 75
+        },
+        {
+          "kind": "window",
+          "at": [875, 690],
+          "width": 50
+        }
+      ],
+      "rooms": [
+        {
+          "name": "Reception",
+          "at": [275, 325],
+          "polygon": null
+        },
+        {
+          "name": "Meeting Room",
+          "at": [225, 590],
+          "polygon": null
+        },
+        {
+          "name": "Open Office",
+          "at": [675, 665],
+          "polygon": null
+        }
+      ],
+      "dimensions": [
+        {
+          "text": "11.30",
+          "from": [80, 160],
+          "to": [80, 840]
+        },
+        {
+          "text": "14.30",
+          "from": [125, 870],
+          "to": [875, 870]
+        },
+        {
+          "text": "6.30",
+          "from": [920, 490],
+          "to": [920, 840]
+        }
+      ],
+      "scaleBar": null,
+      "notes": []
+    },
+    "office-mm": {
+      "walls": [
+        {
+          "from": [190, 130],
+          "to": [800, 130],
+          "thickness": 4,
+          "exterior": true
+        },
+        {
+          "from": [190, 130],
+          "to": [190, 870],
+          "thickness": 4,
+          "exterior": true
+        },
+        {
+          "from": [190, 870],
+          "to": [600, 870],
+          "thickness": 4,
+          "exterior": true
+        },
+        {
+          "from": [635, 870],
+          "to": [800, 870],
+          "thickness": 4,
+          "exterior": true
+        },
+        {
+          "from": [800, 130],
+          "to": [800, 870],
+          "thickness": 4,
+          "exterior": true
+        },
+        {
+          "from": [450, 130],
+          "to": [450, 290],
+          "thickness": 4,
+          "exterior": false
+        },
+        {
+          "from": [450, 370],
+          "to": [450, 640],
+          "thickness": 4,
+          "exterior": false
+        },
+        {
+          "from": [450, 720],
+          "to": [450, 870],
+          "thickness": 4,
+          "exterior": false
+        },
+        {
+          "from": [190, 390],
+          "to": [210, 390],
+          "thickness": 4,
+          "exterior": true
+        },
+        {
+          "from": [190, 610],
+          "to": [210, 610],
+          "thickness": 4,
+          "exterior": true
+        },
+        {
+          "from": [450, 450],
+          "to": [690, 450],
+          "thickness": 4,
+          "exterior": false
+        },
+        {
+          "from": [730, 450],
+          "to": [800, 450],
+          "thickness": 4,
+          "exterior": false
+        }
+      ],
+      "openings": [
+        {
+          "kind": "door",
+          "at": [370, 290],
+          "width": 80
+        },
+        {
+          "kind": "door",
+          "at": [450, 640],
+          "width": 80
+        },
+        {
+          "kind": "door",
+          "at": [635, 790],
+          "width": 80
+        },
+        {
+          "kind": "window",
+          "at": [190, 260],
+          "width": 20
+        },
+        {
+          "kind": "window",
+          "at": [190, 510],
+          "width": 20
+        },
+        {
+          "kind": "window",
+          "at": [345, 870],
+          "width": 110
+        },
+        {
+          "kind": "window",
+          "at": [600, 130],
+          "width": 200
+        },
+        {
+          "kind": "window",
+          "at": [800, 290],
+          "width": 20
+        },
+        {
+          "kind": "window",
+          "at": [800, 740],
+          "width": 20
+        }
+      ],
+      "rooms": [
+        {
+          "name": "BOARDROOM\n12 PAX",
+          "at": [320, 500],
+          "polygon": null
+        },
+        {
+          "name": "MEETING ROOM\n6 PAX",
+          "at": [625, 300],
+          "polygon": null
+        },
+        {
+          "name": "OPEN OFFICE",
+          "at": [625, 650],
+          "polygon": null
+        }
+      ],
+      "dimensions": [
+        {
+          "text": "8250",
+          "from": [170, 130],
+          "to": [170, 870]
+        },
+        {
+          "text": "12250",
+          "from": [190, 890],
+          "to": [800, 890]
+        }
+      ],
+      "scaleBar": null,
+      "notes": []
+    }
+  }
+}

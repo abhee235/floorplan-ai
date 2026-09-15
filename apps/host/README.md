@@ -142,6 +142,48 @@ records the source file and any open questions in the project provenance.
 DWG files are refused (save as DXF); PDF and image plans arrive in later
 releases.
 
+## Importing an image plan
+
+PNG, JPEG, GIF, WebP and BMP plans (scans, exports, screenshots) are read by a
+vision model you configure; nothing else in the host needs a model. Without one,
+`import_plan` refuses images with a message saying how to set one up; DXF keeps
+working.
+
+Point the reader at any OpenAI-compatible server, for example a local Ollama:
+
+```sh
+FPV_READER_BASE_URL=http://127.0.0.1:11434/v1
+FPV_READER_MODEL=qwen3.6:35b
+FPV_READER_EXTRA_BODY={"reasoning_effort":"none"}
+```
+
+or in `<data>/config.json`:
+
+```json
+{
+  "providers": {
+    "local-vision": {
+      "baseUrl": "http://127.0.0.1:11434/v1",
+      "model": "qwen3.6:35b",
+      "profile": { "vision": true },
+      "extraBody": { "reasoning_effort": "none" }
+    }
+  },
+  "roles": { "reader": "local-vision" }
+}
+```
+
+The host prints `floorplan-viz reader: ...` at start. The import works like a
+DXF: the first call returns a draft (walls squared up, collinear pieces merged,
+ends snapped, openings attached to walls) and shows it over the image in the
+viewer; the second call with `confirm: true` commits it. The scale is taken
+from two agreeing dimension strings when the model reads them; otherwise the
+draft asks for one known length, and it does not commit until it has one.
+Readers work best at 2048 pixels or less on the long side; a local model can
+take several minutes per image on a laptop, so `import_plan` allows up to
+15 minutes. PNG plans are placed more accurately than JPEG: the host decodes a
+PNG's pixels and snaps the model's walls to the lines actually drawn. Score a model on the fixture images with `tools/score-raster.ts`.
+
 ## Driving the tools from Claude Code while watching the viewer
 
 ```

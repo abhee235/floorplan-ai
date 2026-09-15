@@ -28,6 +28,9 @@ export interface Ctx2D {
   textAlign: string;
   textBaseline: string;
   setLineDash(segments: number[]): void;
+  /** Present on a real canvas; the review draws a raster plan's image with it. */
+  drawImage?(image: never, x: number, y: number, w: number, h: number): void;
+  globalAlpha?: number;
 }
 
 export interface PlanView {

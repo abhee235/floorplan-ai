@@ -31,6 +31,14 @@ export function scaleStatus(draft: PlanDraft): ScaleStatus {
   const f = draft.units.mmPerUnit;
   if (f === null) return { confirmed: false, reason: "the drawing has no scale yet" };
   if (draft.units.scaleSource === "user") return { confirmed: true, reason: "the scale was set by a person" };
+  // a model reads dimension end points from pixels a few percent off, so agreeing strings can still be wrong
+  const raster =
+    draft.source.kind === "image" || draft.source.kind === "pdf-raster" || draft.source.kind === "sketch";
+  if (raster)
+    return {
+      confirmed: false,
+      reason: "a scale read from an image must be confirmed by a person; check it against a known length",
+    };
   const agreeing = draft.units.checks.filter((c) => Math.abs(c.impliedMmPerUnit - f) / f <= SCALE_AGREEMENT);
   if (draft.units.scaleSource === "dimension-text" && agreeing.length >= 2)
     return {

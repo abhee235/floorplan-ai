@@ -12,6 +12,7 @@ import { ProjectFileStore } from "./files.js";
 import { serveStdio } from "./mcp.js";
 import { dataPaths } from "./paths.js";
 import { FilePlanReader } from "./plans.js";
+import { createReader, loadReaderConfig } from "./reader.js";
 import { DEFAULT_PORT, serve } from "./server.js";
 import { createSession } from "./session.js";
 import { createVerifier, loadHostConfig } from "./verifier.js";
@@ -100,6 +101,10 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   for (const note of loaded.notes) process.stderr.write(`floorplan-viz config: ${note}\n`);
   const verification = createVerifier(catalog.store, loaded.config, { now });
   process.stderr.write(`floorplan-viz verifier: ${verification.describe}\n`);
+  const readerConfig = loadReaderConfig({ dataDir: catalog.dir });
+  for (const note of readerConfig.notes) process.stderr.write(`floorplan-viz config: ${note}\n`);
+  const planReaderSetup = createReader(readerConfig.model);
+  process.stderr.write(`floorplan-viz reader: ${planReaderSetup.describe}\n`);
   const session = createSession({
     files,
     now,
@@ -107,7 +112,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     verifier: verification.verifier,
     rules: AV_CORE,
     writer: new FileExportWriter({ baseDir: () => files.path() ?? join(catalog.dir, "exports") }),
-    plans: new FilePlanReader({ baseDir: () => process.cwd() }),
+    plans: new FilePlanReader({ baseDir: () => process.cwd(), raster: planReaderSetup.reader }),
     ...(opened ? { project: opened.project } : {}),
   });
   files.startAutosave();

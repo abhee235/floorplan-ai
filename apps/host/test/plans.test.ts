@@ -2,6 +2,8 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { PlanReaderRole } from "@fpv/agents";
+import { RasterReply, rasterReplyToDraft } from "@fpv/importers";
 import { describe, expect, it } from "vitest";
 import { FilePlanReader } from "../src/plans.js";
 import { createSession } from "../src/session.js";
@@ -16,7 +18,7 @@ describe("FilePlanReader", () => {
     expect(abs.fileName).toBe("office-mm.dxf");
     expect(abs.draft.walls).toHaveLength(6);
     expect(rel.draft).toEqual(abs.draft);
-    expect(abs.preview.segments.length).toBeGreaterThan(0);
+    expect(abs.preview?.segments.length).toBeGreaterThan(0);
   });
 
   it("decodes old code-page DXF text and reads content without a file", async () => {
@@ -53,5 +55,92 @@ describe("FilePlanReader", () => {
     expect(done.ok).toBe(true);
     expect(session.store.project.walls.length).toBeGreaterThan(0);
     expect(session.store.project.provenance?.sourceFile).toBe("rotated-inches.dxf");
+  });
+});
+
+describe("image plans through the reader model (P2-2)", () => {
+  const png = (w: number, h: number) => {
+    const b = Buffer.alloc(33);
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(b, 0);
+    b.writeUInt32BE(13, 8);
+    b.write("IHDR", 12, "ascii");
+    b.writeUInt32BE(w, 16);
+    b.writeUInt32BE(h, 20);
+    return b;
+  };
+  const fakeRaster = (calls: { fileName: string; width: number; dataUrl: string }[]): PlanReaderRole => ({
+    id: "fake:vision",
+    async read(image) {
+      calls.push({ fileName: image.fileName, width: image.info.width, dataUrl: image.dataUrl });
+      const reply = RasterReply.parse({
+        walls: [
+          { from: [100, 100], to: [900, 100], thickness: 10 },
+          { from: [900, 100], to: [900, 450], thickness: 10 },
+          { from: [900, 450], to: [100, 450], thickness: 10 },
+          { from: [100, 450], to: [100, 100], thickness: 10 },
+        ],
+        rooms: [{ name: "HUDDLE", at: [500, 275] }],
+      });
+      return {
+        draft: rasterReplyToDraft(reply, image.info, { file: image.fileName }),
+        reply,
+        refined: null,
+        attempts: 1,
+        usage: { promptTokens: 0, completionTokens: 0 },
+      };
+    },
+  });
+
+  it("an image goes to the reader model with its size; the draft carries the image for the review", async () => {
+    const calls: { fileName: string; width: number; dataUrl: string }[] = [];
+    const reader = new FilePlanReader({ baseDir: () => PLANS, raster: fakeRaster(calls) });
+    const out = await reader.read({
+      contentBase64: png(1600, 800).toString("base64"),
+      fileName: "level1.png",
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ fileName: "level1.png", width: 1600 });
+    expect(calls[0]?.dataUrl.startsWith("data:image/png;base64,")).toBe(true);
+    expect(out.draft.source).toMatchObject({ kind: "image", pixelSize: { w: 1600, h: 800 } });
+    expect(out.image).toMatchObject({ width: 1600, height: 800 });
+    expect(out.preview).toBeNull();
+    expect(out.report.warnings.some((w) => w.includes("fake:vision"))).toBe(true);
+  });
+
+  it("without a reader model image plans are refused with a way forward; non-images are refused", async () => {
+    const reader = new FilePlanReader({ baseDir: () => PLANS });
+    await expect(
+      reader.read({ contentBase64: png(800, 600).toString("base64"), fileName: "a.png" }),
+    ).rejects.toMatchObject({
+      code: "unavailable",
+      hint: expect.stringContaining("roles.reader"),
+    });
+    const withModel = new FilePlanReader({ baseDir: () => PLANS, raster: fakeRaster([]) });
+    await expect(
+      withModel.read({ contentBase64: Buffer.from("not an image").toString("base64"), fileName: "a.png" }),
+    ).rejects.toMatchObject({ code: "import.format" });
+  });
+
+  it("import_plan reviews an image draft whose scale must be confirmed before it commits", async () => {
+    const session = createSession({
+      plans: new FilePlanReader({ baseDir: () => PLANS, raster: fakeRaster([]) }),
+    });
+    const review = await session.registry.call("import_plan", {
+      contentBase64: png(1600, 800).toString("base64"),
+      fileName: "level1.png",
+    });
+    expect(review.ok).toBe(true);
+    const result = (review.ok ? review.result : {}) as { draftId: string; scale: { confirmed: boolean } };
+    expect(result.scale.confirmed).toBe(false);
+    const refused = await session.registry.call("import_plan", { draftId: result.draftId, confirm: true });
+    expect(refused.ok || refused.error.code).toBe("import.scale-unconfirmed");
+    const done = await session.registry.call("import_plan", {
+      draftId: result.draftId,
+      confirm: true,
+      scale: { mmPerUnit: 10 },
+    });
+    expect(done.ok).toBe(true);
+    expect(session.store.project.walls).toHaveLength(4);
+    expect(session.store.project.rooms.map((r) => r.name)).toEqual(["HUDDLE"]);
   });
 });

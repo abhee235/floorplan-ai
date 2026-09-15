@@ -1,0 +1,170 @@
+{
+  "name": "office-mm-raster",
+  "source": "tools/fixtures/plans/office-mm.dxf drawn by tools/build-raster-fixtures.ts",
+  "image": {
+    "file": "office-mm.png",
+    "width": 1600,
+    "height": 857
+  },
+  "mmPerUnit": 21,
+  "walls": [
+    {
+      "points": [
+        {
+          "x": 4500,
+          "y": 1625
+        },
+        {
+          "x": 16500,
+          "y": 1625
+        }
+      ],
+      "thickness": 250
+    },
+    {
+      "points": [
+        {
+          "x": 16500,
+          "y": 1625
+        },
+        {
+          "x": 16500,
+          "y": 9625
+        }
+      ],
+      "thickness": 250
+    },
+    {
+      "points": [
+        {
+          "x": 16500,
+          "y": 9625
+        },
+        {
+          "x": 4500,
+          "y": 9625
+        }
+      ],
+      "thickness": 250
+    },
+    {
+      "points": [
+        {
+          "x": 4500,
+          "y": 9625
+        },
+        {
+          "x": 4500,
+          "y": 1625
+        }
+      ],
+      "thickness": 250
+    },
+    {
+      "points": [
+        {
+          "x": 9500,
+          "y": 1625
+        },
+        {
+          "x": 9500,
+          "y": 9625
+        }
+      ],
+      "thickness": 100
+    },
+    {
+      "points": [
+        {
+          "x": 9500,
+          "y": 6125
+        },
+        {
+          "x": 16500,
+          "y": 6125
+        }
+      ],
+      "thickness": 100
+    }
+  ],
+  "openings": [
+    {
+      "at": {
+        "x": 13000,
+        "y": 1625
+      },
+      "kind": "door",
+      "width": 1000
+    },
+    {
+      "at": {
+        "x": 9500,
+        "y": 3625
+      },
+      "kind": "door",
+      "width": 900
+    },
+    {
+      "at": {
+        "x": 9500,
+        "y": 7625
+      },
+      "kind": "door",
+      "width": 900
+    },
+    {
+      "at": {
+        "x": 15000,
+        "y": 6125
+      },
+      "kind": "passage",
+      "width": 1200
+    },
+    {
+      "at": {
+        "x": 7000,
+        "y": 1625
+      },
+      "kind": "window",
+      "width": 1800
+    },
+    {
+      "at": {
+        "x": 16500,
+        "y": 3825
+      },
+      "kind": "window",
+      "width": 1500
+    },
+    {
+      "at": {
+        "x": 13500,
+        "y": 9625
+      },
+      "kind": "window",
+      "width": 1800
+    },
+    {
+      "at": {
+        "x": 4500,
+        "y": 5625
+      },
+      "kind": "window",
+      "width": 2400
+    }
+  ],
+  "rooms": [
+    {
+      "name": "BOARDROOM",
+      "areaM2": 37.39
+    },
+    {
+      "name": "OPEN OFFICE",
+      "areaM2": 29.52
+    },
+    {
+      "name": "MEETING ROOM",
+      "areaM2": 22.69
+    }
+  ]
+}

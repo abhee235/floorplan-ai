@@ -65,6 +65,8 @@ export function extractJson(text: string): unknown {
 export interface CompleteJsonOptions<T> {
   system: string;
   prompt: string;
+  /** Images sent with the first message, as data URLs or https URLs (vision models only). */
+  images?: string[];
   schema: ZodType<T, ZodTypeDef, unknown>;
   maxAttempts?: number;
   maxTokens?: number;
@@ -82,7 +84,13 @@ export async function completeJson<T>(
   options: CompleteJsonOptions<T>,
 ): Promise<JsonResult<T>> {
   const maxAttempts = options.maxAttempts ?? 3;
-  const messages: ChatMessage[] = [{ role: "user", content: options.prompt }];
+  const first: ChatMessage["content"] = options.images?.length
+    ? [
+        { type: "text", text: options.prompt },
+        ...options.images.map((url) => ({ type: "image_url" as const, image_url: { url } })),
+      ]
+    : options.prompt;
+  const messages: ChatMessage[] = [{ role: "user", content: first }];
   const usage: Usage = { promptTokens: 0, completionTokens: 0 };
   let lastText: string | null = null;
   let lastError = "no reply";

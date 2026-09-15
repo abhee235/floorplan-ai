@@ -1,0 +1,188 @@
+{
+  "name": "lshape-metres-raster",
+  "source": "tools/fixtures/plans/lshape-metres.dxf drawn by tools/build-raster-fixtures.ts",
+  "image": {
+    "file": "lshape-metres.png",
+    "width": 1600,
+    "height": 1415
+  },
+  "mmPerUnit": 17.3,
+  "walls": [
+    {
+      "points": [
+        {
+          "x": 1650,
+          "y": 1650
+        },
+        {
+          "x": 15650,
+          "y": 1650
+        }
+      ],
+      "thickness": 300
+    },
+    {
+      "points": [
+        {
+          "x": 15650,
+          "y": 1650
+        },
+        {
+          "x": 15650,
+          "y": 7650
+        }
+      ],
+      "thickness": 300
+    },
+    {
+      "points": [
+        {
+          "x": 15650,
+          "y": 7650
+        },
+        {
+          "x": 7650,
+          "y": 7650
+        }
+      ],
+      "thickness": 300
+    },
+    {
+      "points": [
+        {
+          "x": 7650,
+          "y": 7650
+        },
+        {
+          "x": 7650,
+          "y": 12650
+        }
+      ],
+      "thickness": 300
+    },
+    {
+      "points": [
+        {
+          "x": 7650,
+          "y": 12650
+        },
+        {
+          "x": 1650,
+          "y": 12650
+        }
+      ],
+      "thickness": 300
+    },
+    {
+      "points": [
+        {
+          "x": 1650,
+          "y": 12650
+        },
+        {
+          "x": 1650,
+          "y": 1650
+        }
+      ],
+      "thickness": 300
+    },
+    {
+      "points": [
+        {
+          "x": 7650,
+          "y": 1650
+        },
+        {
+          "x": 7650,
+          "y": 7650
+        }
+      ],
+      "thickness": 120
+    },
+    {
+      "points": [
+        {
+          "x": 1650,
+          "y": 7650
+        },
+        {
+          "x": 7650,
+          "y": 7650
+        }
+      ],
+      "thickness": 120
+    }
+  ],
+  "openings": [
+    {
+      "at": {
+        "x": 4650,
+        "y": 12650
+      },
+      "kind": "door",
+      "width": 1000
+    },
+    {
+      "at": {
+        "x": 7650,
+        "y": 4650
+      },
+      "kind": "door",
+      "width": 900
+    },
+    {
+      "at": {
+        "x": 5650,
+        "y": 7650
+      },
+      "kind": "passage",
+      "width": 1500
+    },
+    {
+      "at": {
+        "x": 4650,
+        "y": 1650
+      },
+      "kind": "window",
+      "width": 2000
+    },
+    {
+      "at": {
+        "x": 11650,
+        "y": 1650
+      },
+      "kind": "window",
+      "width": 2400
+    },
+    {
+      "at": {
+        "x": 15650,
+        "y": 4650
+      },
+      "kind": "window",
+      "width": 1800
+    },
+    {
+      "at": {
+        "x": 7650,
+        "y": 10150
+      },
+      "kind": "window",
+      "width": 1600
+    }
+  ],
+  "rooms": [
+    {
+      "name": "Meeting Room",
+      "areaM2": null
+    },
+    {
+      "name": "Open Office",
+      "areaM2": null
+    },
+    {
+      "name": "Reception",
+      "areaM2": null
+    }
+  ]
+}

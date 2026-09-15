@@ -24,6 +24,14 @@ export {
   type Usage,
 } from "./provider.js";
 export {
+  type PlanReaderOptions,
+  type PlanReaderRole,
+  type PlanReading,
+  planReader,
+  type RasterImage,
+  ReaderUnavailableError,
+} from "./roles/reader.js";
+export {
   VERIFIER_SYSTEM,
   type VerifierOptions,
   verifierExtractor,

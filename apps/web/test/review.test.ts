@@ -129,3 +129,57 @@ describe("DraftReview", () => {
     ]);
   });
 });
+
+describe("raster draft review", () => {
+  it("draws the source image under the draft in the box frame once it has loaded", () => {
+    const review = new DraftReview();
+    const draft = {
+      source: { kind: "image", file: "p.png", page: null, pixelSize: { w: 2000, h: 1000 } },
+      units: { detected: "unknown", mmPerUnit: 10, scaleSource: "user", checks: [] },
+      levelName: null,
+      walls: [
+        {
+          idx: 0,
+          points: [
+            { x: 100, y: 100 },
+            { x: 900, y: 100 },
+          ],
+          thickness: 10,
+          kind: null,
+          confidence: 0.6,
+          sourceRef: null,
+        },
+      ],
+      openings: [],
+      rooms: [],
+      texts: [],
+      confidence: 0.5,
+      questions: [],
+      reader: null,
+    };
+    review.open({
+      draftId: "d1",
+      draft,
+      preview: null,
+      warnings: [],
+      image: { dataUrl: "data:image/png;base64,x", width: 2000, height: 1000 },
+    });
+    const images: number[][] = [];
+    const ctx = {
+      ...recorder(),
+      globalAlpha: 1,
+      drawImage: (_img: unknown, x: number, y: number, w: number, h: number) => {
+        images.push([x, y, w, h]);
+      },
+    };
+    review.draw(ctx, VIEW);
+    expect(images).toEqual([]);
+    const seen: boolean[] = [];
+    review.subscribe(() => seen.push(true));
+    review.setImage({ fake: "image" });
+    expect(seen).toEqual([true]);
+    review.draw(ctx, VIEW);
+    // the box is 1000 by 500 units at 10 mm per unit, drawn at 0.05 px per mm with y up from offsetY
+    expect(images).toEqual([[400, 300 - 500 * 10 * 0.05, 1000 * 10 * 0.05, 500 * 10 * 0.05]]);
+  });
+});

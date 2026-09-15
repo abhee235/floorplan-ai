@@ -20,7 +20,7 @@ function reader(files: Record<string, string> = {}): PlanReader & { reads: numbe
       const text =
         req.content ?? files[req.path ?? ""] ?? (req.path ? fixture(req.path.replace(/\.dxf$/, "")) : "");
       try {
-        return { ...readPlanText(fileName, text), fileName };
+        return { ...readPlanText(fileName, text), image: null, fileName };
       } catch (e) {
         const err = e as { code: string; message: string; hint: string | null };
         throw new ToolError(err.code, err.message, null, err.hint);

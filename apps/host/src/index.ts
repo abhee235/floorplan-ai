@@ -22,5 +22,6 @@ export {
   writeAtomic,
 } from "./files.js";
 export { createMcpServer, HOST_VERSION, type McpOptions, serveStdio, toCallToolResult } from "./mcp.js";
+export { createReader, loadReaderConfig, READER_TIMEOUT_MS } from "./reader.js";
 export { DEFAULT_PORT, defaultWebDir, type Served, type ServeOptions, serve } from "./server.js";
 export { createSession, type Session, type SessionOptions } from "./session.js";

@@ -120,6 +120,8 @@ export interface DraftMsg {
   draftId: string | null;
   draft: unknown;
   preview: { segments: [number, number, number, number][]; truncated: boolean } | null;
+  /** The source image of a raster draft, as a data URL with its pixel size. */
+  image: { dataUrl: string; width: number; height: number } | null;
   warnings: string[];
 }
 export interface ProgressMsg {
