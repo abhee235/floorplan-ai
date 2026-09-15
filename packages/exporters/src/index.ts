@@ -11,6 +11,16 @@ export {
   sourceLookup,
 } from "./bom-export.js";
 export {
+  type GlbExport,
+  GlbExportError,
+  type GlbNode,
+  type GlbNodeKind,
+  type GlbOptions,
+  type GlbReport,
+  type GlbScope,
+  projectToGlb,
+} from "./glb.js";
+export {
   type Cell,
   type CellStyle,
   columnName,

@@ -1,0 +1,158 @@
+[
+  {
+    "name": "Boardroom task card",
+    "kind": "project",
+    "parent": null,
+    "mesh": false
+  },
+  {
+    "name": "level_000000",
+    "kind": "level",
+    "parent": "Boardroom task card",
+    "mesh": false
+  },
+  {
+    "name": "wall_000001",
+    "kind": "wall",
+    "parent": "level_000000",
+    "mesh": true
+  },
+  {
+    "name": "opening_000001",
+    "kind": "opening",
+    "parent": "wall_000001",
+    "mesh": true
+  },
+  {
+    "name": "wall_000002",
+    "kind": "wall",
+    "parent": "level_000000",
+    "mesh": true
+  },
+  {
+    "name": "wall_000003",
+    "kind": "wall",
+    "parent": "level_000000",
+    "mesh": true
+  },
+  {
+    "name": "wall_000004",
+    "kind": "wall",
+    "parent": "level_000000",
+    "mesh": true
+  },
+  {
+    "name": "room_000001",
+    "kind": "room",
+    "parent": "level_000000",
+    "mesh": true
+  },
+  {
+    "name": "item_000001",
+    "kind": "item",
+    "parent": "room_000001",
+    "mesh": true
+  },
+  {
+    "name": "item_000002",
+    "kind": "item",
+    "parent": "room_000001",
+    "mesh": true
+  },
+  {
+    "name": "item_000003",
+    "kind": "item",
+    "parent": "room_000001",
+    "mesh": true
+  },
+  {
+    "name": "item_000004",
+    "kind": "item",
+    "parent": "room_000001",
+    "mesh": true
+  },
+  {
+    "name": "item_000005",
+    "kind": "item",
+    "parent": "room_000001",
+    "mesh": true
+  },
+  {
+    "name": "item_000006",
+    "kind": "item",
+    "parent": "room_000001",
+    "mesh": true
+  },
+  {
+    "name": "item_000007",
+    "kind": "item",
+    "parent": "room_000001",
+    "mesh": true
+  },
+  {
+    "name": "item_000008",
+    "kind": "item",
+    "parent": "room_000001",
+    "mesh": true
+  },
+  {
+    "name": "item_000009",
+    "kind": "item",
+    "parent": "room_000001",
+    "mesh": true
+  },
+  {
+    "name": "item_00000a",
+    "kind": "item",
+    "parent": "room_000001",
+    "mesh": true
+  },
+  {
+    "name": "item_00000b",
+    "kind": "item",
+    "parent": "room_000001",
+    "mesh": true
+  },
+  {
+    "name": "item_00000c",
+    "kind": "item",
+    "parent": "room_000001",
+    "mesh": true
+  },
+  {
+    "name": "item_00000d",
+    "kind": "item",
+    "parent": "room_000001",
+    "mesh": true
+  },
+  {
+    "name": "item_00000e",
+    "kind": "item",
+    "parent": "room_000001",
+    "mesh": true
+  },
+  {
+    "name": "item_00000f",
+    "kind": "item",
+    "parent": "room_000001",
+    "mesh": true
+  },
+  {
+    "name": "item_00000g",
+    "kind": "item",
+    "parent": "room_000001",
+    "mesh": true
+  },
+  {
+    "name": "item_00000h",
+    "kind": "item",
+    "parent": "room_000001",
+    "mesh": true
+  },
+  {
+    "name": "item_00000i",
+    "kind": "item",
+    "parent": "room_000001",
+    "mesh": true
+  }
+]

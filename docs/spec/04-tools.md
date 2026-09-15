@@ -175,15 +175,22 @@ Input: `{ op: "new" | "open" | "save" | "info", path?: string, name?: string }`
 Output: `{ path, name, modified, schemaVersion, lastSavedAt }`
 
 ### export
-Description: "Write the bill of materials to a file: csv or xlsx, with provenance and the verification status of every line. Refuses when validate reports errors unless force is true (the file is then marked DRAFT), and refuses while lines are unverified or placeholders unless includeUnverified is true (the file then says so and highlights them). Relative paths go into the project directory. glb, pdf and dxf arrive in later phases. Returns the path and size."
+Description: "Write the bill of materials to a file: csv or xlsx, with provenance and the verification status of every line. Refuses when validate reports errors unless force is true (the file is then marked DRAFT), and refuses while lines are unverified or placeholders unless includeUnverified is true (the file then says so and highlights them). Relative paths go into the project directory. glb writes the 3D scene as a glTF binary (metres, y up) with one node per level, wall, opening, room and item, named by entity id; it needs no rules pack. pdf and dxf arrive in phase 3. Returns the path and size."
 Input: `{ format: "csv" | "xlsx" | "glb" | "pdf" | "dxf", scope?: string, path: string, force?: boolean, includeUnverified?: boolean, overwrite?: boolean }`
-Output: `{ path, bytes, format, lines, draft, includesUnverified, warnings }`
+Output: `{ path, bytes, format, lines, nodes?, triangles?, draft, includesUnverified, warnings }`
 
 `force` means "export despite validation errors" (ADR-013 D2), not "overwrite"; replacing an
 existing file needs `overwrite`. Errors: `export.invalid` (validation errors, first three named),
 `export.unverified` (unverified or placeholder lines, first three named), `file.exists`,
-`file.write`, and `unavailable` for glb, pdf and dxf until their phases and for sessions without
-a rules pack or a file writer.
+`file.write`, and `unavailable` for pdf and dxf until phase 3, for csv and xlsx in sessions without
+a rules pack, and for any format in sessions without a file writer.
+
+`glb` (phase 2, ADR-013 D4) checks validation errors only (not design rules or verification) and
+reports `nodes` and `triangles`; `lines` is 0. The node tree is project, then level, then walls (openings as
+child nodes) and rooms (their items as child nodes); items without a room sit under the level. Items that
+share an asset share one mesh; items without a size are left out with a warning. A `room:` scope keeps the
+room, its items and its bounding walls. `asset.extras` records the export time, scope and draft flag, and
+the bytes are otherwise identical for the same project.
 
 ### import_plan (phase 2)
 Input: `{ path?: string, content?: string, fileName?: string, page?: number, draftId?: string, draft?: PlanDraft, scale?: { mmPerUnit } | { units: "mm"|"cm"|"m"|"in"|"ft" } | { measuredUnits, lengthMm }, answers?: Record<questionId, string>, confirm?: boolean, levelId?: string, detail?: "summary" | "full" }`

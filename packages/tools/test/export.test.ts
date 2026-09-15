@@ -112,9 +112,9 @@ describe("export tool (PRD P1-5, ADR-013 D2)", () => {
         })
       ).ok,
     ).toBe(true);
-    const glb = await h.call("export", { format: "glb", path: "x.glb" });
-    expect(glb.ok).toBe(false);
-    if (!glb.ok) expect(glb.error.code).toBe("unavailable");
+    const pdf = await h.call("export", { format: "pdf", path: "x.pdf" });
+    expect(pdf.ok).toBe(false);
+    if (!pdf.ok) expect(pdf.error.code).toBe("unavailable");
     const badScope = await h.call("export", { format: "csv", path: "x.csv", scope: "room:room_zzzzzz" });
     expect(badScope.ok).toBe(false);
     const noWriter = harness(undefined, { rules: AV_CORE });
@@ -122,6 +122,24 @@ describe("export tool (PRD P1-5, ADR-013 D2)", () => {
     expect(nw.ok).toBe(false);
     if (!nw.ok)
       expect(nw.error.message).toBe("export is unavailable because this session cannot write files");
+    catalog.close();
+  });
+
+  it("writes the scene as a GLB with one node per entity, needing no BOM verification (PRD P2-5)", async () => {
+    const { h, writer, catalog } = await furnishedBoardroom();
+    const r = await h.ok<{ format: string; nodes: number; triangles: number; draft: boolean }>("export", {
+      format: "glb",
+      path: "room.glb",
+      force: true,
+    });
+    expect(r.result.format).toBe("glb");
+    expect(r.result.nodes).toBeGreaterThan(5);
+    expect(r.result.triangles).toBeGreaterThan(0);
+    const bytes = writer.files.get("room.glb") as Uint8Array;
+    expect(new TextDecoder().decode(bytes.subarray(0, 4))).toBe("glTF");
+    const badScope = await h.call("export", { format: "glb", path: "x.glb", scope: "room:room_zzzzzz" });
+    expect(badScope.ok).toBe(false);
+    if (!badScope.ok) expect(badScope.error.code).toBe("ref.missing");
     catalog.close();
   });
 });

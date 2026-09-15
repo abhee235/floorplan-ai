@@ -17,6 +17,7 @@ export {
   translation,
 } from "./items.js";
 export { MeshBuilder, partArea, partBounds } from "./mesh.js";
+export { MATERIAL_COLOURS, materialColour, materialKeyOf, materialRoughness } from "./palette.js";
 export { buildRecipe, recipeAssetKey } from "./recipes.js";
 export { buildRooms, ceilingElevation, type RoomBuildContext } from "./rooms.js";
 export * from "./types.js";

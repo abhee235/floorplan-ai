@@ -72,6 +72,12 @@ and by room, with item nodes referencing the instanced asset meshes. Materials
 are simple physically based colours per finish. No renderer is involved, so
 this export works headless.
 
+Implementation (phase 2): `projectToGlb` in `@fpv/exporters` writes the binary from `@fpv/engine`
+parts, with the flat palette shared with the viewer (`@fpv/engine` `materialColour`), converted to linear
+factors. Nodes are named by entity id and carry `extras.kind` and a few entity facts. The boardroom
+fixture keeps a golden node list (`glb-nodes.json`), and a web test loads the file with the three.js
+glTF loader.
+
 ### D5. 2D drawing
 
 The plan layer model (ADR-003 D6) is rendered to vector primitives by a
