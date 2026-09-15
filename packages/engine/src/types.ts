@@ -10,10 +10,12 @@ export type PartKind =
   | "opening-sill"
   | "opening-head"
   | "opening-jamb"
+  | "opening-reveal"
   | "floor"
   | "floor-side"
   | "floor-bottom"
   | "ceiling"
+  | "ground"
   | "item"
   | "recipe";
 

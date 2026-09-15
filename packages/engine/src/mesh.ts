@@ -109,6 +109,40 @@ export class MeshBuilder {
     }
   }
 
+  /**
+   * Planar polygon with holes given in its own 2D coordinates and mapped into plan mm with elevation.
+   * Used for wall sides around shaped openings; `outward` is the face normal and must be perpendicular to it.
+   */
+  addMapped(
+    outer: readonly Point[],
+    holes: readonly (readonly Point[])[],
+    to3: (p: Point) => P3,
+    outward: P3,
+    uv: (p: Point) => [number, number],
+  ): void {
+    const t = triangulate(outer, holes);
+    if (t.indices.length === 0) return;
+    const n = norm(toThree(outward) as V3);
+    const pts = t.points.map((p) => toThree(to3(p)) as V3);
+    const base = this.positions.length / 3;
+    for (let i = 0; i < pts.length; i += 1) {
+      const p = pts[i] as V3;
+      this.positions.push(p[0], p[1], p[2]);
+      this.normals.push(n[0], n[1], n[2]);
+      const [u, v] = uv(t.points[i] as Point);
+      this.uvs.push(u, v);
+    }
+    for (let i = 0; i + 2 < t.indices.length; i += 3) {
+      const a = t.indices[i] as number;
+      const b = t.indices[i + 1] as number;
+      const c = t.indices[i + 2] as number;
+      const p0 = pts[a] as V3;
+      const tn = cross(sub(pts[b] as V3, p0), sub(pts[c] as V3, p0));
+      if (dot(tn, n) >= 0) this.indices.push(base + a, base + b, base + c);
+      else this.indices.push(base + a, base + c, base + b);
+    }
+  }
+
   toPart(entityId: string, part: PartKind, materialKey: string): GeometryPart {
     return {
       entityId,

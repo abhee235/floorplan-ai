@@ -1,11 +1,23 @@
 // Wall geometry (ADR-014 D5..D9, spec 05 section 3). Each side is built in wall-local (u, v) space:
 // u is the distance along the wall direction in mm (so opening intervals map exactly, even on mitred
-// sides), v is elevation. Openings are rectangles in that space, so a side face decomposes into
-// rectangles below sills, above heads, and between openings, with no booleans.
+// sides), v is elevation. Rectangular openings decompose a side face into rectangles below sills,
+// above heads, and between openings. A shaped opening (its product's cut-out path) cuts its shape out
+// of the opening's column with 2D booleans in the same space and gets a reveal instead of sill, head
+// and jambs (ADR-014 D7 step 3).
 
-import { TOL, wallFootprints } from "@fpv/geometry";
+import {
+  difference,
+  intersection,
+  type MultiPoly,
+  multiArea,
+  ringToMulti,
+  TOL,
+  unionRings,
+  wallFootprints,
+} from "@fpv/geometry";
 import type { Level, Opening, Point, Wall } from "@fpv/ir";
 import { derive } from "@fpv/ir";
+import type { CutOutSource } from "./cutouts.js";
 import { MeshBuilder } from "./mesh.js";
 import { type GeometryPart, MM_PER_M, type P3 } from "./types.js";
 
@@ -14,6 +26,8 @@ export interface WallBuildContext {
   isLowest: boolean;
   isHighest: boolean;
   footprints?: Map<string, Point[]>;
+  /** Cut-out shapes by opening (ADR-014 D7 step 3); without it every opening is a rectangle. */
+  cutOuts?: CutOutSource;
 }
 
 /** Length of the wall centreline path: the chord for straight walls, the arc length for arcs (W-111). */
@@ -103,23 +117,54 @@ interface Cut {
   sillZ: number;
   headZ: number;
   opening: Opening;
+  /** Hole in (u, z) mm for a shaped opening; null cuts the rectangle. */
+  shape: MultiPoly | null;
 }
 
-function cuts(w: Wall, openings: readonly Opening[], level: Level): Cut[] {
+function cuts(w: Wall, openings: readonly Opening[], level: Level, cutOuts?: CutOutSource): Cut[] {
+  const straight = !derive.isArc(w);
   return openings
     .filter((o) => o.wallId === w.id)
     .map((o) => {
       // position is a fraction of the centreline path; width is a physical width along that path (W-111)
       const c = o.position * pathLength(w);
+      const from = c - o.width / 2;
+      const sillZ = level.elevation + o.sill;
+      const headZ = sillZ + o.height;
+      // O-082: arc walls cut rectangles. O-070: the shape follows its wall, so it is never at an angle to it.
+      const rings = straight && cutOuts ? cutOuts(o) : null;
       return {
-        from: c - o.width / 2,
+        from,
         to: c + o.width / 2,
-        sillZ: level.elevation + o.sill,
-        headZ: level.elevation + o.sill + o.height,
+        sillZ,
+        headZ,
         opening: o,
+        shape: rings ? shapeIn(rings, o, from, headZ) : null,
       };
     })
     .sort((a, b) => a.from - b.from);
+}
+
+/** Unit-square rings (y down) into (u, z) mm; null when the shape fills the rectangle (O-069) or has no area. */
+function shapeIn(rings: Point[][], o: Opening, from: number, headZ: number): MultiPoly | null {
+  // O-072: a mirrored opening mirrors its shape
+  const mapped = rings.map((r) =>
+    r.map((p) => ({ x: from + (o.mirrored ? 1 - p.x : p.x) * o.width, y: headZ - p.y * o.height })),
+  );
+  const shape = unionRings(mapped);
+  const a = multiArea(shape);
+  if (a <= 0 || a >= o.width * o.height * (1 - 1e-6)) return null;
+  return shape;
+}
+
+/** The opening's column of the wall in (u, z) mm, bottom to the (possibly sloped) top. */
+function columnRegion(c: Cut, len: number, el: WallElevations): MultiPoly {
+  return ringToMulti([
+    { x: c.from, y: el.bottom },
+    { x: c.to, y: el.bottom },
+    { x: c.to, y: el.top(c.to / len) },
+    { x: c.from, y: el.top(c.from / len) },
+  ]);
 }
 
 function outwardNormal(side: Side, other: Side, u: number): P3 {
@@ -164,12 +209,99 @@ function buildSide(side: Side, other: Side, len: number, cutList: Cut[], el: Wal
   let cursor = side.start;
   for (const c of cutList) {
     if (c.from > cursor) band(mb, side, other, len, cursor, c.from, el.bottom, el.top);
+    if (c.shape) {
+      shapedColumn(mb, side, other, len, c, el);
+      cursor = Math.max(cursor, c.to);
+      continue;
+    }
     if (c.sillZ > el.bottom) band(mb, side, other, len, c.from, c.to, el.bottom, () => c.sillZ); // O-052
     band(mb, side, other, len, c.from, c.to, c.headZ, el.top); // O-054: empty when the head reaches the top
     cursor = Math.max(cursor, c.to);
   }
   if (cursor < side.end) band(mb, side, other, len, cursor, side.end, el.bottom, el.top);
   return mb;
+}
+
+/** The part of a side inside a shaped opening's column: the column minus the shape. */
+function shapedColumn(
+  mb: MeshBuilder,
+  side: Side,
+  other: Side,
+  len: number,
+  c: Cut,
+  el: WallElevations,
+): void {
+  const solid = difference(columnRegion(c, len, el), c.shape as MultiPoly);
+  const n = outwardNormal(side, other, (c.from + c.to) / 2);
+  for (const p of solid)
+    mb.addMapped(
+      p.outer,
+      p.holes,
+      (q) => ({ ...at(side, q.x), z: q.y }),
+      n,
+      (q) => [q.x / MM_PER_M, q.y / MM_PER_M],
+    );
+}
+
+/** O-073: every edge of the hole extruded through the thickness, except edges on the wall's bottom or top line. */
+function buildReveal(
+  left: Side,
+  right: Side,
+  len: number,
+  c: Cut,
+  el: WallElevations,
+  out: GeometryPart[],
+): void {
+  const hole = intersection(columnRegion(c, len, el), c.shape as MultiPoly);
+  const a = at(left, c.from);
+  const b = at(left, c.to);
+  const al = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+  const dir = { x: (b.x - a.x) / al, y: (b.y - a.y) / al };
+  const eps = 0.5;
+  const mb = new MeshBuilder();
+  let s = 0;
+  for (const p of hole)
+    for (const ring of [p.outer, ...p.holes])
+      for (let i = 0; i < ring.length; i += 1) {
+        const p0 = ring[i] as Point;
+        const p1 = ring[(i + 1) % ring.length] as Point;
+        const du = p1.x - p0.x;
+        const dz = p1.y - p0.y;
+        const edge = Math.hypot(du, dz);
+        if (edge < TOL.DEGENERATE) continue;
+        const onBottom = p0.y <= el.bottom + eps && p1.y <= el.bottom + eps;
+        const onTop = p0.y >= el.top(p0.x / len) - eps && p1.y >= el.top(p1.x / len) - eps;
+        if (onBottom || onTop) {
+          s += edge;
+          continue;
+        }
+        const l0 = at(left, p0.x);
+        const l1 = at(left, p1.x);
+        const r0 = at(right, p0.x);
+        const r1 = at(right, p1.x);
+        const verts: P3[] = [
+          { ...l0, z: p0.y },
+          { ...l1, z: p1.y },
+          { ...r1, z: p1.y },
+          { ...r0, z: p0.y },
+        ];
+        const depth = Math.hypot(r0.x - l0.x, r0.y - l0.y);
+        const uvs: [number, number][] = [
+          [s, 0],
+          [s + edge, 0],
+          [s + edge, depth],
+          [s, depth],
+        ];
+        // the void is left of each edge (outer rings counter-clockwise, holes clockwise): the face looks into it
+        const nu = -dz / edge;
+        const nz = du / edge;
+        mb.addFace(verts, { x: dir.x * nu, y: dir.y * nu, z: nz }, (q) => {
+          const uv = uvs[verts.indexOf(q)] ?? [0, 0];
+          return [uv[0] / MM_PER_M, uv[1] / MM_PER_M];
+        });
+        s += edge;
+      }
+  if (!mb.isEmpty) out.push(mb.toPart(c.opening.id, "opening-reveal", "opening-reveal"));
 }
 
 function buildOpeningFaces(
@@ -180,6 +312,10 @@ function buildOpeningFaces(
   el: WallElevations,
   out: GeometryPart[],
 ): void {
+  if (c.shape) {
+    buildReveal(left, right, len, c, el, out);
+    return;
+  }
   const oid = c.opening.id;
   const top = Math.min(el.top(c.from / len), el.top(c.to / len));
   const headZ = Math.min(c.headZ, top);
@@ -262,7 +398,7 @@ export function buildWalls(
     const left = makeSide(fp.slice(0, n), w);
     const right = makeSide([...fp.slice(n)].reverse(), w);
     const el = wallElevations(w, ctx);
-    const cutList = cuts(w, openings, ctx.level);
+    const cutList = cuts(w, openings, ctx.level, ctx.cutOuts);
     out.push(buildSide(left, right, len, cutList, el).toPart(w.id, "wall-left", "wall-side"));
     out.push(buildSide(right, left, len, cutList, el).toPart(w.id, "wall-right", "wall-side"));
     // top: full footprint ring with per-vertex top elevation (W-093 sloped tops)

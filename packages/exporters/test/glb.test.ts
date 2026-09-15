@@ -94,6 +94,7 @@ describe("glTF binary export (PRD P2-5)", () => {
     ].sort();
     const names = json.nodes
       .slice(1)
+      .filter((n) => n.extras.kind !== "ground")
       .map((n) => n.name)
       .sort();
     expect(names).toEqual(entityIds);
@@ -115,6 +116,19 @@ describe("glTF binary export (PRD P2-5)", () => {
     const distinctMeshes = new Set(itemNodes.map((n) => n.mesh));
     expect(distinctMeshes.size).toBeLessThan(itemNodes.length);
     expect(out.report.triangles).toBeGreaterThan(100);
+  });
+
+  it("P2-6 the ground slab is one node under the lowest level, left out of room scopes and on request", () => {
+    expect(out.nodes.filter((n) => n.kind === "ground")).toEqual([
+      { name: "ground", kind: "ground", parent: project.levels[0]?.id, mesh: true },
+    ]);
+    const room = project.rooms[0];
+    if (!room) throw new Error("fixture has no room");
+    const scoped = projectToGlb(project, { ...base, scope: { kind: "room", id: room.id } });
+    expect(scoped.nodes.some((n) => n.kind === "ground")).toBe(false);
+    expect(projectToGlb(project, { ...base, ground: false }).nodes.some((n) => n.kind === "ground")).toBe(
+      false,
+    );
   });
 
   it("the node list matches the golden file", () => {

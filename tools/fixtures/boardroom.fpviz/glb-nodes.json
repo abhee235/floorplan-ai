@@ -12,6 +12,12 @@
     "mesh": false
   },
   {
+    "name": "ground",
+    "kind": "ground",
+    "parent": "level_000000",
+    "mesh": true
+  },
+  {
     "name": "wall_000001",
     "kind": "wall",
     "parent": "level_000000",

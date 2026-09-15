@@ -3,6 +3,7 @@
 // the SQLite store and on-disk installation live behind "@fpv/catalog/store".
 export const PACKAGE = "catalog" as const;
 export { effectiveCutOutPath, isValidCutOutPath } from "./cutout.js";
+export { cutOutRings, cutOutTolerance, type UnitPoint } from "./cutout-rings.js";
 export {
   type FlatImportOptions,
   type FlatImportResult,

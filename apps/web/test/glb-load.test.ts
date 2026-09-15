@@ -44,9 +44,10 @@ describe("GLB opens in three.js GLTFLoader (PRD P2-5)", () => {
 
     const box = new THREE.Box3().setFromObject(gltf.scene);
     const size = box.getSize(new THREE.Vector3());
-    // the boardroom is metres across and a storey tall, not millimetres
+    // the boardroom with its 10 m ground margin is metres across and a storey tall, not millimetres
     expect(size.x).toBeGreaterThan(3);
-    expect(size.x).toBeLessThan(30);
+    expect(size.x).toBeLessThan(40);
+    expect(named("ground")?.parent?.name).toBe(project.levels[0]?.id);
     expect(size.y).toBeGreaterThan(2);
     expect(size.y).toBeLessThan(6);
     expect(gltf.parser.json.asset.generator).toBe("floorplan-viz 0.0.1");

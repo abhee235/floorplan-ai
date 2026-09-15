@@ -108,6 +108,18 @@ For each opening on the wall, in order of position:
 6. A cut-out path that fails to parse falls back to a rectangle and reports
    a warning (C-050), never the offset fallback of O-079.
 
+Implementation (phase 2): `@fpv/catalog` `cutOutRings` flattens the path
+(lines, cubic and quadratic curves, elliptical arcs) to 0.5 mm on the
+opening's larger side (O-074), and the product's embed rectangle places it
+inside the opening's box (O-075). On straight walls the engine maps the
+rings into the side's (u, z) space, subtracts them from the opening's
+column on both faces, and extrudes each hole edge through the thickness as
+an `opening-reveal` part, skipping edges on the wall's bottom and top lines;
+sill, head and jambs are not emitted for a shaped opening. A shape that
+fills the rectangle is the rectangle (O-069). Arc walls cut rectangles
+(O-082). Callers pass a `cutOuts` source, normally `snapshotCutOuts` over
+the project's catalog snapshots, which parses each path once per size (O-080).
+
 ### D8. Skirting
 
 Optional per side: a strip of given thickness and height along the outside

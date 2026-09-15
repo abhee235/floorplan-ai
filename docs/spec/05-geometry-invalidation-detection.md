@@ -266,8 +266,12 @@ Tests in `packages/geometry` and `packages/engine`:
 - Rooms 3D: R-061..R-067, R-075..R-080, R-082, R-083, R-084, R-088;
   R-068..R-071 (reversed: ceilings from level height); R-072..R-074
   (staircase cut-outs: phase 3, via an item flag); R-081 (omitted).
-- Ground: R-089..R-100 (phase 2, simplified: one slab per lowest level
-  minus room floors; underground terraces omitted).
+- Ground: R-089..R-091, R-097, R-098, R-100 (phase 2, simplified:
+  `buildGround` makes one slab under the lowest level at its elevation,
+  from the project bounds plus 10 m, minus the visible floors on that
+  level, with a 300 mm outer edge; top UVs in plan metres; nothing to
+  bound gives a 10 m square). R-092..R-096 and R-099 omitted: no
+  underground terraces, digging furniture or background images in 3D.
 - Detection: R-021..R-024 (gap tolerance added), R-026 (smallest),
   R-027..R-031, R-032..R-039 (threshold patching from bound openings), R-131.
 - Magnetism and placement: F-063..F-068, F-075..F-077, F-080, F-082,

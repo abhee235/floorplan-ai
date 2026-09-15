@@ -3,6 +3,7 @@
 // runs in Node tests.
 import type { ChangeSet } from "@fpv/commands";
 import {
+  buildGround,
   buildItems,
   buildRecipe,
   buildRooms,
@@ -12,6 +13,7 @@ import {
   type GeometryPart,
   type ItemInstance,
   type RebuildSet,
+  snapshotCutOuts,
 } from "@fpv/engine";
 import { wallFootprints } from "@fpv/geometry";
 import type { Item, Level, Point, Project } from "@fpv/ir";
@@ -46,9 +48,6 @@ export interface BindingOptions {
   sizes?: derive.SizeSource;
 }
 
-const GROUND_MARGIN_M = 10;
-const GROUND_DROP_M = 0.005;
-
 export class SceneBinding {
   readonly scene = new THREE.Scene();
   readonly ground = new THREE.Group();
@@ -67,6 +66,7 @@ export class SceneBinding {
   private project: Project | null = null;
   private selection: string[] = [];
   private groundMesh: THREE.Mesh | null = null;
+  private groundElevation = 0;
   private disposed = false;
   private sizes: derive.SizeSource | null;
   flushes = 0;
@@ -130,6 +130,7 @@ export class SceneBinding {
     const lowest = levels[0];
     const highest = levels[levels.length - 1];
     const sizes = this.sizes ?? derive.snapshotSizeSource(p);
+    const cutOuts = snapshotCutOuts(p);
 
     for (const level of levels) {
       const ctx = { level, isLowest: level === lowest, isHighest: level === highest };
@@ -138,7 +139,7 @@ export class SceneBinding {
       const dirtyWalls = full ? wallsOnLevel : wallsOnLevel.filter((w) => dirty.walls.has(w.id));
       if (dirtyWalls.length > 0) {
         const footprints = wallFootprints(wallsOnLevel);
-        const parts = buildWalls(dirtyWalls, p.openings, { ...ctx, footprints });
+        const parts = buildWalls(dirtyWalls, p.openings, { ...ctx, footprints, cutOuts });
         // opening parts (sill, head, jambs) belong to the opening id but are rebuilt with their wall
         const wallIds = new Set(dirtyWalls.map((w) => w.id));
         const openingIds = p.openings.filter((o) => wallIds.has(o.wallId)).map((o) => o.id);
@@ -262,7 +263,7 @@ export class SceneBinding {
     }
   }
 
-  /** A plane under the lowest level, sized from the bounds plus a margin (S-051 simplified). */
+  /** The engine's ground slab under the lowest level, with room floors cut out (S-051; R-089..R-100 simplified). */
   private updateGround(): void {
     if (this.groundMesh) {
       this.groundMesh.removeFromParent();
@@ -270,20 +271,14 @@ export class SceneBinding {
       this.groundMesh = null;
     }
     if (!this.project) return;
-    const lowest = derive.lowestLevel(this.project);
-    const b = this.bounds.isEmpty()
-      ? new THREE.Box3(new THREE.Vector3(-5, 0, -5), new THREE.Vector3(5, 0, 5))
-      : this.bounds;
-    const w = b.max.x - b.min.x + 2 * GROUND_MARGIN_M;
-    const d = b.max.z - b.min.z + 2 * GROUND_MARGIN_M;
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, d), this.materials.get("ground"));
+    const ground = buildGround(this.project, {
+      sizes: this.sizes ?? derive.snapshotSizeSource(this.project),
+    });
+    this.groundElevation = ground.elevation / 1000;
+    if (!ground.part) return;
+    const mesh = new THREE.Mesh(toGeometry(ground.part), this.materials.get("ground"));
     mesh.name = "ground";
-    mesh.rotation.x = -Math.PI / 2;
-    mesh.position.set(
-      (b.min.x + b.max.x) / 2,
-      lowest.elevation / 1000 - GROUND_DROP_M,
-      (b.min.z + b.max.z) / 2,
-    );
+    mesh.userData = { entityId: ground.part.entityId, part: ground.part.part };
     mesh.receiveShadow = true;
     mesh.raycast = () => {};
     this.ground.add(mesh);
@@ -315,7 +310,7 @@ export class SceneBinding {
 
   /** Per-frame camera coupling: the ground is visible only from above (S-054). */
   updateCamera(camera: THREE.Camera): void {
-    if (this.groundMesh) this.groundMesh.visible = camera.position.y >= (this.groundMesh.position.y ?? 0);
+    if (this.groundMesh) this.groundMesh.visible = camera.position.y >= this.groundElevation;
   }
 
   /** Point in plan mm under a ray, or null. */

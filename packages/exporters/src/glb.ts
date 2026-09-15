@@ -5,6 +5,7 @@
 // project, sizes and options give the same bytes, and only asset.extras.exportedAt changes between exports.
 import {
   type AssetRegistry,
+  buildGround,
   buildItems,
   buildRecipe,
   buildRooms,
@@ -14,6 +15,7 @@ import {
   materialKeyOf,
   materialRoughness,
   noAssets,
+  snapshotCutOuts,
 } from "@fpv/engine";
 import { derive, type Project } from "@fpv/ir";
 
@@ -27,9 +29,11 @@ export interface GlbOptions {
   /** Marks the file as exported over validation errors (ADR-013 D2). */
   draft?: boolean;
   scope?: GlbScope;
+  /** The ground slab under the lowest level (default true; never in a room scope). */
+  ground?: boolean;
 }
 
-export type GlbNodeKind = "project" | "level" | "wall" | "opening" | "room" | "item";
+export type GlbNodeKind = "project" | "level" | "ground" | "wall" | "opening" | "room" | "item";
 
 export interface GlbNode {
   name: string;
@@ -244,6 +248,7 @@ export function projectToGlb(project: Project, options: GlbOptions): GlbExport {
         : [(room as { levelId: string }).levelId],
   );
   const assetMeshes = new Map<string, number | null>();
+  const cutOuts = snapshotCutOuts(project);
 
   const root: TreeNode = {
     name: `${project.meta.name}${options.draft ? " (DRAFT)" : ""}`,
@@ -273,6 +278,7 @@ export function projectToGlb(project: Project, options: GlbOptions): GlbExport {
         level,
         isLowest: level.id === lowest,
         isHighest: level.id === highest,
+        cutOuts,
       }),
     );
     for (const w of walls) {
@@ -357,6 +363,18 @@ export function projectToGlb(project: Project, options: GlbOptions): GlbExport {
     for (const it of items)
       if (itemNodes.has(it.id) && !rooms.some((r) => r.id === it.roomId))
         levelNode.children.push(itemNodes.get(it.id) as TreeNode);
+    if (level.id === lowest && scope.kind !== "room" && options.ground !== false) {
+      const ground = buildGround(project, { sizes: options.sizes });
+      if (ground.part)
+        levelNode.children.unshift({
+          name: ground.part.entityId,
+          kind: "ground",
+          mesh: b.mesh(ground.part.entityId, [ground.part]),
+          matrix: null,
+          extras: { elevationMm: ground.elevation },
+          children: [],
+        });
+    }
     root.children.push(levelNode);
   }
 

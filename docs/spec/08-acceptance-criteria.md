@@ -75,7 +75,7 @@ Exceptions override ranges. Package names are from ADR-002.
 | O-051..O-059 | engine | adopt (O-057 always both faces; O-058 omit) | `openings.build.test.ts` |
 | O-060..O-064 | ir, engine | reverse (overlap rejected; stacking is a sort) | `validate.opening.test.ts` |
 | O-065..O-068 | engine | adopt | `openings.build.test.ts` |
-| O-069..O-076, O-080..O-082 | engine, assets | adopt (defer:2 for non-rectangular reveals) | `reveals.test.ts` |
+| O-069..O-076, O-080..O-082 | engine, catalog | adopt in phase 2 (cut-out paths from product snapshots; O-070 holds by construction: openings follow their wall) | `reveals.test.ts` |
 | O-077, O-078 | — | omit (no mesh-derived cut-outs) | |
 | O-079 | engine | reverse | `reveals.test.ts` |
 | O-083 | engine | adopt | `expand.opening.test.ts` |
@@ -106,7 +106,7 @@ Exceptions override ranges. Package names are from ADR-002.
 | R-061..R-067, R-075..R-080, R-082..R-088 | engine | adopt (R-081 omit) | `rooms.build.test.ts` |
 | R-068..R-071 | engine | reverse (ceiling from level) | `rooms.build.test.ts` |
 | R-072..R-074 | engine | defer:3 (staircase items) | |
-| R-089..R-100 | engine | defer:2 (ground, simplified) | `ground.test.ts` |
+| R-089..R-091, R-097, R-098, R-100 | engine | adopt in phase 2 (ground simplified; R-092..R-096, R-099 omit: no underground terraces, digging furniture or background images in 3D) | `ground.test.ts` |
 | R-101, R-102 | ir, commands | reverse (always one level) | `level.test.ts` |
 | R-103..R-112, R-114..R-124 | commands, ir | adopt (R-113 reverse: explicit levelId; R-124 omit) | `level.test.ts` |
 | R-125..R-131 | apps/web, geometry | defer:3 (R-131 adopt now as fixture) | `fixtures.rooms.test.ts` |

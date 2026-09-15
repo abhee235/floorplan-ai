@@ -1209,8 +1209,34 @@
   },
   {
     "from": "R-089",
-    "to": "R-100",
-    "disposition": "defer",
+    "to": "R-091",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 2,
+    "note": "ground simplified: one slab under the lowest level from the bounds plus 10 m, minus visible floors"
+  },
+  {
+    "from": "R-092",
+    "to": "R-096",
+    "disposition": "omit",
+    "note": "no underground terraces or digging furniture"
+  },
+  {
+    "from": "R-097",
+    "to": "R-098",
+    "disposition": "adopt",
+    "package": "engine",
+    "phase": 2,
+    "note": "ground at the lowest level's elevation; UVs in plan metres"
+  },
+  {
+    "from": "R-099",
+    "disposition": "omit",
+    "note": "background images are drawn in the plan view only"
+  },
+  {
+    "from": "R-100",
+    "disposition": "adopt",
     "package": "engine",
     "phase": 2
   },
