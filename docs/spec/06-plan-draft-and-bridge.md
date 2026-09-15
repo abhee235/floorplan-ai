@@ -213,6 +213,16 @@ deterministic; no model is involved.
 8. **Report.** Layers with role, entity counts and frozen flag; skipped
    entity types; warnings; the layers read as walls.
 
+Amended 2026-09-16 after the real-drawing diagnostics: gaps up to 3600 mm
+stay inside a wall and may be passages; door swings of 400 to 2100 mm are
+read; straight lines on door or window layers lying in a wall gap classify
+it, as a window when two or more run along 80 percent of the gap and as a
+sliding door when leaves of 30 to 70 percent each together cover 90 percent;
+a room-name text directly over another of the same height, 1.1 to 2.2
+heights higher and within one height sideways, is joined with it into one
+name of at most four words. Wall face coverage leaves out source lines
+shorter than 400 mm (end caps and jambs).
+
 ## Part B. Viewer bridge
 
 ### B1. Transport

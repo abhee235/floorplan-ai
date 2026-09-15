@@ -160,6 +160,9 @@ export interface RealPlanScore {
   /** Null when the expectation has no count. */
   doorRecall: number | null;
   windowRecall: number | null;
+  /** What the draft found, to read beside the capped recall. */
+  doorsFound: number;
+  windowsFound: number;
   roomRecall: number;
   missedRooms: string[];
   extraRooms: string[];
@@ -168,7 +171,8 @@ export interface RealPlanScore {
 type Segment = [number, number, number, number];
 
 /** Face coverage: each sample on a source wall line counts when it lies within half a wall's thickness (plus
- * 30 mm) of that wall's centreline and runs within 10 degrees of it. */
+ * 30 mm) of that wall's centreline and runs within 10 degrees of it. Lines shorter than 400 mm are wall end
+ * caps and jambs, which run across the wall, and are left out. */
 export function wallFaceCoverage(draft: PlanDraft, faces: readonly Segment[], mmPerUnit: number): number {
   const tol = 30 / mmPerUnit;
   const cosTol = Math.cos((10 * Math.PI) / 180);
@@ -180,7 +184,7 @@ export function wallFaceCoverage(draft: PlanDraft, faces: readonly Segment[], mm
   let covered = 0;
   for (const [x1, y1, x2, y2] of faces) {
     const l = Math.hypot(x2 - x1, y2 - y1);
-    if (l === 0) continue;
+    if (l === 0 || l * mmPerUnit < 400) continue;
     const ux = (x2 - x1) / l;
     const uy = (y2 - y1) / l;
     const n = Math.max(1, Math.round(l / step));
@@ -225,6 +229,8 @@ export function scoreRealPlan(
         ? null
         : (Math.abs(draft.units.mmPerUnit - expected.mmPerUnit) / expected.mmPerUnit) * 100,
     doorRecall: recallOf(count("door"), expected.doors),
+    doorsFound: count("door"),
+    windowsFound: count("window"),
     windowRecall: recallOf(count("window"), expected.windows),
     roomRecall: recallOf(expected.rooms.length - missedRooms.length, expected.rooms.length) ?? 1,
     missedRooms,

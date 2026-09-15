@@ -27,6 +27,9 @@ export interface PlanRow {
   scaleErrorPct: number | null;
   doorRecall: number | null;
   windowRecall: number | null;
+  /** Found and expected counts for real plans, e.g. "10/14"; null for generated plans. */
+  doors: string | null;
+  windows: string | null;
   openingRecall: number | null;
   roomRecall: number;
   scaleSource: string;
@@ -57,6 +60,8 @@ export function scoreAll(): PlanRow[] {
       scaleErrorPct: s.scaleErrorPct,
       doorRecall: null,
       windowRecall: null,
+      doors: null,
+      windows: null,
       openingRecall: s.openingRecall,
       roomRecall: s.roomRecall,
       scaleSource: draft.units.scaleSource,
@@ -82,6 +87,8 @@ export function scoreAll(): PlanRow[] {
       scaleErrorPct: s.scaleErrorPct,
       doorRecall: s.doorRecall,
       windowRecall: s.windowRecall,
+      doors: `${s.doorsFound}/${expected.doors ?? "?"}`,
+      windows: `${s.windowsFound}/${expected.windows ?? "?"}`,
       openingRecall: null,
       roomRecall: s.roomRecall,
       scaleSource: draft.units.scaleSource,
@@ -109,7 +116,9 @@ if (process.argv[1]?.endsWith("score-plans.ts")) {
       "scale err",
       "scale from",
       "doors",
+      "door count",
       "windows",
+      "window count",
       "openings",
       "rooms",
     ];
@@ -122,7 +131,9 @@ if (process.argv[1]?.endsWith("score-plans.ts")) {
       r.scaleErrorPct === null ? "-" : `${r.scaleErrorPct.toFixed(1)}%`,
       r.scaleSource,
       pct(r.doorRecall),
+      r.doors ?? "-",
       pct(r.windowRecall),
+      r.windows ?? "-",
       pct(r.openingRecall),
       pct(r.roomRecall),
     ]);

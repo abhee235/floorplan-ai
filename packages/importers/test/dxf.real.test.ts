@@ -128,3 +128,79 @@ describe("real-drawing behaviours", () => {
     expect(draft.walls.every((w) => Math.abs((w.thickness ?? 0) - 250) < 1)).toBe(true);
   });
 });
+
+describe("openings and labels on real-drawing patterns", () => {
+  /** A south wall 200 thick along y = 0 from 0 to 12000 with the given gaps, plus the other three sides. */
+  function roomWithGaps(gaps: [number, number][]): Pair[] {
+    const out: Pair[] = [];
+    let from = 0;
+    for (const [a, b] of [...gaps, [12000, 12000] as [number, number]]) {
+      if (a > from) out.push(...line("A-WALL", from, -100, a, -100), ...line("A-WALL", from, 100, a, 100));
+      from = b;
+    }
+    out.push(
+      ...line("A-WALL", 11900, 0, 11900, 9000),
+      ...line("A-WALL", 12100, 0, 12100, 9000),
+      ...line("A-WALL", 12000, 8900, 0, 8900),
+      ...line("A-WALL", 12000, 9100, 0, 9100),
+      ...line("A-WALL", 100, 9000, 100, 0),
+      ...line("A-WALL", -100, 9000, -100, 0),
+    );
+    return out;
+  }
+  const arc = (layer: string, cx: number, cy: number, r: number, start: number, end: number): Pair[] => [
+    [0, "ARC"],
+    [8, layer],
+    [10, cx],
+    [20, cy],
+    [40, r],
+    [50, start],
+    [51, end],
+  ];
+
+  it("glazing lines in a 2.8 m gap on a shared openings layer are a window; two half leaves are a sliding door", () => {
+    const { draft } = dxfToDraft(
+      dxf([
+        ...roomWithGaps([
+          [3000, 5800],
+          [8000, 9800],
+        ]),
+        ...line("A-OPENING", 3000, -35, 5800, -35),
+        ...line("A-OPENING", 3000, 0, 5800, 0),
+        ...line("A-OPENING", 3000, 35, 5800, 35),
+        ...line("A-OPENING", 8000, -50, 9800, -50),
+        ...line("A-OPENING", 8000, 0, 8900, 0),
+        ...line("A-OPENING", 8900, 50, 9800, 50),
+      ]),
+    );
+    const south = draft.openings.filter((o) => Math.abs(o.at.y) < 1).sort((a, b) => a.at.x - b.at.x);
+    expect(south.map((o) => [o.kind, Math.round(o.at.x), Math.round(o.width ?? 0)])).toEqual([
+      ["window", 4400, 2800],
+      ["door", 8900, 1800],
+    ]);
+  });
+
+  it("a door swing of 1860 mm is a door, not a passage", () => {
+    const { draft } = dxfToDraft(
+      dxf([...roomWithGaps([[2000, 3860]]), ...arc("A-DOOR", 2000, 100, 1860, 0, 90)]),
+    );
+    const south = draft.openings.filter((o) => Math.abs(o.at.y) < 1);
+    expect(south.map((o) => [o.kind, Math.round(o.width ?? 0)])).toEqual([["door", 1860]]);
+  });
+
+  it("a room name written over two lines is one name; a size line under it stays a dimension", () => {
+    const { draft } = dxfToDraft(
+      dxf([
+        ...roomWithGaps([]),
+        ...text("A-NOTE", 3000, 5000, 250, "MASTER"),
+        ...text("A-NOTE", 3000, 4600, 250, "BEDROOM"),
+        ...text("A-NOTE", 3000, 4200, 150, "13'8 x 14'"),
+        ...text("A-NOTE", 9000, 5000, 250, "GREAT ROOM"),
+        ...text("A-NOTE", 6000, 2000, 250, "W.I.C."),
+        ...text("A-NOTE", 8000, 2000, 250, "W.I.C"),
+        ...text("A-NOTE", 10000, 2000, 250, "X.O"),
+      ]),
+    );
+    expect(draft.rooms.map((r) => r.name)).toEqual(["MASTER BEDROOM", "GREAT ROOM", "W.I.C.", "W.I.C"]);
+  });
+});

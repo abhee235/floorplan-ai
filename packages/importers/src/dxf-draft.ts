@@ -799,7 +799,8 @@ function classifyText(t: string, role: LayerRole): DraftText["kind"] {
   const trimmed = t.trim();
   // window and door callouts ("5050 XO", "6068 S.G.D.") and sized notes ('18" MIN.') start with a size
   if (/^\d{3,}\b/.test(trimmed) || /^\d+(\.\d+)?\s*["']/.test(trimmed)) return "other";
-  const hasWord = /[A-Za-zÀ-ÿ]{3,}/.test(trimmed);
+  // a word of three letters, or a dotted abbreviation of at least three letters ("W.I.C.")
+  const hasWord = /[A-Za-zÀ-ÿ]{3,}/.test(trimmed) || /(^|\s)([A-Za-z]\.){2,}[A-Za-z]\.?(\s|$)/.test(trimmed);
   // room names are short labels ("KITCHEN / DINING" included); notes have colons, commas, quotes or "W/"
   if (trimmed.split(/\s+/).length > 4 || /[:,"]/.test(trimmed) || /\b[A-Za-z]\/(?=\s|$)/.test(trimmed))
     return "other";
@@ -910,7 +911,7 @@ export function dxfToDraft(text: string, options: { file?: string | null } = {})
 
   const scale = decideScale(doc, dims, extent, textDims, spacing);
   const k = 1 / scale.mmPerUnit; // draft units per millimetre
-  const lim: Limits = { minT: 40 * k, maxT: 700 * k, minOverlap: 150 * k, bridge: 450 * k, maxGap: 2600 * k };
+  const lim: Limits = { minT: 40 * k, maxT: 700 * k, minOverlap: 150 * k, bridge: 450 * k, maxGap: 3600 * k };
   const questions: Omit<DraftQuestion, "id">[] = [...scale.questions, ...layerQuestions];
   const segs: Seg[] = [];
   const widthPieces: Piece[] = [];
@@ -989,7 +990,7 @@ export function dxfToDraft(text: string, options: { file?: string | null } = {})
   const arcInserts = new Set<number>();
   for (const p of doorArcs) {
     const e = p.entity as DxfArc;
-    if (e.radius < 400 * k || e.radius > 1500 * k) continue;
+    if (e.radius < 400 * k || e.radius > 2100 * k) continue;
     const hit = nearestWall(walls, e.centre, slack);
     if (!hit) {
       questions.push({
@@ -1103,12 +1104,46 @@ export function dxfToDraft(text: string, options: { file?: string | null } = {})
         confidence: gap ? 0.85 : 0.75,
       });
     }
+  // lines on door or window layers lying in a wall gap say what the gap is: two or more lines along most of
+  // the gap are glazing (a window); leaves each covering about half of it are a sliding door
+  const gapLines = new Map<number, Interval[]>();
+  for (const p of visible) {
+    const role = roleOf(p);
+    if ((role !== "door" && role !== "window") || p.insert !== null || p.entity.type !== "LINE") continue;
+    const e = p.entity;
+    const s = seg(e.a, e.b, null);
+    if (!s) continue;
+    const hit = nearestWall(walls, mul(add(e.a, e.b), 0.5), 30 * k);
+    if (!hit) continue;
+    const f = wallFrame(walls[hit.index] as Wall);
+    if (Math.abs(cross(s.u, f.u)) > Math.sin((3 * Math.PI) / 180)) continue;
+    const t1 = dot(sub(e.a, f.p), f.u);
+    const t2 = dot(sub(e.b, f.p), f.u);
+    gapLines.set(hit.index, [...(gapLines.get(hit.index) ?? []), [Math.min(t1, t2), Math.max(t1, t2)]]);
+  }
+  walls.forEach((w, wi) => {
+    for (const g of w.gaps) {
+      if (gapsUsed.has(gapKey(wi, g))) continue;
+      const width = g[1] - g[0];
+      if (width < 300 * k) continue;
+      const inGap = (gapLines.get(wi) ?? [])
+        .map(([a, b]): Interval => [Math.max(a, g[0]), Math.min(b, g[1])])
+        .filter(([a, b]) => b - a > 0.05 * width);
+      const full = inGap.filter(([a, b]) => b - a >= 0.8 * width).length;
+      const halves = inGap.filter(([a, b]) => b - a >= 0.3 * width && b - a <= 0.7 * width);
+      const halfCover = union(halves, 1e-9).reduce((acc, [a, b]) => acc + b - a, 0);
+      const kind = halves.length >= 2 && halfCover >= 0.9 * width ? "door" : full >= 2 ? "window" : null;
+      if (!kind) continue;
+      gapsUsed.add(gapKey(wi, g));
+      cands.push({ wall: wi, t: (g[0] + g[1]) / 2, width, kind, hinge: null, swing: null, confidence: 0.8 });
+    }
+  });
   // remaining gaps are passages
   walls.forEach((w, wi) => {
     for (const g of w.gaps) {
       if (gapsUsed.has(gapKey(wi, g))) continue;
       const width = g[1] - g[0];
-      if (width < 600 * k || width > 2600 * k) continue;
+      if (width < 600 * k || width > 3600 * k) continue;
       cands.push({
         wall: wi,
         t: (g[0] + g[1]) / 2,
@@ -1142,7 +1177,7 @@ export function dxfToDraft(text: string, options: { file?: string | null } = {})
   });
 
   // rooms and texts
-  const texts: (DraftText & { role: LayerRole; raw: string })[] = [];
+  const texts: (DraftText & { role: LayerRole; raw: string; height: number })[] = [];
   for (const p of visible) {
     const role = roleOf(p);
     if (role === "ignore" || role === "furniture" || p.block !== null) continue;
@@ -1150,7 +1185,7 @@ export function dxfToDraft(text: string, options: { file?: string | null } = {})
       const e = p.entity as DxfText;
       if (!e.text) continue;
       const kind = role === "dimension" ? "dimension" : classifyText(e.text.split("\n")[0] ?? e.text, role);
-      texts.push({ at: e.at, text: e.text, kind, role, raw: e.text });
+      texts.push({ at: e.at, text: e.text, kind, role, raw: e.text, height: e.height });
     }
   }
   for (const d of dims) {
@@ -1161,7 +1196,26 @@ export function dxfToDraft(text: string, options: { file?: string | null } = {})
           ? String(round(d.measurement, 0.1))
           : "";
     if (shown && d.textAt)
-      texts.push({ at: d.textAt, text: shown, kind: "dimension", role: "dimension", raw: shown });
+      texts.push({ at: d.textAt, text: shown, kind: "dimension", role: "dimension", raw: shown, height: 0 });
+  }
+  // a room name written as two stacked texts ("MASTER" over "BEDROOM") is one name
+  for (const upper of texts) {
+    if (upper.kind !== "room-name" || upper.height <= 0) continue;
+    const h = upper.height;
+    const below = texts.find(
+      (t) =>
+        t !== upper &&
+        t.kind === "room-name" &&
+        Math.abs(t.height - h) <= 0.2 * h &&
+        upper.at.y - t.at.y >= 1.1 * h &&
+        upper.at.y - t.at.y <= 2.2 * h &&
+        Math.abs(upper.at.x - t.at.x) <= h,
+    );
+    if (!below) continue;
+    const merged = [upper.text.split("\n")[0] ?? "", below.text.split("\n")[0] ?? ""].join(" ").trim();
+    if (merged.split(/\s+/).length > 4 || merged.length > 60) continue;
+    upper.text = merged;
+    below.kind = "other";
   }
   const polygons = visible
     .filter((p) => roleOf(p) === "room" && p.entity.type === "POLYLINE" && (p.entity as DxfPolyline).closed)

@@ -1,5 +1,5 @@
 {
-  "note": "Floors the DXF reader must not fall below, from tools/score-plans.ts on 2026-09-16. Raise a floor when the reader improves; never lower one without saying why in the commit.",
+  "note": "Floors the DXF reader must not fall below, from tools/score-plans.ts. Raised 2026-09-16 after reader hardening; wall face coverage now leaves out source lines under 400 mm (end caps). Raise a floor when the reader improves; never lower one without saying why in the commit.",
   "plans": {
     "lshape-metres": {
       "wallScore": 1,
@@ -27,28 +27,28 @@
       "maxScaleErrorPct": 2
     },
     "bimcompiler-floor": {
-      "wallScore": 0.83,
-      "doorRecall": 0.66,
+      "wallScore": 0.99,
+      "doorRecall": 1,
       "windowRecall": 1,
       "roomRecall": 1,
       "maxScaleErrorPct": 2
     },
     "courtyard-house": {
-      "wallScore": 0.93,
-      "doorRecall": 0.8,
-      "windowRecall": 0,
+      "wallScore": 0.99,
+      "doorRecall": 1,
+      "windowRecall": 1,
       "roomRecall": 1,
       "maxScaleErrorPct": 2
     },
     "us-house-imperial": {
-      "wallScore": 0.91,
+      "wallScore": 0.93,
       "doorRecall": 0.71,
-      "windowRecall": 0,
-      "roomRecall": 0.75,
+      "windowRecall": 1,
+      "roomRecall": 1,
       "maxScaleErrorPct": 2
     },
     "ceco-architecture": {
-      "wallScore": 0.76,
+      "wallScore": 0.77,
       "doorRecall": 0.66,
       "roomRecall": 1,
       "maxScaleErrorPct": 2
