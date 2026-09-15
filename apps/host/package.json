@@ -16,6 +16,7 @@
     "@fpv/ir": "workspace:*",
     "@fpv/tools": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "pdfjs-dist": "^6.3.289",
     "ws": "^8.21.3",
     "zod": "^3.25.0"
   },

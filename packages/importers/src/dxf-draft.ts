@@ -377,11 +377,12 @@ export interface TextDimension {
 }
 
 function decideScale(
-  doc: DxfDocument,
+  header: StatedUnits | null,
   dims: readonly DxfDimension[],
   extent: number,
   textDims: readonly TextDimension[] = [],
   spacing: number | null = null,
+  candidates: readonly number[] = [1, 10, 1000, 25.4, 304.8],
 ): ScaleDecision {
   const checks: PlanDraft["units"]["checks"] = [];
   for (const t of textDims) {
@@ -401,7 +402,8 @@ function decideScale(
     if (measured <= 0) continue;
     checks.push({ text, measuredUnits: measured, impliedMmPerUnit: mm / measured });
   }
-  const header = insUnitsToMm(doc.insUnits);
+  const says = header ? (header.label ?? `the drawing header says ${header.units}`) : "";
+  const Says = says.charAt(0).toUpperCase() + says.slice(1);
   const questions: Omit<DraftQuestion, "id">[] = [];
   // the largest group of checks within 2 percent of each other
   let best: number[] = [];
@@ -417,7 +419,7 @@ function decideScale(
     if (header && Math.abs(header.mmPerUnit - mmPerUnit) / mmPerUnit > 0.02)
       questions.push({
         kind: "scale",
-        text: `Dimension text implies ${round(mmPerUnit)} mm per drawing unit, but the drawing header says ${header.units}. The dimensions were used; confirm.`,
+        text: `Dimension text implies ${round(mmPerUnit)} mm per drawing unit, but ${says}. The dimensions were used; confirm.`,
         answer: null,
       });
     return { detected: unitsFor(mmPerUnit), mmPerUnit, source: "dimension-text", checks, questions };
@@ -430,14 +432,14 @@ function decideScale(
   if (header && plausible(header.mmPerUnit)) {
     questions.push({
       kind: "scale",
-      text: `The drawing header says ${header.units} and no two dimension texts confirm it. Answer yes to keep it, or name the units (mm, cm, m, in, ft), or set the scale from one known length.`,
+      text: `${Says} and no two dimension texts confirm it. Answer yes to keep it, or name the units (mm, cm, m, in, ft), or set the scale from one known length.`,
       answer: null,
     });
     return { detected: header.units, mmPerUnit: header.mmPerUnit, source: "header", checks, questions };
   }
   // otherwise the plausible unit whose walls come closest to 150 mm, or failing that the one that makes the
   // drawing 5 m to 200 m across
-  const candidates = [1, 10, 1000, 25.4, 304.8];
+
   // typical office walls are about 150 mm and floors about 30 m across; the unit nearest both wins
   const closeness = (f: number) =>
     Math.abs(Math.log((extent * f) / 30000)) +
@@ -447,13 +449,14 @@ function decideScale(
     candidates.find((f) => extent * f >= 5000 && extent * f <= 200000) ??
     header?.mmPerUnit ??
     1;
+  const readAs = (f: number) => (unitsFor(f) === "unknown" ? `${round(f, 0.001)} mm per unit` : unitsFor(f));
   const described = (f: number) =>
     `${round((extent * f) / 1000, 0.1)} m across${spacing === null ? "" : ` with walls ${round(spacing * f, 1)} mm thick`}`;
   questions.push({
     kind: "scale",
     text: header
-      ? `The drawing header says ${header.units}, but that makes the drawing ${described(header.mmPerUnit)}; it was read as ${unitsFor(guess)} (${described(guess)}). Answer with the units (mm, cm, m, in, ft), or set the scale from one known length.`
-      : `The drawing has no units; it was read as ${unitsFor(guess)} (${described(guess)}). Answer with the units (mm, cm, m, in, ft), or set the scale from one known length.`,
+      ? `${Says}, but that makes the drawing ${described(header.mmPerUnit)}; it was read as ${readAs(guess)} (${described(guess)}). Answer with the units (mm, cm, m, in, ft), or set the scale from one known length.`
+      : `The drawing has no units; it was read as ${readAs(guess)} (${described(guess)}). Answer with the units (mm, cm, m, in, ft), or set the scale from one known length.`,
     answer: null,
   });
   return { detected: "unknown", mmPerUnit: guess, source: "guess", checks, questions };
@@ -824,12 +827,38 @@ export interface DxfImport {
   report: DxfImportReport;
 }
 
-export function dxfToDraft(text: string, options: { file?: string | null } = {}): DxfImport {
-  const doc = parseDxf(text);
+/** Units a drawing states: a DXF header, or a note such as a PDF sheet's "SCALE 1:100". */
+export interface StatedUnits {
+  units: DraftUnits;
+  mmPerUnit: number;
+  /** How a question names the statement; default "the drawing header says <units>". */
+  label?: string;
+}
+
+export interface DocumentDraftOptions {
+  file?: string | null;
+  /** The draft's source kind: "dxf" unless a PDF page was converted into the document. */
+  sourceKind?: "dxf" | "pdf-vector";
+  page?: number | null;
+  /** Roles for layers whose names say nothing, such as the stroke groups of a PDF page. */
+  layerRoles?: ReadonlyMap<string, LayerRole>;
+  /** Units the drawing states when not in a DXF header; null when it states none. */
+  header?: StatedUnits | null;
+  /** Millimetres per unit to try when nothing states the scale (default mm, cm, m, in, ft). */
+  scaleCandidates?: readonly number[];
+}
+
+export function dxfToDraft(text: string, options: DocumentDraftOptions = {}): DxfImport {
+  return documentToDraft(parseDxf(text), options);
+}
+
+/** The DXF interpretation of a parsed document: a DXF file, or a PDF page converted into one (spec 06 A6). */
+export function documentToDraft(doc: DxfDocument, options: DocumentDraftOptions = {}): DxfImport {
   const { placed, warnings } = flatten(doc);
   const hidden = new Set([...doc.layers.values()].filter((l) => l.frozen || l.off).map((l) => l.name));
   const visible = placed.filter((p) => !hidden.has(p.entity.layer));
-  const roleOf = (p: Placed): LayerRole => blockRole(p.block) ?? layerRole(p.entity.layer);
+  const roleOfLayer = (name: string): LayerRole => options.layerRoles?.get(name) ?? layerRole(name);
+  const roleOf = (p: Placed): LayerRole => blockRole(p.block) ?? roleOfLayer(p.entity.layer);
 
   // layer report
   const layerStats = new Map<string, Record<string, number>>();
@@ -909,7 +938,8 @@ export function dxfToDraft(text: string, options: { file?: string | null } = {})
     if (best) textDims.push({ text: e.text, measuredUnits: best.length });
   }
 
-  const scale = decideScale(doc, dims, extent, textDims, spacing);
+  const stated = options.header !== undefined ? options.header : insUnitsToMm(doc.insUnits);
+  const scale = decideScale(stated, dims, extent, textDims, spacing, options.scaleCandidates);
   const k = 1 / scale.mmPerUnit; // draft units per millimetre
   const lim: Limits = { minT: 40 * k, maxT: 700 * k, minOverlap: 150 * k, bridge: 450 * k, maxGap: 3600 * k };
   const questions: Omit<DraftQuestion, "id">[] = [...scale.questions, ...layerQuestions];
@@ -1275,7 +1305,12 @@ export function dxfToDraft(text: string, options: { file?: string | null } = {})
       0.2 * (scale.source === "dimension-text" ? 1 : 0.5),
   );
   const draft: PlanDraft = {
-    source: { kind: "dxf", file: options.file ?? null, page: null, pixelSize: null },
+    source: {
+      kind: options.sourceKind ?? "dxf",
+      file: options.file ?? null,
+      page: options.page ?? null,
+      pixelSize: null,
+    },
     units: {
       detected: scale.detected,
       mmPerUnit: scale.mmPerUnit,
@@ -1303,7 +1338,7 @@ export function dxfToDraft(text: string, options: { file?: string | null } = {})
     report: {
       layers: [...new Set([...doc.layers.keys(), ...layerStats.keys()])].sort().map((name) => ({
         name,
-        role: layerRole(name),
+        role: roleOfLayer(name),
         entities: layerStats.get(name) ?? {},
         frozen: hidden.has(name),
       })),

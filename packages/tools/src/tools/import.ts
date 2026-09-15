@@ -80,7 +80,7 @@ const Output = z.object({
 export const importPlan = defineTool({
   name: "import_plan",
   description:
-    "Import a floor plan file (DXF, or a PNG/JPEG image read by the configured vision model; PDF later) as walls, openings and rooms. First call with path: returns a draft id, the detected scale, counts and questions, and shows the draft in the viewer for review; nothing changes. Then call again with confirm=true and the draftId, answering the scale question (answers: {q1: 'mm'} or 'yes') or passing scale {units} / {mmPerUnit} / {measuredUnits, lengthMm}. A draft commits only when its scale is confirmed by a person or by two agreeing dimension texts. detail='full' returns the whole draft; draft accepts an edited draft.",
+    "Import a floor plan file (DXF, a vector PDF page, or a PNG/JPEG image read by the configured vision model) as walls, openings and rooms. First call with path: returns a draft id, the detected scale, counts and questions, and shows the draft in the viewer for review; nothing changes. Then call again with confirm=true and the draftId, answering the scale question (answers: {q1: 'mm'} or 'yes') or passing scale {units} / {mmPerUnit} / {measuredUnits, lengthMm}. A draft commits only when its scale is confirmed by a person or by two agreeing dimension texts. detail='full' returns the whole draft; draft accepts an edited draft.",
   tier: "both",
   mutating: true,
   // a local vision model can take minutes on a laptop; DXF plans return in well under a second

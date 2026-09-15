@@ -11,9 +11,11 @@ import {
   imageInfo,
   PlanFormatError,
   planFileKind,
+  readPlanPdf,
   readPlanText,
 } from "@fpv/importers";
 import { type PlanReader, type PlanReadOutcome, type PlanReadRequest, ToolError } from "@fpv/tools";
+import { extractPdfPages, PdfReadError } from "./pdf.js";
 
 /** Larger drawings are refused rather than parsed for minutes. */
 export const MAX_PLAN_BYTES = 64 * 1024 * 1024;
@@ -85,12 +87,31 @@ export class FilePlanReader implements PlanReader {
       if (!bytes) throw new ToolError("args.invalid", "send an image as contentBase64 or a path", null, null);
       return this.readImage(fileName, bytes);
     }
+    if (planFileKind(fileName) === "pdf") {
+      if (!bytes) throw new ToolError("args.invalid", "send a PDF as contentBase64 or a path", null, null);
+      return this.readPdf(fileName, bytes, req.page);
+    }
     const source = text ?? decodePlanText(bytes as Uint8Array);
     try {
       const r = readPlanText(fileName, source);
       return { draft: r.draft, report: r.report, preview: r.preview, image: null, fileName };
     } catch (e) {
       if (e instanceof PlanFormatError) throw new ToolError(e.code, e.message, null, e.hint);
+      throw e;
+    }
+  }
+
+  private async readPdf(
+    fileName: string,
+    bytes: Uint8Array,
+    page: number | undefined,
+  ): Promise<PlanReadOutcome> {
+    try {
+      const r = readPlanPdf(fileName, await extractPdfPages(bytes, page), page);
+      return { draft: r.draft, report: r.report, preview: r.preview, image: null, fileName };
+    } catch (e) {
+      if (e instanceof PlanFormatError) throw new ToolError(e.code, e.message, null, e.hint);
+      if (e instanceof PdfReadError) throw new ToolError(e.code, e.message, null, null);
       throw e;
     }
   }

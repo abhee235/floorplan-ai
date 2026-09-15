@@ -56,6 +56,19 @@ two measured segments within 2 percent. The app shows a dimension overlay on
 the image and asks the user to confirm or type one known length. This is the
 single biggest guard against a silently wrong model.
 
+Amendment 2026-09-16 (P2-7): vector PDFs are read with pdfjs-dist
+(Apache-2.0) in the host process, which extracts each page's painted paths
+and text runs; `@fpv/importers` stays pure and converts a page into the same
+document the DXF reader interprets (`documentToDraft`), so walls, openings,
+rooms and scale share one pass. Stroke width and colour groups stand in for
+layers: the heaviest groups made mostly of parallel line pairs (and dark
+fills) are walls, cubic curves that are circular arcs are door swings, a
+length label with the line it sits beside is a dimension, dashed lines are
+ignored, and the remaining groups can mark windows. A sheet note such as
+"SCALE 1:100" plays the role of the DXF header; without two agreeing
+dimension labels the scale needs confirmation as for DXF. Pages without line
+work are refused with a hint to import them as images. Spec 06 A6.
+
 Amendment 2026-09-16 (P2-2): for image, raster PDF and sketch drafts the
 dimension-text cross-check is not enough, because the model reads the
 measured end points from pixels a few percent off; two strings agreed within

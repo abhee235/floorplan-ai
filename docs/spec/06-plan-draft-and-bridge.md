@@ -279,6 +279,50 @@ heights higher and within one height sideways, is joined with it into one
 name of at most four words. Wall face coverage leaves out source lines
 shorter than 400 mm (end caps and jambs).
 
+### A6. Vector PDF reader (P2-7)
+
+The host (`apps/host/src/pdf.ts`) reads the bytes with pdfjs-dist, one page
+or up to 50 pages, and hands each page's operator list to
+`interpretPdfOperators` and its text runs to the importers package; no worker
+thread or service is involved. `readPlanPdf(fileName, pages, page?)` reads the
+requested page, or the one with the most line work, and refuses a page with
+fewer than 20 path segments (`import.unsupported`, with a hint to import a
+scanned page as an image). `pdfPageToDraft` then:
+
+1. **Paths.** Transforms, save and restore, form XObjects, line width (scaled
+   by the transform), dash and colour are tracked; only stroked or filled
+   paths are kept. White fills and fills covering a quarter of the sheet are
+   dropped.
+2. **Groups as layers.** Strokes group by width (to 0.01 pt) and colour
+   (`pdf-stroke-0.70-000000`), fills by colour, dashed strokes go to
+   `pdf-dashed` (ignored).
+3. **Arcs.** A cubic whose control points sit on the end tangents at
+   4/3 tan(sweep/4) of a common radius (2 percent) and whose midpoint lies on
+   the circle is an arc of at most 100 degrees; consecutive pieces of one
+   circle merge, full circles are dropped. Arcs go to `pdf-arcs` (door role).
+   Other curves are flattened to eight lines.
+4. **Text.** Runs on one baseline join; a short line with digits 1.0 to 1.8
+   heights under a label becomes its second line. Length labels go to
+   `pdf-dimensions` with the nearest parallel stroke line within three text
+   heights (the dimension line); other labels to `pdf-text`. A note matching
+   `1:N` states N x 25.4 / 72 mm per point.
+5. **Walls.** A group is wall-like when at least half of its length has a
+   parallel overlapping partner 0.3 to 72 pt away and it holds at least 5
+   percent of the largest group's length. Wall layers are the wall-like stroke
+   groups at least 0.75 of the heaviest wall-like width, and dark wall-like
+   fills. Other groups get the window role; with no wall-like group every
+   group is unknown and the reader asks which lines are walls.
+6. **Interpretation.** `documentToDraft` runs the DXF pass with those roles,
+   the sheet note as the stated units, and paper scales 1:1 to 1:5000 as the
+   candidates when nothing states the scale. The draft is in page points with
+   `source.kind` `pdf-vector` and the page number; its scale is confirmed by
+   two agreeing dimension labels as for DXF.
+
+`tools/fixtures/plans/office-mm.pdf` is the office plan printed at 1:100 by
+`tools/build-plan-fixtures.ts`, with `office-mm.pdf.expected.json` in sheet
+millimetres at full size; `apps/host/test/pdf.test.ts` holds it to the DXF
+fixture metrics and imports it end to end.
+
 ## Part B. Viewer bridge
 
 ### B1. Transport

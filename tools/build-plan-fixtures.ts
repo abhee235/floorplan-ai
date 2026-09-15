@@ -9,6 +9,9 @@
 //                    window rectangles, text labels without outlines, scale from dimension text
 //   rotated-inches   inches, the whole plan turned 30 degrees, faces as closed polylines, door and window
 //                    blocks, feet-and-inches dimension text
+//   office-mm.pdf    the office drawn as a vector PDF sheet at 1:100 (spec 06 A6): heavy wall faces, light
+//                    door arcs as Bezier curves, window lines, dimension lines with labels, two-line room
+//                    names, furniture, a dashed grid line, a sheet border and a scale note
 //
 // Usage: corepack pnpm exec tsx tools/build-plan-fixtures.ts
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -430,6 +433,170 @@ function build(plan: Plan) {
   );
 }
 
+// ---- a small deterministic vector PDF writer --------------------------------------------------------------
+
+const pf = (n: number) => {
+  const r = Math.round(n * 1000) / 1000;
+  return Object.is(r, -0) ? "0" : String(r);
+};
+
+class Pdf {
+  private readonly ops: string[] = [];
+
+  constructor(
+    readonly width: number,
+    readonly height: number,
+  ) {}
+
+  style(lineWidth: number, rgb: [number, number, number] = [0, 0, 0], dash: number[] = []) {
+    this.ops.push(`${pf(lineWidth)} w ${rgb.map(pf).join(" ")} RG [${dash.map(pf).join(" ")}] 0 d`);
+  }
+
+  polyline(pts: readonly P[], closed: boolean) {
+    const path = pts.map((p, i) => `${pf(p.x)} ${pf(p.y)} ${i === 0 ? "m" : "l"}`).join(" ");
+    this.ops.push(`${path}${closed ? " h S" : " S"}`);
+  }
+
+  /** A circular arc as cubic Bezier curves of at most 90 degrees; degrees counter-clockwise, sweep signed. */
+  arc(c: P, r: number, fromDeg: number, sweepDeg: number) {
+    const n = Math.max(1, Math.ceil(Math.abs(sweepDeg) / 90 - 1e-9));
+    const step = (sweepDeg * Math.PI) / 180 / n;
+    const k = (4 / 3) * Math.tan(step / 4) * r;
+    const at = (t: number): P => ({ x: c.x + r * Math.cos(t), y: c.y + r * Math.sin(t) });
+    let a = (fromDeg * Math.PI) / 180;
+    const start = at(a);
+    const parts = [`${pf(start.x)} ${pf(start.y)} m`];
+    for (let i = 0; i < n; i += 1) {
+      const b = a + step;
+      const p0 = at(a);
+      const p3 = at(b);
+      const c1 = { x: p0.x - k * Math.sin(a), y: p0.y + k * Math.cos(a) };
+      const c2 = { x: p3.x + k * Math.sin(b), y: p3.y - k * Math.cos(b) };
+      parts.push(`${pf(c1.x)} ${pf(c1.y)} ${pf(c2.x)} ${pf(c2.y)} ${pf(p3.x)} ${pf(p3.y)} c`);
+      a = b;
+    }
+    this.ops.push(`${parts.join(" ")} S`);
+  }
+
+  text(at: P, size: number, value: string, rotationDeg = 0) {
+    const r = (rotationDeg * Math.PI) / 180;
+    const escaped = value.replace(/[\\()]/g, (ch) => `\\${ch}`);
+    const m = [Math.cos(r), Math.sin(r), -Math.sin(r), Math.cos(r), at.x, at.y].map(pf).join(" ");
+    this.ops.push(`BT /F1 ${pf(size)} Tf ${m} Tm (${escaped}) Tj ET`);
+  }
+
+  toString(): string {
+    const content = this.ops.join("\n");
+    const objs = [
+      "<< /Type /Catalog /Pages 2 0 R >>",
+      "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pf(this.width)} ${pf(this.height)}] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>`,
+      `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
+      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ];
+    let out = "%PDF-1.4\n";
+    const offsets: number[] = [];
+    objs.forEach((o, i) => {
+      offsets.push(out.length);
+      out += `${i + 1} 0 obj\n${o}\nendobj\n`;
+    });
+    const xref = out.length;
+    out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n`;
+    for (const off of offsets) out += `${String(off).padStart(10, "0")} 00000 n \n`;
+    return `${out}trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  }
+}
+
+/**
+ * The plan drawn on an A3 landscape sheet at 1:`scale` the way a CAD program prints it: wall faces heavy,
+ * everything else light. Writes `<name>.pdf` and `<name>.pdf.expected.json`, whose coordinates are sheet
+ * millimetres at full size (the draft's own frame) and whose rooms have no outlines.
+ */
+function buildPdf(plan: Plan, scale: number, noise: (pdf: Pdf, tx: (p: P) => P) => void) {
+  if (plan.rotationDeg !== 0) throw new Error("buildPdf draws unrotated plans");
+  const k = 72 / 25.4 / scale; // sheet points per plan millimetre
+  const origin: P = { x: 300, y: 250 };
+  const tx = (p: P): P => add(origin, mul(p, k));
+  const pdf = new Pdf(1190.55, 841.89);
+  pdf.style(0.7);
+  for (const ring of faceRings(plan)) pdf.polyline(ring.map(tx), true);
+  pdf.style(0.25);
+  for (const o of plan.openings) {
+    const w = plan.walls[o.wall] as WallSpec;
+    const f = frame(w);
+    const centre = add(w.a, mul(f.u, o.offset));
+    if (o.kind === "door") {
+      const hingeSign = o.hinge === "end" ? 1 : -1;
+      const side = o.side ?? 1;
+      const hinge = add(add(centre, mul(f.u, (hingeSign * o.width) / 2)), mul(f.n, (side * w.t) / 2));
+      const latchDir = mul(f.u, -hingeSign);
+      const leafDir = mul(f.n, side);
+      pdf.polyline([tx(hinge), tx(add(hinge, mul(leafDir, o.width)))], false);
+      const ccw = len(sub(left(latchDir), leafDir)) < 1e-9;
+      pdf.arc(tx(hinge), o.width * k, deg(latchDir), ccw ? 90 : -90);
+    } else if (o.kind === "window") {
+      const start = add(centre, mul(f.u, -o.width / 2));
+      for (const s of [-1, 0, 1]) {
+        const off = mul(f.n, (s * w.t) / 4);
+        pdf.polyline([tx(add(start, off)), tx(add(add(start, mul(f.u, o.width)), off))], false);
+      }
+    }
+  }
+  const nameSize = 250 * k;
+  for (const room of plan.rooms) {
+    const c = mul(
+      room.outline.reduce((acc, p) => add(acc, p), { x: 0, y: 0 }),
+      1 / room.outline.length,
+    );
+    const lines = room.note ? [room.name, room.note] : [room.name];
+    lines.forEach((value, i) => {
+      const at = tx(c);
+      pdf.text(
+        { x: at.x - (0.62 * nameSize * value.length) / 2, y: at.y - i * 1.4 * nameSize },
+        nameSize,
+        value,
+      );
+    });
+  }
+  const dimSize = 200 * k;
+  for (const dim of plan.dims) {
+    const horizontal = dim.angle === 0;
+    const a = horizontal ? { x: dim.a.x, y: dim.at.y } : { x: dim.at.x, y: dim.a.y };
+    const b = horizontal ? { x: dim.b.x, y: dim.at.y } : { x: dim.at.x, y: dim.b.y };
+    pdf.polyline([tx(a), tx(b)], false);
+    pdf.polyline([tx(dim.a), tx(a)], false);
+    pdf.polyline([tx(dim.b), tx(b)], false);
+    const shown = dim.text === "<>" ? String(Math.round(len(sub(b, a)))) : dim.text;
+    const mid = tx(mul(add(a, b), 0.5));
+    const half = (0.56 * dimSize * shown.length) / 2;
+    const lift = 0.4 * dimSize;
+    if (horizontal) pdf.text({ x: mid.x - half, y: mid.y + lift }, dimSize, shown);
+    else pdf.text({ x: mid.x - lift, y: mid.y - half }, dimSize, shown, 90);
+  }
+  noise(pdf, tx);
+
+  const mmPerUnit = 1 / k;
+  const offset = mul(origin, mmPerUnit);
+  const rnd = (p: P): P => ({
+    x: Math.round((p.x + offset.x) * 10) / 10,
+    y: Math.round((p.y + offset.y) * 10) / 10,
+  });
+  const expected = {
+    name: `${plan.name}-pdf`,
+    mmPerUnit,
+    walls: plan.walls.map((w) => ({ points: [rnd(w.a), rnd(w.b)], thickness: w.t })),
+    openings: plan.openings.map((o) => {
+      const w = plan.walls[o.wall] as WallSpec;
+      return { at: rnd(add(w.a, mul(frame(w).u, o.offset))), kind: o.kind, width: o.width };
+    }),
+    rooms: plan.rooms.map((room) => ({ name: room.name, areaM2: null })),
+  };
+  mkdirSync(OUT, { recursive: true });
+  writeFileSync(`${OUT}${plan.name}.pdf`, pdf.toString());
+  writeFileSync(`${OUT}${plan.name}.pdf.expected.json`, `${JSON.stringify(expected, null, 2)}\n`);
+  console.log(`${plan.name}.pdf: sheet at 1:${scale}`);
+}
+
 const box = (x0: number, y0: number, x1: number, y1: number): P[] => [
   { x: x0, y: y0 },
   { x: x1, y: y0 },
@@ -439,7 +606,7 @@ const box = (x0: number, y0: number, x1: number, y1: number): P[] => [
 
 // ---- 1. office in millimetres ------------------------------------------------------------------------------
 
-build({
+const officeMm: Plan = {
   name: "office-mm",
   mmPerUnit: 1,
   insUnits: 4,
@@ -490,6 +657,17 @@ build({
     d.lwpolyline("A-FURN", box(1600, 2600, 3400, 5400).map(tx), true);
     d.line("S-GRID", tx({ x: -3000, y: 0 }), tx({ x: 15000, y: 0 }));
   },
+};
+build(officeMm);
+buildPdf(officeMm, 100, (pdf, tx) => {
+  pdf.style(0.25, [0.4, 0.4, 0.4]);
+  pdf.polyline(box(1500, 2500, 3500, 5500).map(tx), true);
+  pdf.polyline(box(1600, 2600, 3400, 5400).map(tx), true);
+  pdf.style(0.25, [0.5, 0.5, 0.5], [6, 3]);
+  pdf.polyline([tx({ x: -3000, y: 0 }), tx({ x: 15000, y: 0 })], false);
+  pdf.style(0.5);
+  pdf.polyline(box(20, 20, pdf.width - 20, pdf.height - 20), true);
+  pdf.text({ x: pdf.width - 220, y: 40 }, 10, "SCALE 1:100");
 });
 
 // ---- 2. L-shaped floor in metres, no header units --------------------------------------------------------

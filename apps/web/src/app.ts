@@ -321,7 +321,7 @@ export function startApp(el: AppElements): {
       if (!file) return;
       el.status.textContent = `reading ${file.name}…`;
       try {
-        const isImage = file.type.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp)$/i.test(file.name);
+        const isImage = file.type.startsWith("image/") || /\.(png|jpe?g|gif|webp|bmp|pdf)$/i.test(file.name);
         const r = await client.tool(
           "import_plan",
           isImage

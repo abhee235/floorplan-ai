@@ -3,6 +3,7 @@
 import type { PlanDraft } from "./draft.js";
 import { DxfError, flatten, parseDxf } from "./dxf.js";
 import { type DxfImportReport, dxfToDraft } from "./dxf-draft.js";
+import { type PdfPageContent, pdfPageToDraft } from "./pdf.js";
 
 export type PlanFileKind = "dxf" | "dwg" | "pdf" | "image" | "unknown";
 
@@ -24,6 +25,45 @@ export function planFileKind(fileName: string): PlanFileKind {
   if (ext === "pdf") return "pdf";
   if (["png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff"].includes(ext)) return "image";
   return "unknown";
+}
+
+/** Fewer segments than this on a page means it is not a vector drawing (a scan, or a text page). */
+const MIN_VECTOR_SEGMENTS = 20;
+
+const segmentCount = (p: PdfPageContent) =>
+  p.paths.reduce((n, path) => n + path.subpaths.reduce((m, s) => m + s.commands.length, 0), 0);
+
+/**
+ * One page of a vector PDF as a draft (spec 06 A6). Without a page number the page with the most line work is
+ * read. A page that is only an image is refused with a hint to import it as an image instead.
+ */
+export function readPlanPdf(
+  fileName: string,
+  pages: readonly PdfPageContent[],
+  page?: number,
+): PlanReadResult {
+  const chosen =
+    page !== undefined
+      ? pages.find((p) => p.page === page)
+      : [...pages].sort((a, b) => segmentCount(b) - segmentCount(a) || a.page - b.page)[0];
+  if (!chosen)
+    throw new PlanFormatError(
+      "import.format",
+      page !== undefined ? `"${fileName}" has no page ${page}` : `"${fileName}" has no pages`,
+      null,
+    );
+  if (segmentCount(chosen) < MIN_VECTOR_SEGMENTS)
+    throw new PlanFormatError(
+      "import.unsupported",
+      chosen.images > 0
+        ? `page ${chosen.page} of "${fileName}" is a scanned image, not vector line work`
+        : `page ${chosen.page} of "${fileName}" has no line work`,
+      chosen.images > 0
+        ? "export the page as a PNG and import the image; the vision reader reads it"
+        : "give the page number of the floor plan",
+    );
+  const { draft, report, preview } = pdfPageToDraft(chosen, { file: fileName });
+  return { draft, report, preview };
 }
 
 /** DXF text: UTF-8 when valid (AutoCAD 2007 and later), else the Windows code page older files use. */
@@ -100,11 +140,17 @@ export function readPlanText(fileName: string, text: string): PlanReadResult {
       "DWG files are not read",
       "save the drawing as DXF (or PDF) from the CAD program and import that",
     );
-  if (kind === "pdf" || kind === "image")
+  if (kind === "pdf")
+    throw new PlanFormatError(
+      "import.format",
+      "PDF plans are read from their bytes, not text",
+      "send the PDF as a path or as contentBase64",
+    );
+  if (kind === "image")
     throw new PlanFormatError(
       "import.unsupported",
-      `${kind === "pdf" ? "PDF" : "image"} plans are not read yet`,
-      "export the plan as DXF, or wait for the raster and PDF readers",
+      "image plans are read by the vision reader",
+      "send the image as a path or as contentBase64",
     );
   if (kind !== "dxf" && !/^\s*0\s*\r?\n\s*SECTION/.test(text))
     throw new PlanFormatError("import.format", `"${fileName}" is not a DXF file`, "import a .dxf file");

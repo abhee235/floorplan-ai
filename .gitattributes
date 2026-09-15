@@ -6,3 +6,5 @@
 # export CSV is compared byte for byte, so git must not touch their line endings
 *.dxf -text
 tools/fixtures/**/*.export.csv -text
+# vector PDF fixtures carry byte offsets in their xref table
+*.pdf binary

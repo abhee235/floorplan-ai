@@ -48,6 +48,8 @@ export interface PlanRow {
 const namesIn = (dir: string) =>
   readdirSync(dir)
     .filter((f) => f.endsWith(".expected.json"))
+    // vector PDF fixtures need the host PDF library; apps/host/test/pdf.test.ts scores them
+    .filter((f) => !f.endsWith(".pdf.expected.json"))
     .map((f) => f.slice(0, -".expected.json".length))
     .sort();
 

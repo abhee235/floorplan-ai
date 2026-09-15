@@ -34,13 +34,16 @@ export {
   baseLayerName,
   blockRole,
   capacityFromText,
+  type DocumentDraftOptions,
   type DxfImport,
   type DxfImportReport,
+  documentToDraft,
   dxfToDraft,
   type LayerRole,
   layerRole,
   parseLengthMm,
   purposeFromName,
+  type StatedUnits,
   type TextDimension,
   typicalSpacing,
 } from "./dxf-draft.js";
@@ -54,6 +57,24 @@ export {
   sourceWallFaces,
   wallFaceCoverage,
 } from "./metrics.js";
+export {
+  type ArcFit,
+  cubicArc,
+  interpretPdfOperators,
+  PAPER_SCALES,
+  type PageLabel,
+  type PdfCommand,
+  type PdfDocumentConversion,
+  type PdfOps,
+  type PdfPageContent,
+  type PdfPath,
+  type PdfPoint,
+  type PdfSubpath,
+  type PdfText,
+  pageLabels,
+  pdfPageToDocument,
+  pdfPageToDraft,
+} from "./pdf.js";
 export { decodePngGray, type GrayBitmap, PngDecodeError } from "./png.js";
 export {
   cleanupRasterDraft,
@@ -79,6 +100,7 @@ export {
   type PlanPreview,
   type PlanReadResult,
   planFileKind,
+  readPlanPdf,
   readPlanText,
 } from "./read.js";
 export {
