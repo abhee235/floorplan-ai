@@ -19,10 +19,17 @@ export {
   type ProviderConfig,
   ProviderError,
   type ProviderProfile,
+  parameterQuirk,
   type ToolCall,
   type ToolSpec,
   type Usage,
 } from "./provider.js";
+export {
+  DESIGNER_SYSTEM,
+  type DesignerOptions,
+  registryToolSpecs,
+  runDesigner,
+} from "./roles/designer.js";
 export {
   type PlanReaderOptions,
   type PlanReaderRole,
@@ -37,3 +44,15 @@ export {
   verifierExtractor,
   verifierPrompt,
 } from "./roles/verifier.js";
+export {
+  type AgentEvent,
+  type AgentOptions,
+  type AgentRun,
+  DEFAULT_MAX_RESULT_CHARS,
+  DEFAULT_MAX_STEPS,
+  parseToolArguments,
+  runAgent,
+  type StopReason,
+  toolCallsInText,
+  toolResultText,
+} from "./runner.js";

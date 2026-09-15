@@ -67,7 +67,30 @@ export interface Provider {
   readonly id: string;
   readonly model: string;
   readonly profile: ProviderProfile;
+  /** Request changes the provider learned from the server's refusals, e.g. "max_tokens is sent as max_completion_tokens". */
+  readonly adaptations?: readonly string[];
   complete(req: CompletionRequest): Promise<Completion>;
+}
+
+type QuirkKey = "maxCompletionTokens" | "noTemperature" | "reasoningNone";
+
+/**
+ * A request parameter an OpenAI-compatible server refused in a 400 reply, and how to send it instead. Newer
+ * OpenAI models want max_completion_tokens, accept only their default temperature, and take function tools on
+ * chat completions only with reasoning_effort "none"; other servers accept the plain parameters.
+ */
+export function parameterQuirk(errorText: string): { key: QuirkKey; note: string } | null {
+  const t = errorText.toLowerCase();
+  if (t.includes("max_tokens") && t.includes("max_completion_tokens"))
+    return { key: "maxCompletionTokens", note: "max_tokens is sent as max_completion_tokens" };
+  if (t.includes("reasoning_effort") && t.includes("none") && (t.includes("tool") || t.includes("function")))
+    return { key: "reasoningNone", note: 'reasoning_effort "none" is sent with tools' };
+  if (
+    t.includes("temperature") &&
+    (t.includes("unsupported") || t.includes("does not support") || t.includes("only the default"))
+  )
+    return { key: "noTemperature", note: "temperature is left at the model default" };
+  return null;
 }
 
 export interface ProviderConfig {
@@ -121,48 +144,67 @@ export function openAICompatible(
 ): Provider {
   const profile = { ...DEFAULT_PROFILE, ...config.profile };
   const url = `${config.baseUrl.replace(/\/+$/, "")}/chat/completions`;
+  // learned from refusals and kept for the provider's lifetime, so only the first request pays the extra round trip
+  const quirks: Record<QuirkKey, boolean> = {
+    maxCompletionTokens: false,
+    noTemperature: false,
+    reasoningNone: false,
+  };
+  const adaptations: string[] = [];
   return {
     id: config.id,
     model: config.model,
     profile,
+    adaptations,
     async complete(req) {
       const messages: WireMessage[] = [];
       if (req.system) messages.push({ role: "system", content: req.system });
       messages.push(...req.messages.map(toWire));
-      const body: Record<string, unknown> = {
-        model: config.model,
-        messages,
-        temperature: req.temperature ?? 0,
-        stream: false,
-        ...config.extraBody,
-      };
-      if (req.maxTokens) body.max_tokens = req.maxTokens;
-      if (req.tools?.length)
-        body.tools = req.tools.map((t) => ({
-          type: "function",
-          function: { name: t.name, description: t.description, parameters: t.parameters },
-        }));
-      if (req.json && profile.jsonMode) body.response_format = { type: "json_object" };
-      const timer = AbortSignal.timeout(config.timeoutMs ?? 120_000);
-      const signal = req.signal ? AbortSignal.any([req.signal, timer]) : timer;
-      let res: Response;
-      try {
-        res = await fetchFn(url, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            ...(config.apiKey ? { authorization: `Bearer ${config.apiKey}` } : {}),
-            ...config.headers,
-          },
-          body: JSON.stringify(body),
-          signal,
-        });
-      } catch (e) {
-        throw new ProviderError(config.id, null, e instanceof Error ? e.message : String(e));
+      let res!: Response;
+      let text = "";
+      for (let attempt = 0; ; attempt += 1) {
+        const body: Record<string, unknown> = {
+          model: config.model,
+          messages,
+          ...(quirks.noTemperature ? {} : { temperature: req.temperature ?? 0 }),
+          stream: false,
+          ...config.extraBody,
+        };
+        if (req.maxTokens)
+          body[quirks.maxCompletionTokens ? "max_completion_tokens" : "max_tokens"] = req.maxTokens;
+        if (req.tools?.length) {
+          body.tools = req.tools.map((t) => ({
+            type: "function",
+            function: { name: t.name, description: t.description, parameters: t.parameters },
+          }));
+          if (quirks.reasoningNone && body.reasoning_effort === undefined) body.reasoning_effort = "none";
+        }
+        if (req.json && profile.jsonMode) body.response_format = { type: "json_object" };
+        const timer = AbortSignal.timeout(config.timeoutMs ?? 120_000);
+        const signal = req.signal ? AbortSignal.any([req.signal, timer]) : timer;
+        try {
+          res = await fetchFn(url, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              ...(config.apiKey ? { authorization: `Bearer ${config.apiKey}` } : {}),
+              ...config.headers,
+            },
+            body: JSON.stringify(body),
+            signal,
+          });
+        } catch (e) {
+          throw new ProviderError(config.id, null, e instanceof Error ? e.message : String(e));
+        }
+        text = await res.text();
+        if (res.ok) break;
+        // a refused parameter is changed once and the request sent again; anything else is an error
+        const quirk = res.status === 400 && attempt < 3 ? parameterQuirk(text) : null;
+        if (!quirk || quirks[quirk.key])
+          throw new ProviderError(config.id, res.status, `HTTP ${res.status}: ${text.slice(0, 500)}`);
+        quirks[quirk.key] = true;
+        adaptations.push(quirk.note);
       }
-      const text = await res.text();
-      if (!res.ok)
-        throw new ProviderError(config.id, res.status, `HTTP ${res.status}: ${text.slice(0, 500)}`);
       let raw: {
         choices?: {
           finish_reason?: string | null;

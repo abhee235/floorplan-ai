@@ -136,6 +136,12 @@ describe("MCP adapter over an in-memory transport (ADR-005 D1, D7)", () => {
       project: "x.json",
       profile: "low",
       data: null,
+      agent: null,
+      steps: null,
+    });
+    expect(parseArgs(["--agent", "10-seat boardroom", "--steps", "25"])).toMatchObject({
+      agent: "10-seat boardroom",
+      steps: 25,
     });
     expect(parseArgs([])).toEqual({
       mcp: false,
@@ -144,6 +150,8 @@ describe("MCP adapter over an in-memory transport (ADR-005 D1, D7)", () => {
       project: null,
       profile: "high",
       data: null,
+      agent: null,
+      steps: null,
     });
   });
 });

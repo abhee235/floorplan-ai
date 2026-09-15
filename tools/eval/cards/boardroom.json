@@ -1,0 +1,12 @@
+{
+  "id": "boardroom",
+  "title": "10-seat boardroom from a brief",
+  "task": "Design a 10-seat boardroom, 8 by 5 metres, with video conferencing, in this empty project. Furnish it completely, fix any validation errors, and finish with the bill of materials.",
+  "maxSteps": 40,
+  "expect": {
+    "rooms": [{ "purpose": "boardroom", "minCapacity": 10, "areaM2": [36, 44] }],
+    "categories": ["table", "chair", "display", "video-bar", "ceiling-mic", "ceiling-speaker", "scheduler"],
+    "minCounts": { "chair": 10 },
+    "maxValidationErrors": 0
+  }
+}

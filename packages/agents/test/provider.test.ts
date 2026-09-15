@@ -82,6 +82,80 @@ describe("OpenAI-compatible provider (ADR-007 D1)", () => {
     expect(req?.body).not.toHaveProperty("response_format");
   });
 
+  it("adapts to a server that refuses max_tokens, temperature 0 or tools with reasoning, and remembers it", async () => {
+    const { fetch, requests } = fakeFetch((body) => {
+      if ("max_tokens" in body)
+        return {
+          status: 400,
+          json: {
+            error: {
+              message:
+                "Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.",
+            },
+          },
+        };
+      if (body.tools && body.reasoning_effort !== "none")
+        return {
+          status: 400,
+          json: {
+            error: {
+              message:
+                "Function tools with reasoning_effort are not supported for m in /v1/chat/completions. To use function tools, use /v1/responses or set reasoning_effort to 'none'.",
+            },
+          },
+        };
+      return ok("done");
+    });
+    const p = openAICompatible(
+      { id: "openai", baseUrl: "https://api.openai.com/v1", model: "m", apiKey: "k" },
+      fetch,
+    );
+    const req = {
+      messages: [{ role: "user" as const, content: "hi" }],
+      tools: [{ name: "get_scene", description: "read", parameters: { type: "object" } }],
+      maxTokens: 100,
+    };
+    expect((await p.complete(req)).text).toBe("done");
+    expect(requests).toHaveLength(3);
+    expect(requests[2]?.body).toMatchObject({
+      max_completion_tokens: 100,
+      reasoning_effort: "none",
+      temperature: 0,
+    });
+    expect(requests[2]?.body).not.toHaveProperty("max_tokens");
+    expect(p.adaptations).toEqual([
+      "max_tokens is sent as max_completion_tokens",
+      'reasoning_effort "none" is sent with tools',
+    ]);
+    await p.complete(req);
+    expect(requests).toHaveLength(4);
+
+    const refusesTemperature = fakeFetch((body) =>
+      "temperature" in body
+        ? {
+            status: 400,
+            json: {
+              error: {
+                message:
+                  "Unsupported value: 'temperature' does not support 0 with this model. Only the default (1) value is supported.",
+              },
+            },
+          }
+        : ok("fine"),
+    );
+    const q = openAICompatible({ id: "o", baseUrl: "https://x/v1", model: "m" }, refusesTemperature.fetch);
+    expect((await q.complete({ messages: [{ role: "user", content: "hi" }] })).text).toBe("fine");
+    expect(refusesTemperature.requests[1]?.body).not.toHaveProperty("temperature");
+
+    const other = fakeFetch(() => ({ status: 400, json: { error: { message: "bad input" } } }));
+    await expect(
+      openAICompatible({ id: "o", baseUrl: "https://x/v1", model: "m" }, other.fetch).complete({
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    ).rejects.toThrow("HTTP 400");
+    expect(other.requests).toHaveLength(1);
+  });
+
   it("parses tool calls, asks for JSON only when the profile supports it, and wraps HTTP errors", async () => {
     const { fetch, requests } = fakeFetch((body) =>
       body.model === "bad"

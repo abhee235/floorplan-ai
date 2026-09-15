@@ -1,8 +1,25 @@
 // @fpv/host: Session host: project state, tool registry, optional MCP adapter over stdio (ADR-005).
 // The viewer bridge, project files, catalog database and agent runner join in later phase 0 items.
 export const PACKAGE = "host" as const;
+export {
+  AGENT_TIMEOUT_MS,
+  type AgentTaskOptions,
+  type AgentTaskResult,
+  describeEvent,
+  loadAgentConfig,
+  runAgentTask,
+} from "./agent.js";
 export { Bridge, type BridgeSocket } from "./bridge.js";
 export { main, parseArgs } from "./cli.js";
+export {
+  type DotEnvResult,
+  expandProviderShortcuts,
+  findEnvFile,
+  loadDotEnv,
+  MODEL_ROLES,
+  type ModelRole,
+  PROVIDERS,
+} from "./env.js";
 export { ExportFileError, FileExportWriter } from "./exports.js";
 export {
   AUTOSAVE_MS,

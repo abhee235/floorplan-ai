@@ -3,10 +3,13 @@
 // the one process the product deploys as: no sidecar, no separate service (ADR-005).
 
 import { join } from "node:path";
+import { openAICompatible } from "@fpv/agents";
 import { AV_CORE, ensureSeed } from "@fpv/catalog";
 import { CatalogStore } from "@fpv/catalog/store";
 import { PROTOCOL_VERSION } from "@fpv/commands";
 import type { ToolReliability } from "@fpv/tools";
+import { describeEvent, loadAgentConfig, runAgentTask } from "./agent.js";
+import { loadDotEnv } from "./env.js";
 import { FileExportWriter } from "./exports.js";
 import { ProjectFileStore } from "./files.js";
 import { serveStdio } from "./mcp.js";
@@ -25,6 +28,10 @@ export interface CliArgs {
   profile: ToolReliability;
   /** Data directory for the catalog database and libraries; null picks the platform default. */
   data: string | null;
+  /** A task for the in-app agent to run once (PRD P1-7); null runs none. */
+  agent: string | null;
+  /** Step budget for --agent. */
+  steps: number | null;
 }
 
 export function parseArgs(argv: readonly string[]): CliArgs {
@@ -35,6 +42,8 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     project: null,
     profile: "high",
     data: null,
+    agent: null,
+    steps: null,
   };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
@@ -54,6 +63,13 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     } else if (a === "--data") {
       out.data = argv[i + 1] ?? null;
       i += 1;
+    } else if (a === "--agent") {
+      out.agent = argv[i + 1] ?? null;
+      i += 1;
+    } else if (a === "--steps") {
+      const n = Number(argv[i + 1]);
+      if (Number.isInteger(n) && n > 0) out.steps = n;
+      i += 1;
     }
   }
   return out;
@@ -72,13 +88,20 @@ export function openCatalog(
 
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<void> {
   const args = parseArgs(argv);
-  if (!args.mcp && !args.serve) {
+  // model providers, keys and roles come from the nearest .env; the shell environment wins
+  const dotenv = loadDotEnv();
+  if (dotenv.file) process.stderr.write(`floorplan-viz env: ${dotenv.file}\n`);
+  for (const note of dotenv.notes) process.stderr.write(`floorplan-viz env: ${note}\n`);
+  if ((!args.mcp && !args.serve && !args.agent) || (args.mcp && args.agent)) {
     process.stderr.write(
       "usage: host [--mcp] [--serve] [--port <n>] [--project <project.json>] [--profile high|medium|low] [--data <dir>]\n" +
+        "            [--agent <task> [--steps <n>]]\n" +
         "  --mcp    serve the tool registry over stdio for an MCP client\n" +
         "  --serve  serve the web viewer and the bridge on http://127.0.0.1:<port>/ (default 4310)\n" +
         "  --data   directory for the catalog database and libraries (default: the platform data dir)\n" +
-        "Both flags together give one process that Claude Code drives while a browser tab watches.\n",
+        "  --agent  run one task with the configured designer model (roles.designer or FPV_AGENT_*);\n" +
+        "           with --serve a browser tab watches it; not together with --mcp\n" +
+        "Both --mcp and --serve together give one process that Claude Code drives while a browser tab watches.\n",
     );
     process.exitCode = 2;
     return;
@@ -128,6 +151,37 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     };
     process.once("SIGINT", bye);
     process.once("SIGTERM", bye);
+  }
+  if (args.agent) {
+    const agentConfig = loadAgentConfig({ dataDir: catalog.dir });
+    for (const note of agentConfig.notes) process.stderr.write(`floorplan-viz config: ${note}\n`);
+    if (!agentConfig.model) {
+      process.stderr.write(
+        "floorplan-viz agent: no designer model; set roles.designer in config.json or FPV_AGENT_BASE_URL and FPV_AGENT_MODEL\n",
+      );
+      process.exitCode = 2;
+    } else {
+      const provider = openAICompatible(agentConfig.model);
+      process.stderr.write(`floorplan-viz agent: ${provider.model} at ${agentConfig.model.baseUrl}\n`);
+      const { run, transcriptPath } = await runAgentTask(session, provider, args.agent, {
+        transcriptDir: join(catalog.dir, "transcripts"),
+        ...(args.steps ? { maxSteps: args.steps } : {}),
+        now,
+        onEvent: (event) => {
+          const line = describeEvent(event);
+          if (line) process.stderr.write(`${line}\n`);
+        },
+      });
+      if (transcriptPath) process.stderr.write(`floorplan-viz agent transcript: ${transcriptPath}\n`);
+      process.stdout.write(
+        `${run.text ?? `(no answer: ${run.reason}${run.error ? `, ${run.error}` : ""})`}\n`,
+      );
+      if (run.reason !== "done") process.exitCode = 1;
+    }
+    if (!args.serve) {
+      files.stopAutosave();
+      catalog.store.close();
+    }
   }
   if (args.mcp) await serveStdio(session, { profile: args.profile });
   // stdio and the http server keep the process alive; closing them ends it

@@ -22,6 +22,10 @@ import {
   withScale,
 } from "@fpv/importers";
 
+import { loadDotEnv } from "../apps/host/src/env.js";
+
+// FPV_READER_PROVIDER and FPV_READER_MODEL in .env configure the model as they do for the host
+loadDotEnv();
 const DIR = fileURLToPath(new URL("./fixtures/plans-raster/", import.meta.url));
 const EVAL = fileURLToPath(new URL("../docs/eval/", import.meta.url));
 

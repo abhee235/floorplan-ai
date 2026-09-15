@@ -92,6 +92,57 @@ Images and briefs are sent only to the configured provider. A local provider
 is the default suggestion for plan reading when the profile has vision. Token
 usage is recorded per session and shown in the app.
 
+### Implementation (2026-09-16, PRD P1-7 and P1-8)
+
+- **Runner.** `@fpv/agents` `runAgent` is a provider-neutral loop: one model
+  turn per step at temperature 0, tool calls run in order through a
+  `callTool` function (the registry in the host), results fed back as tool
+  messages. Malformed arguments and unknown tools become error envelopes with
+  a hint rather than exceptions; tool calls that local models write into the
+  reply text (`<tool_call>` blocks) are read as calls. Transient provider
+  failures (network, 429, 5xx) are retried twice with backoff. A run stops on
+  a plain answer, the step budget (default 40, with a warning three turns
+  before), three identical failing calls in a row, a permanent provider
+  error, or an abort. Tool results lose image data and are cut at 16,000
+  characters with a note to narrow the call. Every request, reply, retry and
+  tool call is an event.
+- **Designer role.** `registryToolSpecs` renders the registry's tools for the
+  profile's reliability (ADR-006 D6) as JSON Schema via zod-to-json-schema,
+  without `additionalProperties: false` (unknown keys are warnings);
+  `DESIGNER_SYSTEM` is the workflow prompt plus the role. The schemas cost
+  about 9,000 tokens at high or medium reliability and 5,000 at low.
+- **Host.** `apps/host/src/agent.ts` takes the model from `roles.designer` or
+  `FPV_AGENT_*`, and `runAgentTask` appends every event to a JSONL transcript
+  in `<data>/transcripts` as it happens. `host --agent "<task>"` runs one task
+  (with `--serve` a browser tab watches).
+- **Evaluation.** Task cards in `tools/eval/cards` (`boardroom`,
+  `import-office`), scoring in `tools/eval/cards.ts` (rooms, item categories
+  and counts, walls, validation errors, BOM verified share, steps, tool calls,
+  tokens, seconds), and `tools/eval/run.ts` running cards against
+  `ollama:`, `openai:`, `openrouter:` and `config:` models. A model server that
+  does not answer is skipped and a run whose provider failed before any reply
+  is not recorded, so connection failures never appear as model results.
+  Scores append to `docs/eval/agent-results.jsonl`; `docs/eval/agent-runs.md`
+  holds the table. `tools/test/eval.test.ts` drives both cards with scripted
+  providers through the real registry.
+- **Provider parameters.** The one OpenAI-compatible implementation learns from
+  a 400 reply that names a refused parameter and sends the request again,
+  keeping the change for later requests: `max_completion_tokens` instead of
+  `max_tokens`, the model's default temperature instead of 0, and
+  `reasoning_effort: "none"` with function tools (newer OpenAI models accept
+  tools on chat completions only without reasoning). `provider.adaptations`
+  lists what changed. Reasoning with tools on OpenAI needs the `/v1/responses`
+  API; an optional Responses path is a follow-up, to be compared in
+  `docs/eval/agent-runs.md` before it becomes a default.
+- **Configuration.** `.env` (see `.env.example`) sets
+  `FPV_<AGENT|READER|VERIFIER>_PROVIDER` (`ollama`, `openai`, `openrouter`) and
+  `FPV_<ROLE>_MODEL`; the host fills in base URL, key and, for Ollama,
+  `reasoning_effort: "none"`. The Ollama server must run with a context larger
+  than its 4,096-token default (`OLLAMA_CONTEXT_LENGTH`).
+- Cascade, the project owner's coding agent, informed the event stream,
+  errors as tool results, profile-filtered tools and fake-provider tests; no
+  code was taken from it.
+
 ## Alternatives considered
 
 - **Anthropic SDK plus OpenAI SDK plus Ollama SDK.** Rejected: three code

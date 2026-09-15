@@ -1,0 +1,11 @@
+{
+  "id": "import-office",
+  "title": "Import a DXF office plan",
+  "task": "Import the floor plan at tools/fixtures/plans/office-mm.dxf into this empty project. Review the draft it returns, confirm it (answer its questions if it asks any), and then report the rooms that were created.",
+  "maxSteps": 20,
+  "expect": {
+    "rooms": [{ "name": "BOARDROOM" }, { "name": "OPEN OFFICE" }, { "name": "MEETING ROOM" }],
+    "minWalls": 6,
+    "maxValidationErrors": 0
+  }
+}

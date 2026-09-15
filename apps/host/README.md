@@ -23,6 +23,32 @@ file; `--port <n>` changes the port; `--profile high|medium|low` picks which too
 over MCP (all stay callable); `--data <dir>` (or `FPV_DATA_DIR`) moves the catalog database and
 installed libraries away from the platform data directory.
 
+## Configuration: `.env`
+
+Model providers, keys and which model plays each role live in a `.env` file. The host, `tools/eval/run.ts` and
+`tools/score-raster.ts` read the nearest `.env` walking up from where they run (or `FPV_ENV_FILE`); variables
+already set in the shell win and empty values are ignored. Copy `.env.example` at the repository root, which lists
+every setting with model suggestions. git ignores `.env`.
+
+Each model role (agent, reader, verifier) is set with a provider and a model:
+
+```
+OPENAI_API_KEY=sk-...
+FPV_AGENT_PROVIDER=openai        # ollama, openai or openrouter
+FPV_AGENT_MODEL=gpt-4.1-mini
+FPV_READER_PROVIDER=ollama
+FPV_READER_MODEL=qwen3.8:27b
+```
+
+The provider fills in `FPV_<ROLE>_BASE_URL` (`OLLAMA_BASE_URL`, `OPENAI_BASE_URL`, `OPENROUTER_BASE_URL` when
+set), `FPV_<ROLE>_API_KEY` from `OPENAI_API_KEY` or `OPENROUTER_API_KEY`, and for Ollama
+`FPV_<ROLE>_EXTRA_BODY={"reasoning_effort":"none"}`; each of those can still be set explicitly. Roles not set in
+the environment fall back to `roles` in `<data>/config.json`.
+
+Run one task with the configured agent: `corepack pnpm exec tsx apps/host/src/cli.ts --agent "10-seat boardroom,
+8 by 5 m, video conferencing"` (add `--serve` to watch it in the browser). The transcript is written to
+`<data>/transcripts`.
+
 ## The catalog
 
 `catalog.db` in the data directory is a SQLite file opened through Node's built-in binding, so there

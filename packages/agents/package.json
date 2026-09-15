@@ -14,6 +14,7 @@
     "@fpv/importers": "workspace:*",
     "@fpv/ir": "workspace:*",
     "@fpv/tools": "workspace:*",
-    "zod": "^3.25.0"
+    "zod": "^3.25.0",
+    "zod-to-json-schema": "3.25.2"
   }
 }

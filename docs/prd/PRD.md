@@ -86,6 +86,10 @@ retry layer built for P1-2), and the evaluation harness is more useful once it
 can score plan-import tasks as well as the boardroom card. Until then the
 phase 1 metrics for a local model are not measured.
 
+Picked up on 2026-09-16 after phase 2: the runner, the `host --agent` command
+and the evaluation harness are in place (ADR-007 implementation note); results
+per card and model are in `docs/eval/agent-runs.md`.
+
 ### Phase 2: Plan reading and exports
 
 Outcome: a DXF or a raster image becomes walls, openings and rooms after a
