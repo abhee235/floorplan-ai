@@ -28,7 +28,6 @@ export {
   parseChord,
   type TargetLike,
 } from "./editor/keys.js";
-export { type Orientation, type RovingOptions, rovingNext } from "./editor/roving.js";
 export {
   type CountsLike,
   countsText,
@@ -39,6 +38,7 @@ export {
   type ProblemSummary,
   paletteSections,
   pointerText,
+  problemCounts,
   problemSummary,
   scaleLabel,
 } from "./editor/status.js";

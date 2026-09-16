@@ -313,9 +313,11 @@ export function startApp(el: AppElements): {
         }
       },
     });
-  if (el.importButton && el.importFile) {
+  // Only the input is needed: React renders the visible button and clicks the input itself, so the
+  // import path must not depend on a button element being handed in (ADR-018 D1).
+  if (el.importFile) {
     const input = el.importFile;
-    el.importButton.addEventListener("click", () => input.click());
+    el.importButton?.addEventListener("click", () => input.click());
     input.addEventListener("change", async () => {
       const file = input.files?.[0];
       input.value = "";

@@ -39,8 +39,16 @@ export interface ProblemSummary {
 /** "No problems", "1 error, 2 warnings" — never a code (ADR-017 D3). */
 export function problemSummary(problems: readonly ProblemLike[]): ProblemSummary {
   const errors = problems.filter((p) => p.severity === "error").length;
-  const warnings = problems.length - errors;
-  if (!problems.length) return { text: "No problems", tone: "ok" };
+  return problemCounts(errors, problems.length - errors);
+}
+
+/**
+ * The same wording from the two counts alone. Severity is only ever "error" or "warning", so the counts
+ * carry everything the sentence needs; a caller that already holds them should not have to build a list of
+ * objects just to be counted again.
+ */
+export function problemCounts(errors: number, warnings: number): ProblemSummary {
+  if (errors + warnings === 0) return { text: "No problems", tone: "ok" };
   const parts: string[] = [];
   if (errors) parts.push(`${errors} ${errors === 1 ? "error" : "errors"}`);
   if (warnings) parts.push(`${warnings} ${warnings === 1 ? "warning" : "warnings"}`);
