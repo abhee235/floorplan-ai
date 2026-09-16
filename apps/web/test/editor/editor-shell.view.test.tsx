@@ -6,10 +6,11 @@
 // the single-pane view modes rendered a container of their own, React replaced those nodes on every
 // switch: the canvases went with the old ones, and the editor was blank until a reload. The real app needs
 // WebGL, so it is stubbed here with one that marks the nodes it was handed, the way its canvases would.
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AppElements } from "../../src/app.js";
+import { scaleLabel } from "../../src/editor/status.js";
 import { Replica } from "../../src/replica.js";
 
 const handed: AppElements[] = [];
@@ -99,5 +100,18 @@ describe("switching what is on screen (ADR-017 D1)", () => {
     }
     // started once: a switch is not a restart
     expect(handed).toHaveLength(1);
+  });
+
+  it("shows the plan's scale whenever the app reports a new one, not only when the project changes", () => {
+    render(<EditorShell />);
+    const { onScale } = handed[0] as AppElements;
+    expect(onScale).toBeTypeOf("function");
+    const dpr = Math.min(2, window.devicePixelRatio);
+    // the zoom cluster and the status bar both show it
+    act(() => onScale?.(0.05));
+    expect(screen.getAllByText(scaleLabel(0.05, dpr))).toHaveLength(2);
+    act(() => onScale?.(0.5));
+    expect(screen.getAllByText(scaleLabel(0.5, dpr))).toHaveLength(2);
+    expect(screen.queryAllByText(scaleLabel(0.05, dpr))).toHaveLength(0);
   });
 });

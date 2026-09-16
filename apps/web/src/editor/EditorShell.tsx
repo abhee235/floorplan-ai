@@ -151,6 +151,7 @@ export function EditorShell(): JSX.Element {
       status: activity,
       fit,
       review,
+      onScale: setScale,
       ...(importFileRef.current ? { importFile: importFileRef.current } : {}),
     });
     setApp(started);

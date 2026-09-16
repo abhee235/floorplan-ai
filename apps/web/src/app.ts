@@ -39,6 +39,12 @@ export interface AppElements {
   importFile?: HTMLInputElement;
   /** Panel for reviewing a plan draft, placed over the plan. */
   review?: HTMLElement;
+  /**
+   * Told the plan's scale, in device pixels per millimetre, whenever it changes: on zoom, fit and resize
+   * as well as on a project change. The zoom readout used to hear only the last, so it sat on the scale
+   * it opened with while the plan zoomed under it.
+   */
+  onScale?: (pixelsPerMm: number) => void;
 }
 
 /**
@@ -679,6 +685,7 @@ export function startApp(el: AppElements): {
   let lastSelection = "";
 
   // ---- frame loop ----
+  let lastScale = Number.NaN;
   const loop = () => {
     const sel = replica.selection.join(",");
     if (sel !== lastSelection) {
@@ -688,6 +695,11 @@ export function startApp(el: AppElements): {
     if (planDirty) {
       plan.flush();
       planDirty = false;
+      // Checked here because every change to the view ends in a redraw, whatever caused it.
+      if (plan.view.scale !== lastScale) {
+        lastScale = plan.view.scale;
+        el.onScale?.(lastScale);
+      }
     }
     controls.update();
     frame3d();
