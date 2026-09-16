@@ -310,8 +310,8 @@ export function EditorShell(): JSX.Element {
 
           <ToolOptionsBar />
 
-          {/* columns match the rail (w-[52px]) and the properties panel (w-72) */}
-          <div className="grid min-h-0 grid-cols-[52px_minmax(0,1fr)_288px]">
+          {/* columns match the rail (w-14) and the properties panel (w-72) */}
+          <div className="grid min-h-0 grid-cols-[56px_minmax(0,1fr)_288px]">
             <ToolRail />
 
             <div

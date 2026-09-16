@@ -10,9 +10,9 @@
    beside the #1E88E5 the plan canvas already draws selection with (oklch 61.8% 0.167 250.9), so the chrome
    and the drawing finally agree on what "selected" looks like.
 
-   Density: this is a drafting tool, not a web page. The base is 12px, controls are 22 to 24px, the grid is
-   8px and the radius is 3px. Before this file set a base size, Preflight left it at the browser default of
-   16px, which is what made the chrome read like an article. */
+   Density: the registry's own scale, not a tighter one. The base is 14px, controls are 32 to 40px and the
+   radius is 8px. An earlier pass squeezed all of that down to a drafting-tool density and the chrome
+   became hard to read, so the sizes here are deliberately the standard desktop ones. */
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
@@ -47,8 +47,21 @@
   --muted: oklch(0.967 0.001 286.375);
   --muted-foreground: oklch(0.552 0.016 285.938);
   --destructive: oklch(57.8% 0.206 29);
-  --border: oklch(0.92 0.004 286.32);
-  --input: oklch(0.92 0.004 286.32);
+
+  /* Borders, ours rather than the registry's. Zinc's own --border is oklch(0.92), which against a white
+     card is 1.27:1 — technically a line, practically invisible, and the chrome's bars are all bg-card on
+     bg-background so the border is the ONLY thing separating them. 0.845 lifts that to about 1.6:1: a
+     hairline you can actually see without it reading as a rule drawn across the window.
+
+     --input is darker again, and on purpose. A field's border is the only thing saying "you can type
+     here", which WCAG 1.4.11 treats as a control boundary rather than decoration; 0.76 is about 2.2:1.
+     (Full 1.4.11 compliance is 3:1, which lands near oklch(0.67) — noticeably heavy. Worth revisiting
+     together rather than me choosing silently.)
+
+     Both carry a little chroma at hue 264 instead of zinc's near-neutral 286: the greys pick up the blue
+     rather than sitting beside it. */
+  --border: oklch(0.845 0.012 264);
+  --input: oklch(0.76 0.015 264);
   --chart-1: oklch(67% 0.183 249.2);
   --chart-2: oklch(0.552 0.016 285.938);
   --chart-3: oklch(0.442 0.017 285.786);
@@ -56,7 +69,7 @@
   --chart-5: oklch(0.274 0.006 286.033);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.141 0.005 285.823);
-  --sidebar-border: oklch(0.92 0.004 286.32);
+  --sidebar-border: oklch(0.845 0.012 264);
   --sidebar-ring: oklch(67% 0.183 249.2);
 }
 
@@ -77,8 +90,9 @@
   --muted: oklch(0.274 0.006 286.033);
   --muted-foreground: oklch(0.705 0.015 286.067);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
+  /* Same reasoning as the light ramp: 10% white on a dark card is barely a line. */
+  --border: oklch(1 0 0 / 16%);
+  --input: oklch(1 0 0 / 24%);
   --chart-1: oklch(67% 0.183 249.2);
   --chart-2: oklch(0.552 0.016 285.938);
   --chart-3: oklch(0.442 0.017 285.786);
@@ -90,7 +104,7 @@
   --sidebar-primary-foreground: oklch(100% 0 0);
   --sidebar-accent: oklch(0.274 0.006 286.033);
   --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-border: oklch(1 0 0 / 16%);
   --sidebar-ring: oklch(61.2% 0.168 249.5);
 }
 

@@ -9,13 +9,16 @@ import { TOOLS, type ToolId, toolReady } from "./tools.js";
 import { useEditor } from "./useEditor.js";
 
 // toggle-group rounds its first and last child for a HORIZONTAL row, which on a vertical rail came out as
-// `8px 0 0 8px`: rounded down one side only. `rounded-[3px]!` overrides that rule on every item.
+// `8px 0 0 8px`: rounded down one side only. `rounded-lg!` overrides that rule on every item.
 // The selected state keys off aria-checked, NOT data-state. TooltipTrigger asChild merges its props onto
 // this same element, and both it and the toggle write data-state — the tooltip's "closed" wins, so
 // `data-[state=on]:` never matched and the active tool had no visible state at all. aria-checked is the
 // toggle's own, and is what assistive technology reads anyway.
+//
+// 40px targets, which is the rail's own scale rather than the 32px of a bar button: these are the one
+// control a person aims at all day, and they sit alone in a column with nothing to line up against.
 const ITEM =
-  "size-9 rounded-lg! text-muted-foreground transition-colors hover:bg-muted hover:text-foreground " +
+  "size-10 rounded-lg! text-muted-foreground transition-colors hover:bg-muted hover:text-foreground " +
   "aria-checked:bg-accent aria-checked:text-accent-foreground";
 
 export function ToolRail(): JSX.Element {
@@ -31,7 +34,7 @@ export function ToolRail(): JSX.Element {
       }}
       orientation="vertical"
       aria-label="Tools"
-      className="flex w-[52px] flex-col items-center gap-1 border-r bg-card py-2"
+      className="flex w-14 flex-col items-center gap-1 border-r bg-card py-2"
     >
       {TOOLS.map((tool) => {
         const ready = toolReady(tool);
@@ -59,15 +62,23 @@ export function ToolRail(): JSX.Element {
   );
 }
 
-/** 20px line icons, the same geometry the design canvas drew. */
+/** 22px line icons, the same geometry the design canvas drew.
+ *
+ * The size is a CLASS, not the width/height attributes, and that is the whole point. toggleVariants ends
+ * with `[&_svg:not([class*='size-'])]:size-4`, and a CSS rule beats a presentational attribute no matter
+ * what the attribute says — so these painted at 16px however large the width= claimed to be. The `:not()`
+ * is the registry's own opt-out: any class containing "size-" takes the rule out of the running. Measured,
+ * not assumed — `getComputedStyle(svg).width` said 16px while the attribute said 22.
+ *
+ * The 24-unit viewBox scales the stroke with the icon, so weight is not automatic either: at 22px a 1.7
+ * stroke renders about 1.56 device px, which is what made these read as faint. 1.9 lands just over 1.7px. */
 function ToolIcon({ id }: { id: ToolId }): JSX.Element {
   const common = {
-    width: 20,
-    height: 20,
+    className: "size-5.5",
     viewBox: "0 0 24 24",
     fill: "none",
     stroke: "currentColor",
-    strokeWidth: 1.7,
+    strokeWidth: 1.9,
     "aria-hidden": true,
   } as const;
   switch (id) {
