@@ -247,7 +247,7 @@ export function describeEntity(project: Project, id: string): SelectedEntity | n
     return it ? { id, kind, title: itemTitle(it), facts: itemFacts(it) } : null;
   }
   const o = project.openings.find((x) => x.id === id);
-  return o ? { id, kind, title: openingTitle(o), facts: openingFacts(o) } : null;
+  return o ? { id, kind, title: openingTitle(o), facts: openingFacts(project, o) } : null;
 }
 
 /** How far from the origin a typed coordinate may be: the same kilometre the wall tool allows (W-072). */
@@ -818,11 +818,160 @@ function openingTitle(o: Opening): string {
   return o.kind === "door" ? "Door" : o.kind === "window" ? "Window" : "Passage";
 }
 
-function openingFacts(o: Opening): Fact[] {
-  return [
-    { label: "Width", value: `${Math.round(o.width)} mm` },
-    { label: "In wall", value: o.wallId },
+/** What an opening is, as a person picks it; the model's values are the enum's. */
+export const OPENING_KINDS: readonly Choice[] = [
+  { value: "door", label: "Door" },
+  { value: "window", label: "Window" },
+  { value: "passage", label: "Passage" },
+];
+
+/** The swing a door is given when it becomes one: the model's own default for a new door. */
+const NEW_DOOR_SWING = { hinge: "start", direction: "left" } as const;
+
+const capital = (word: string): string => word.charAt(0).toUpperCase() + word.slice(1);
+
+/**
+ * A door, window or passage (ADR-017 D3). Where it sits is said as the gap to each end of its wall, named by
+ * compass, since a wall's start is invisible on a plan; either can be typed. Each gap runs along the wall's
+ * centre line from the end point, where the model measures, to the opening's near edge.
+ *
+ * Whatever would run an opening off its wall or into another opening is refused here in words, before the
+ * host refuses it in the validator's (opening.off-wall, opening.overlap). One through the wall's top is
+ * refused too, though the model only warns of it: as with a baseboard (W-100), the panel should not keep a
+ * number the drawing does not show.
+ */
+function openingFacts(project: Project, o: Opening): Fact[] {
+  const w = project.walls.find((x) => x.id === o.wallId);
+  if (!w) return [];
+  const level = derive.levelOf(project, o.levelId) ?? derive.lowestLevel(project);
+  const modify = (changes: Record<string, unknown>): EditCommand => ({
+    type: "opening.modify",
+    payload: { openingId: o.id, changes },
+  });
+  const len = derive.wallLength(w);
+  const top = Math.round(derive.wallMaxHeight(w, level));
+  const { from, to } = derive.openingAlongInterval(o, w);
+  const startWord = derive.compassOf(derive.wallAngle(w) + 180, project.meta.north);
+  const endWord = derive.compassOf(derive.wallAngle(w), project.meta.north);
+  const sideWord = (side: "left" | "right") => derive.wallCompassSide(w, side, project.meta.north);
+  const others = project.openings.filter((x) => x.wallId === w.id && x.id !== o.id);
+  const what = openingTitle(o).toLowerCase();
+
+  /** Why an opening spanning [a, b] along the wall cannot be, or null when it can. */
+  const blocked = (a: number, b: number): string | null => {
+    if (a < 0) return `The ${what} would run past the ${startWord} end of the wall.`;
+    if (b > len) return `The ${what} would run past the ${endWord} end of the wall.`;
+    const hit = others.find((x) => {
+      const span = derive.openingAlongInterval(x, w);
+      return a < span.to && span.from < b;
+    });
+    return hit ? `The ${what} would overlap the ${openingTitle(hit).toLowerCase()} beside it.` : null;
+  };
+
+  const gap = (end: "start" | "end"): Fact => {
+    const word = end === "start" ? startWord : endWord;
+    const current = Math.round(end === "start" ? from : len - to);
+    return {
+      group: "Position",
+      label: `From ${word} end`,
+      value: formatMm(current),
+      unit: "mm",
+      hint: `How far the ${what} is from the ${word} end of its wall, along the wall's centre line.`,
+      edit: lengthEdit(`From ${word} end`, current, { min: 0, max: Math.floor(len - o.width) }, (mm) => {
+        const a = end === "start" ? mm : len - mm - o.width;
+        return blocked(a, a + o.width) ?? modify({ position: (a + o.width / 2) / len });
+      }),
+    };
+  };
+
+  const facts: Fact[] = [
+    {
+      label: "Kind",
+      value: o.kind,
+      choices: OPENING_KINDS,
+      // A new door swings the model's default way; the model clears a swing and a sill that the new kind
+      // cannot have (normalizeOpening), so neither needs saying here.
+      edit: choiceEdit("Kind", OPENING_KINDS, o.kind, (kind) =>
+        modify(kind === "door" && o.swing === null ? { kind, swing: NEW_DOOR_SWING } : { kind }),
+      ),
+    },
+    gap("start"),
+    gap("end"),
+    {
+      group: "Size",
+      label: "Width",
+      value: formatMm(o.width),
+      unit: "mm",
+      hint: "Widens or narrows about the middle.",
+      edit: lengthEdit("Width", o.width, { min: 1, max: Math.floor(len) }, (width) => {
+        const middle = (from + to) / 2;
+        return blocked(middle - width / 2, middle + width / 2) ?? modify({ width });
+      }),
+    },
+    {
+      group: "Size",
+      label: "Height",
+      value: formatMm(o.height),
+      unit: "mm",
+      edit: lengthEdit("Height", o.height, { min: 1, max: HEIGHT_RANGE.max }, (height) =>
+        o.sill + height > top
+          ? `The top of the ${what} would be above the wall, which is ${top} mm high.`
+          : modify({ height }),
+      ),
+    },
   ];
+  if (o.kind === "window")
+    facts.push({
+      group: "Size",
+      label: "Sill",
+      value: formatMm(o.sill),
+      unit: "mm",
+      hint: "How high the bottom of the window is above the floor.",
+      edit: lengthEdit("Sill", o.sill, { min: 0, max: HEIGHT_RANGE.max }, (sill) =>
+        sill + o.height > top
+          ? `The top of the window would be above the wall, which is ${top} mm high.`
+          : modify({ sill }),
+      ),
+    });
+  if (o.kind === "door") {
+    // A door without a swing is a sliding or pocket door: nothing is drawn sweeping the floor.
+    const hinges: Choice[] = [
+      { value: "start", label: `${capital(startWord)} end` },
+      { value: "end", label: `${capital(endWord)} end` },
+      { value: "none", label: "No swing" },
+    ];
+    const hinge = o.swing?.hinge ?? "none";
+    facts.push({
+      group: "Swing",
+      label: "Hinge",
+      value: hinge,
+      choices: hinges,
+      hint: "The end of the door the hinges are on.",
+      edit: choiceEdit("Hinge", hinges, hinge, (value) =>
+        modify({
+          swing: value === "none" ? null : { hinge: value, direction: o.swing?.direction ?? "left" },
+        }),
+      ),
+    });
+    if (o.swing) {
+      const swing = o.swing;
+      const sides: Choice[] = [
+        { value: "left", label: `${capital(sideWord("left"))} side` },
+        { value: "right", label: `${capital(sideWord("right"))} side` },
+      ];
+      facts.push({
+        group: "Swing",
+        label: "Opens to",
+        value: swing.direction,
+        choices: sides,
+        hint: "The side of the wall the door swings into.",
+        edit: choiceEdit("Opens to", sides, swing.direction, (direction) =>
+          modify({ swing: { ...swing, direction } }),
+        ),
+      });
+    }
+  }
+  return facts;
 }
 
 /**

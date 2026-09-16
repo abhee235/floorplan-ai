@@ -25,6 +25,7 @@ import {
   type Fact,
   HEIGHT_RANGE,
   NAME_LIMIT,
+  OPENING_KINDS,
   ROOM_PURPOSES,
   SKIRTING_DEPTH,
   SKIRTING_DEPTH_RANGE,
@@ -801,5 +802,134 @@ describe("editing a room (ADR-017 D3)", () => {
     expect(roomOf(open).ceilingVisible).toBe(false);
     expect(outcomeOf(open, id, "Show ceiling", "false")).toMatchObject({ ok: true, command: null });
     expect(outcomeOf(p, id, "Show floor", "maybe")).toMatchObject({ ok: false });
+  });
+});
+
+describe("editing a door or a window (ADR-017 D3)", () => {
+  // The fixture's one door sits in the middle of W1, which runs west to east with north at 90°: its
+  // hinge is at the west end and it opens to the north side.
+  const DOOR = "opening_000001";
+  const openingOf = (p: ProjectT, id = DOOR) =>
+    p.openings.find((o) => o.id === id) as ProjectT["openings"][number];
+  const labels = (p: ProjectT, id = DOOR) => describeEntity(p, id)?.facts.map((f) => f.label);
+  const withWindow = (): { p: ProjectT; id: string } => {
+    const { project } = run(fixture(), {
+      type: "opening.add",
+      payload: { wallId: W1, kind: "window", atMm: 6000 },
+    });
+    return { p: project, id: (project.openings.at(-1) as { id: string }).id };
+  };
+
+  it("lists a door's kind, its gaps to each end by compass, its size and its swing", () => {
+    const p = fixture();
+    expect(labels(p)).toEqual([
+      "Kind",
+      "From west end",
+      "From east end",
+      "Width",
+      "Height",
+      "Hinge",
+      "Opens to",
+    ]);
+    expect(rowOf(p, DOOR, "Kind").choices).toEqual(OPENING_KINDS);
+    expect(rowOf(p, DOOR, "From west end").value).toBe(`3${NARROW}550`);
+    expect(rowOf(p, DOOR, "From east end").value).toBe(`3${NARROW}550`);
+    expect(rowOf(p, DOOR, "Hinge")).toMatchObject({ value: "start" });
+    expect(rowOf(p, DOOR, "Hinge").choices?.map((c) => c.label)).toEqual([
+      "West end",
+      "East end",
+      "No swing",
+    ]);
+    expect(rowOf(p, DOOR, "Opens to").choices?.map((c) => c.label)).toEqual(["North side", "South side"]);
+  });
+
+  it("names the ends of a wall running the other way the other way round", () => {
+    // W3 runs from (8000, 3000) to (5000, 3000): east to west
+    const { project } = run(fixture(), {
+      type: "opening.add",
+      payload: { wallId: "wall_000003", kind: "window", atMm: 1000 },
+    });
+    const id = (project.openings.at(-1) as { id: string }).id;
+    expect(labels(project, id)?.slice(1, 3)).toEqual(["From east end", "From west end"]);
+    expect(rowOf(project, id, "From east end").value).toBe("400");
+  });
+
+  it("moves an opening by the gap to either end, keeping its width", () => {
+    const p = fixture();
+    const west = run(p, typed(p, DOOR, "From west end", "100")).project;
+    expect(openingOf(west).position).toBeCloseTo(550 / 8000, 9);
+    expect(rowOf(west, DOOR, "From west end").value).toBe("100");
+    const east = run(p, typed(p, DOOR, "From east end", "100")).project;
+    expect(rowOf(east, DOOR, "From east end").value).toBe("100");
+    expect(openingOf(east).width).toBe(900);
+    expect(outcomeOf(p, DOOR, "From west end", "3550")).toMatchObject({ ok: true, command: null });
+    for (const bad of ["-1", "7101"])
+      expect(outcomeOf(p, DOOR, "From west end", bad), bad).toEqual({
+        ok: false,
+        message: "From west end must be from 0 to 7100 mm.",
+      });
+  });
+
+  it("refuses to move or widen an opening into its neighbour or past an end, saying which", () => {
+    const { p } = withWindow(); // the window spans 5400 to 6600
+    expect(outcomeOf(p, DOOR, "From west end", "4600")).toEqual({
+      ok: false,
+      message: "The door would overlap the window beside it.",
+    });
+    expect(outcomeOf(p, DOOR, "Width", "3000")).toMatchObject({
+      ok: false,
+      message: expect.stringContaining("overlap"),
+    });
+    const nearWest = run(p, typed(p, DOOR, "From west end", "100")).project;
+    expect(outcomeOf(nearWest, DOOR, "Width", "1200")).toEqual({
+      ok: false,
+      message: "The door would run past the west end of the wall.",
+    });
+    // about the middle: a wider door keeps its centre
+    const wide = run(p, typed(p, DOOR, "Width", "1000")).project;
+    expect(openingOf(wide)).toMatchObject({ width: 1000, position: 0.5 });
+  });
+
+  it("keeps an opening's top inside the wall", () => {
+    const p = fixture();
+    expect(outcomeOf(p, DOOR, "Height", "2800")).toEqual({
+      ok: false,
+      message: "The top of the door would be above the wall, which is 2700 mm high.",
+    });
+    expect(openingOf(run(p, typed(p, DOOR, "Height", "2400")).project).height).toBe(2400);
+    const { p: w, id } = withWindow(); // 1200 high on a 900 sill
+    expect(rowOf(w, id, "Sill").value).toBe("900");
+    expect(outcomeOf(w, id, "Sill", "1600")).toMatchObject({ ok: false });
+    expect(openingOf(run(w, typed(w, id, "Sill", "1500")).project, id).sill).toBe(1500);
+    expect(openingOf(run(w, typed(w, id, "Sill", "0")).project, id).sill).toBe(0);
+  });
+
+  it("turns a door into a window and back, which drops the swing and then gives one again", () => {
+    const p = fixture();
+    const window = run(p, typed(p, DOOR, "Kind", "window")).project;
+    expect(openingOf(window)).toMatchObject({ kind: "window", swing: null, sill: 0 });
+    expect(labels(window)).toContain("Sill");
+    expect(labels(window)).not.toContain("Hinge");
+    expect(describeEntity(window, DOOR)?.title).toBe("Window");
+    const door = run(window, typed(window, DOOR, "Kind", "door")).project;
+    expect(openingOf(door).swing).toEqual({ hinge: "start", direction: "left" });
+    const passage = run(p, typed(p, DOOR, "Kind", "passage")).project;
+    expect(labels(passage)).toEqual(["Kind", "From west end", "From east end", "Width", "Height"]);
+  });
+
+  it("hinges a door at either end, or at neither, and swings it to either side", () => {
+    const p = fixture();
+    const east = run(p, typed(p, DOOR, "Hinge", "end")).project;
+    expect(openingOf(east).swing).toEqual({ hinge: "end", direction: "left" });
+    const south = run(east, typed(east, DOOR, "Opens to", "right")).project;
+    expect(openingOf(south).swing).toEqual({ hinge: "end", direction: "right" });
+    const sliding = run(south, typed(south, DOOR, "Hinge", "none")).project;
+    expect(openingOf(sliding).swing).toBeNull();
+    expect(labels(sliding)).not.toContain("Opens to");
+    expect(rowOf(sliding, DOOR, "Hinge").value).toBe("none");
+    expect(openingOf(run(sliding, typed(sliding, DOOR, "Hinge", "start")).project).swing).toEqual({
+      hinge: "start",
+      direction: "left",
+    });
   });
 });
