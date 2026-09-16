@@ -8,6 +8,27 @@ export {
   bridgeUrl,
   type SocketLike,
 } from "./bridge/client.js";
+export { Announcer, type AnnouncerOptions, type LiveRegion } from "./editor/announce.js";
+export {
+  type CommandMatch,
+  CommandRegistry,
+  type EditorCommand,
+  type RegisteredCommand,
+  type RunOutcome,
+} from "./editor/commands.js";
+export {
+  type Chord,
+  chordFromEvent,
+  describeChord,
+  describeShortcut,
+  isTypingTarget,
+  type KeyLike,
+  matchesChord,
+  normaliseKey,
+  parseChord,
+  type TargetLike,
+} from "./editor/keys.js";
+export { type Orientation, type RovingOptions, rovingNext } from "./editor/roving.js";
 export { type Ctx2D, type PlanLayers, PlanRenderer, type PlanView } from "./plan/plan.js";
 export { Replica, type ReplicaListener } from "./replica.js";
 export {
