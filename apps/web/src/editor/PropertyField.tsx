@@ -1,8 +1,8 @@
 // One row of the properties panel (ADR-017 D3): a label, a value, and — where the selection says the value
 // can change — a field that commits what was typed or picked.
 //
-// Enter or leaving a text field commits; Escape puts the value back. A list commits as soon as something
-// is picked. What the value MEANS is not decided here: the row's `edit` comes from selection.ts, and this
+// What is typed shows on the plan and in 3D as it is typed, without being sent: Enter or leaving the field
+// sends it, as one change, and Escape puts the value back. A list commits as soon as something is picked. What the value MEANS is not decided here: the row's `edit` comes from selection.ts, and this
 // only runs the conversation around it — the draft, the refusal, and the round trip to the host.
 
 import { RotateCcw } from "lucide-react";
@@ -46,8 +46,8 @@ export interface PropertyFieldProps {
   /** Resolves once the host has taken the command, and throws with its reason when it refuses. */
   send?: ((command: EditCommand) => Promise<void>) | undefined;
   /**
-   * Shows what a command would do without sending it, while a number is being dragged; null puts back
-   * what the host last agreed.
+   * Shows what a command would do without sending it, while a value is typed, dragged or picked; null
+   * puts back what the host last agreed.
    */
   preview?: ((command: EditCommand | null) => void) | undefined;
 }
@@ -149,12 +149,53 @@ function TextField({
   // reset button. The text keeps clear of however many there are.
   const leading = (colour && editable ? 1 : 0) + (resettable ? 1 : 0);
 
+  // The edit as it was when the draft began. Once a preview is shown the panel is drawn from the previewed
+  // project, and an edit taken from that would measure its change from the preview: a typed position
+  // would be moved to twice over.
+  const editAtDraft = useRef<PropertyFieldProps["edit"]>(undefined);
+  // Whether this field has a preview up, and the newest way to take it down, for when the field goes.
+  const previewing = useRef(false);
+  const previewRef = useRef(preview);
+  previewRef.current = preview;
+  useEffect(
+    () => () => {
+      if (previewing.current) previewRef.current?.(null);
+    },
+    [],
+  );
+
   const setDraft = (next: string | null): void => {
     latest.current = next;
+    if (next === null) editAtDraft.current = undefined;
+    else editAtDraft.current ??= edit;
     setDraftState(next);
   };
 
+  /** Shows what the draft would do, or nothing when it would do nothing or cannot be taken. */
+  const show = (text: string): void => {
+    if (!preview) return;
+    const outcome = (editAtDraft.current ?? edit)?.(text);
+    const command = outcome?.ok ? outcome.command : null;
+    if (!command && !previewing.current) return;
+    previewing.current = command !== null;
+    preview(command);
+  };
+
+  /** Takes a preview down, before the real command goes or when the draft is dropped. */
+  const unshow = (): void => {
+    if (!previewing.current) return;
+    previewing.current = false;
+    preview?.(null);
+  };
+
+  const type = (text: string): void => {
+    setDraft(text);
+    if (report.error) report.clear();
+    show(text);
+  };
+
   const revert = (): void => {
+    unshow();
     setDraft(null);
     report.clear();
     reselect.current = true;
@@ -162,8 +203,13 @@ function TextField({
 
   const commit = async (how: "enter" | "blur"): Promise<void> => {
     const text = latest.current;
-    if (!edit || text === null) return;
-    const outcome = edit(text);
+    const editing = editAtDraft.current ?? edit;
+    if (!editing || text === null) return;
+    const outcome = editing(text);
+    // The host's patch has to land on what it knows, so the preview goes before anything is sent.
+    unshow();
+    // Typing on while this is on its way starts from the host's project again.
+    editAtDraft.current = undefined;
     if (!outcome.ok) {
       if (how === "enter") {
         // Still in the field, so the text stays for fixing; Escape is the way back.
@@ -189,6 +235,7 @@ function TextField({
   /** The reset button: empties the field through the same edit that typing nothing would make. */
   const clear = async (): Promise<void> => {
     if (!edit) return;
+    unshow();
     const outcome = edit("");
     if (!outcome.ok) {
       report.refuse(outcome.message);
@@ -202,8 +249,8 @@ function TextField({
   };
 
   // The picker commits on the native change event, when a colour is settled, not on every input event
-  // React reports while the picker is open: those only preview the value in the text, or dragging across
-  // the picker would leave a history entry per pixel. The listener reads the newest commit through a ref.
+  // React reports while the picker is open: those only preview the colour, or dragging across the picker
+  // would leave a history entry per pixel. The listener reads the newest commit through a ref.
   const commitRef = useRef(commit);
   commitRef.current = commit;
   useEffect(() => {
@@ -223,7 +270,7 @@ function TextField({
     if (!scrub || !edit) return;
     const from = scrubStart(latest.current ?? value, empty?.shown);
     if (from === null) return;
-    const editAtStart = edit;
+    const editAtStart = editAtDraft.current ?? edit;
     let at = from;
     let good: { text: string; command: EditCommand; said: string } | null = null;
     beginScrub(e.nativeEvent, e.currentTarget, {
@@ -235,13 +282,16 @@ function TextField({
         at += dx * scrub.perPx * paceOf(mods);
         const text = scrubText(scrub, at);
         setDraft(text);
+        editAtDraft.current = editAtStart;
         const outcome = editAtStart(text);
         // out of range, or back where it began: show the last good value, or nothing changed
         if (!outcome.ok) return;
         good = outcome.command ? { text, command: outcome.command, said: outcome.said } : null;
+        previewing.current = outcome.command !== null;
         preview?.(outcome.command);
       },
       end: (commit) => {
+        previewing.current = false;
         preview?.(null);
         const chosen = good;
         if (!commit || !chosen) {
@@ -308,10 +358,7 @@ function TextField({
               aria-label={`${label}, picker`}
               // What is being typed, once it is a colour; otherwise the model's colour, or the default.
               value={(parseHexColour(draft ?? "") ?? parseHexColour(value) ?? colour.effective).toLowerCase()}
-              onChange={(e) => {
-                setDraft(e.target.value.toUpperCase());
-                if (report.error) report.clear();
-              }}
+              onChange={(e) => type(e.target.value.toUpperCase())}
               className="ml-1 size-4 shrink-0 cursor-pointer appearance-none rounded-sm border border-input bg-transparent p-0 [&::-moz-color-swatch]:rounded-[3px] [&::-moz-color-swatch]:border-none [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-[3px] [&::-webkit-color-swatch]:border-none"
             />
           ) : null}
@@ -348,10 +395,7 @@ function TextField({
         aria-label={nameOf(label, unit)}
         aria-invalid={report.error ? true : undefined}
         aria-describedby={describedBy(id, hint, report.error, scrub ? stepsId(id) : null)}
-        onChange={(e) => {
-          setDraft(e.target.value);
-          if (report.error) report.clear();
-        }}
+        onChange={(e) => type(e.target.value)}
         onFocus={(e) => {
           if (editable) e.currentTarget.select();
         }}

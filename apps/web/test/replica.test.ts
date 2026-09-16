@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import type { ChangeSet, SnapshotMsg } from "@fpv/commands";
+import type { ChangeSet, ChangesMsg, SnapshotMsg } from "@fpv/commands";
 import { Project, type Project as ProjectT } from "@fpv/ir";
+import { enablePatches, produceWithPatches } from "immer";
 import { describe, expect, it } from "vitest";
 import { Replica } from "../src/replica.js";
 
@@ -27,6 +28,25 @@ function firstWall(p: ProjectT) {
   const w = p.walls[0];
   if (!w) throw new Error("the fixture should have walls");
   return w;
+}
+
+enablePatches();
+
+/** The host thickening the second wall: the message it would broadcast after the fixture's snapshot. */
+function thickened(p: ProjectT, thickness: number): ChangesMsg {
+  const id = p.walls[1]?.id as string;
+  const [, patches] = produceWithPatches(p, (draft) => {
+    const w = draft.walls.find((x) => x.id === id);
+    if (w) w.thickness = thickness;
+  });
+  return {
+    type: "changes",
+    seq: 8,
+    changeSet: { commandType: "wall.modify", added: [], updated: [{ type: "wall", id }], removed: [] },
+    historyPosition: 4,
+    origin: "agent",
+    patches,
+  } as ChangesMsg;
 }
 
 /** A project with one wall bent, as a local edit would produce. */
@@ -114,5 +134,84 @@ describe("replica", () => {
     expect(seen).toHaveLength(1);
     expect(seen[0]?.updated).toHaveLength(2);
     expect(replica.seq).toBe(7);
+  });
+
+  it("keeps the host's project apart from a local view, and takes the view away when asked", () => {
+    const { replica, project } = seeded();
+    const wall = firstWall(project);
+    const seen: ChangeSet[] = [];
+    replica.subscribe(({ changes }) => seen.push(changes));
+    const ref = { type: "wall" as const, id: wall.id };
+    replica.applyLocally(bent(project, 60), {
+      commandType: "local.preview",
+      added: [],
+      updated: [ref],
+      removed: [],
+    });
+    expect(replica.showingLocal).toBe(true);
+    expect(replica.agreed).toBe(project);
+    replica.restore();
+    expect(replica.project).toBe(project);
+    expect(replica.showingLocal).toBe(false);
+    // what the view had drawn is drawn again
+    expect(seen.at(-1)).toMatchObject({ commandType: "local.restore", updated: [ref] });
+    // nothing to take away the second time
+    replica.restore();
+    expect(seen).toHaveLength(2);
+  });
+
+  it("redraws everything an earlier local view touched, not only what the newest one names", () => {
+    const { replica, project } = seeded();
+    const seen: ChangeSet[] = [];
+    replica.subscribe(({ changes }) => seen.push(changes));
+    const a = { type: "wall" as const, id: "wall_a" };
+    const b = { type: "wall" as const, id: "wall_b" };
+    replica.applyLocally(bent(project, 30), {
+      commandType: "local.move",
+      added: [],
+      updated: [a, b],
+      removed: [],
+    });
+    replica.applyLocally(bent(project, 40), {
+      commandType: "local.move",
+      added: [],
+      updated: [a],
+      removed: [],
+    });
+    expect(seen.at(-1)?.updated).toEqual([a, b]);
+  });
+
+  it("puts a host patch on the host's project while a value is previewed, so ending the preview keeps it", () => {
+    const { replica, project } = seeded();
+    const wall = firstWall(project);
+    const other = project.walls[1]?.id as string;
+    const seen: ChangeSet[] = [];
+    replica.subscribe(({ changes }) => seen.push(changes));
+    replica.applyLocally(bent(project, 60), {
+      commandType: "local.preview",
+      added: [],
+      updated: [{ type: "wall", id: wall.id }],
+      removed: [],
+    });
+    // the agent thickens another wall meanwhile
+    expect(replica.applyChanges(thickened(project, 333))).toBe(true);
+    expect(replica.agreed?.walls.find((w) => w.id === other)?.thickness).toBe(333);
+    // the preview was made from the old state, so it is gone; its owner shows it again on the new one
+    expect(replica.showingLocal).toBe(false);
+    expect(replica.project?.walls.find((w) => w.id === wall.id)?.arcExtent).toBe(wall.arcExtent);
+    expect(seen.at(-1)?.updated).toEqual([
+      { type: "wall", id: other },
+      { type: "wall", id: wall.id },
+    ]);
+    // a new preview on top, then the end of it: the agent's change is still there
+    replica.applyLocally(bent(replica.agreed as ProjectT, 60), {
+      commandType: "local.preview",
+      added: [],
+      updated: [{ type: "wall", id: wall.id }],
+      removed: [],
+    });
+    replica.restore();
+    expect(replica.project?.walls.find((w) => w.id === other)?.thickness).toBe(333);
+    expect(replica.seq).toBe(8);
   });
 });

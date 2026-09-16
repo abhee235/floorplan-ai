@@ -19,7 +19,7 @@ import {
   resizeCommands,
   rotateCommand,
 } from "./editor/item-handles.js";
-import { kindOf, moveCommands, nextSelection } from "./editor/selection.js";
+import { moveCommands, nextSelection } from "./editor/selection.js";
 import {
   handleAnchors,
   handleAt,
@@ -247,36 +247,20 @@ export function startApp(el: AppElements): {
   };
 
   /**
-   * What a command would do, shown without the host: a number dragged in the properties panel. Every call
-   * applies its command to the project as it was when the preview began, so the drag never compounds;
-   * null puts that project back, which is also what happens just before the real command is sent, so the
-   * host's patch lands on the state it was made against.
+   * What a command would do, shown without the host: a number typed or dragged in the properties panel.
+   * Every call applies its command to the project the host last agreed, so a drag never compounds; null
+   * puts that project back, which is also what happens just before the real command is sent, so the
+   * host's patch lands on the state it was made against. A patch from the host while a preview is up (the
+   * agent, another window) takes the view away, and the preview is shown again on top of it (below).
    */
-  let previewBase: Project | null = null;
-  let previewTouched: ChangeSet["updated"] = [];
+  let previewing: { type: string; payload: unknown } | null = null;
   const preview = (command: { type: string; payload: unknown } | null): void => {
-    if (!command) {
-      if (!previewBase) return;
-      replica.applyLocally(previewBase, {
-        commandType: "local.preview",
-        added: [],
-        updated: previewTouched,
-        removed: [],
-      });
-      previewBase = null;
-      previewTouched = [];
-      planDirty = true;
-      return;
-    }
-    const base = previewBase ?? replica.project;
-    if (!base) return;
-    previewBase = base;
-    const local = applyLocally(base, [command]);
-    if (!local) return;
-    for (const ref of local.changes.updated)
-      if (!previewTouched.some((u) => u.type === ref.type && u.id === ref.id)) previewTouched.push(ref);
-    // everything a previous preview touched is redrawn too, so nothing it moved is left behind
-    replica.applyLocally(local.project, { ...local.changes, updated: previewTouched });
+    previewing = command;
+    const base = replica.agreed;
+    const local = command && base ? applyLocally(base, [command]) : null;
+    // a value the host would refuse shows nothing rather than a lie
+    if (local) replica.applyLocally(local.project, { ...local.changes, commandType: "local.preview" });
+    else replica.restore();
     planDirty = true;
   };
 
@@ -307,15 +291,6 @@ export function startApp(el: AppElements): {
     beforeProject: Project;
     preview: Wall | null;
   } | null = null;
-
-  /** A wall and whatever is joined to its ends: everything a reshape of it can move (W-031). */
-  const touchedByWall = (project: Project, wallId: string): ChangeSet["updated"] => {
-    const w = project.walls.find((x) => x.id === wallId);
-    const ids = new Set([wallId]);
-    if (w?.joins.start) ids.add(w.joins.start.wallId);
-    if (w?.joins.end) ids.add(w.joins.end.wallId);
-    return [...ids].map((id) => ({ type: "wall" as const, id }));
-  };
 
   /**
    * A press that began on a handle of the selected item: a resize or a turn. Like a wall handle drag, it
@@ -510,7 +485,7 @@ export function startApp(el: AppElements): {
           wallId: shaped.id,
           handle,
           before: shaped,
-          beforeProject: replica.project,
+          beforeProject: replica.agreed ?? replica.project,
           preview: null,
         };
         el.plan.setPointerCapture(e.pointerId);
@@ -528,7 +503,7 @@ export function startApp(el: AppElements): {
           size: target.size,
           handle,
           from: at,
-          beforeProject: replica.project,
+          beforeProject: replica.agreed ?? replica.project,
           commands: [],
         };
         el.plan.style.cursor = handle.kind === "rotate" ? "grabbing" : el.plan.style.cursor;
@@ -547,7 +522,7 @@ export function startApp(el: AppElements): {
         ids: [...replica.selection],
         dx: 0,
         dy: 0,
-        before: replica.project,
+        before: replica.agreed ?? replica.project,
       };
     drag = { x: e.clientX, y: e.clientY };
     el.plan.setPointerCapture(e.pointerId);
@@ -566,12 +541,14 @@ export function startApp(el: AppElements): {
             });
       itemHandling = { ...active, commands };
       const local = commands.length > 0 ? applyLocally(active.beforeProject, commands) : null;
-      replica.applyLocally(local?.project ?? active.beforeProject, {
-        commandType: "local.item-handle",
-        added: [],
-        updated: touchedByItem(active.beforeProject, active.item.id),
-        removed: [],
-      });
+      if (local)
+        replica.applyLocally(local.project, {
+          commandType: "local.item-handle",
+          added: [],
+          updated: touchedByItem(active.beforeProject, active.item.id),
+          removed: [],
+        });
+      else replica.restore();
       plan.invalidateOverlay();
       planDirty = true;
       return;
@@ -602,12 +579,8 @@ export function startApp(el: AppElements): {
       // compounding with it. One command goes to the host at the end, not one per pointer move.
       const reshape = next ? handleCommand(active.before, active.handle, next) : null;
       const local = reshape ? applyLocally(active.beforeProject, [reshape]) : null;
-      replica.applyLocally(local?.project ?? active.beforeProject, {
-        commandType: "local.reshape",
-        added: [],
-        updated: local?.changes.updated ?? touchedByWall(active.beforeProject, active.wallId),
-        removed: [],
-      });
+      if (local) replica.applyLocally(local.project, { ...local.changes, commandType: "local.reshape" });
+      else replica.restore();
       plan.invalidateOverlay();
       planDirty = true;
       return;
@@ -669,12 +642,7 @@ export function startApp(el: AppElements): {
       drag = null;
       // Back to what the host agreed, then one entry in the history for the whole gesture: a resize that
       // keeps the far side put is two commands, and undoing it must take both.
-      replica.applyLocally(done.beforeProject, {
-        commandType: "local.item-handle",
-        added: [],
-        updated: touchedByItem(done.beforeProject, done.item.id),
-        removed: [],
-      });
+      replica.restore();
       const [only] = done.commands;
       if (done.commands.length > 1)
         void client.transaction(done.handle.kind === "rotate" ? "Turn item" : "Resize item", done.commands);
@@ -696,12 +664,7 @@ export function startApp(el: AppElements): {
       // the drag left it. The drag has been editing this copy without the host's knowledge, so leaving
       // any of it standing would keep a shape on screen that was never accepted if the command is
       // refused. The host's patch lands a moment later and puts the new shape back for real.
-      replica.applyLocally(done.beforeProject, {
-        commandType: "local.reshape",
-        added: [],
-        updated: touchedByWall(done.beforeProject, done.wallId),
-        removed: [],
-      });
+      replica.restore();
       if (command) void client.command(command);
       plan.invalidateOverlay();
       planDirty = true;
@@ -720,12 +683,7 @@ export function startApp(el: AppElements): {
       // Put everything back as the host last agreed before asking for the change. The drag has been
       // editing this copy without the host's knowledge, so leaving it standing would keep positions on
       // screen that were never accepted if a command is refused. The host's patch follows a moment later.
-      replica.applyLocally(moved.before, {
-        commandType: "local.move",
-        added: [],
-        updated: moved.ids.map((id) => ({ type: kindOf(id) ?? "wall", id })),
-        removed: [],
-      });
+      replica.restore();
       for (const command of commands) void client.command(command);
       plan.invalidateOverlay();
       planDirty = true;
@@ -834,6 +792,12 @@ export function startApp(el: AppElements): {
         });
       }
     }
+    // A patch from the host took a preview away (Replica.applyChanges): show it again on the new state,
+    // once this notification is over.
+    if (previewing && !replica.showingLocal && !changes.commandType.startsWith("local."))
+      queueMicrotask(() => {
+        if (previewing && !replica.showingLocal) preview(previewing);
+      });
     planDirty = true;
     updateStatus();
   });
