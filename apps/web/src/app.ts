@@ -233,7 +233,8 @@ export function startApp(el: AppElements): {
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.strokeStyle = HANDLE_COLOUR;
-    ctx.lineWidth = 1.5;
+    // Thick enough to read at a glance: at 1.5 the glyphs were a few specks beside the wall.
+    ctx.lineWidth = 2;
     for (const kind of ["start", "end", "arc"] as const) {
       const anchor = anchors[kind];
       const sx = view.offsetX + anchor.at.x * view.scale;
@@ -243,25 +244,36 @@ export function startApp(el: AppElements): {
       const cos = Math.cos(rad);
       const sin = Math.sin(rad);
       const at = (x: number, y: number) => ({ x: sx + x * cos - y * sin, y: sy + x * sin + y * cos });
+      // Every glyph stays inside GLYPH_REACH_PX, because that is how far the hit test reaches: draw
+      // past it and the tip stops being pressable, which is the fault this pair of numbers exists to
+      // prevent.
       if (kind === "arc") {
-        // A stem out to a bow: the bend it would put in the wall, drawn small.
-        const from = at(4, 0);
-        const to = at(9, 0);
+        // A bow standing off the wall, and nothing else: the bend this handle would put in it.
+        //
+        // No stalk. Two earlier versions had one, and both read wrong — a stem along the bow's own
+        // axis made a three-pronged fork, and a stem across it showed through the curve as a tick
+        // inside a C. The arc alone says "curve this", and with nothing to overlap there is no
+        // arrangement of numbers left to get wrong.
+        //
+        // Sampled rather than drawn with arc(), so the shape cannot flip with the winding when the
+        // wall's angle puts the sweep the other way round.
+        const centre = 13;
+        const radius = 10;
         ctx.beginPath();
-        ctx.moveTo(from.x, from.y);
-        ctx.lineTo(to.x, to.y);
-        ctx.stroke();
-        const centre = at(13, 0);
-        ctx.beginPath();
-        ctx.arc(centre.x, centre.y, 4.5, rad + Math.PI * 0.55, rad + Math.PI * 1.45);
+        for (let i = 0; i <= 18; i += 1) {
+          const a = -Math.PI / 2 + (i / 18) * Math.PI;
+          const p = at(centre - Math.cos(a) * radius * 0.55, Math.sin(a) * radius);
+          if (i === 0) ctx.moveTo(p.x, p.y);
+          else ctx.lineTo(p.x, p.y);
+        }
         ctx.stroke();
         continue;
       }
       // An arrow pointing out of the wall: the direction pulling this end would take it.
-      const tail = at(5, 0);
-      const tip = at(12, 0);
-      const left = at(8.5, -3);
-      const right = at(8.5, 3);
+      const tail = at(8, 0);
+      const tip = at(22, 0);
+      const left = at(15.5, -5);
+      const right = at(15.5, 5);
       ctx.beginPath();
       ctx.moveTo(tail.x, tail.y);
       ctx.lineTo(tip.x, tip.y);

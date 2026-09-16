@@ -26,7 +26,7 @@ export const MAX_ARC_EXTENT_DEG = 270;
  * allowed to disagree once: the arrow was drawn out to twelve pixels while the catch radius reached five,
  * so pressing exactly what was drawn missed the handle and panned the view instead.
  */
-export const GLYPH_REACH_PX = 18;
+export const GLYPH_REACH_PX = 24;
 
 /**
  * Hit margin in plan millimetres.
