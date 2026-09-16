@@ -188,6 +188,10 @@ export interface Fact {
   hint?: string;
   /** Present on a colour row: the colour its swatch shows while the value is empty. */
   colour?: { effective: string };
+  /** A yes-or-no row: `value` is "true" or "false", and `edit` receives the same words. */
+  toggle?: true;
+  /** Text reads from the left; numbers, the default, line up on the right. */
+  align?: "left";
   /** Present when the panel can change this fact: turns what was typed, or picked, into what to send. */
   edit?: (text: string) => EditOutcome;
 }
@@ -234,7 +238,9 @@ export function describeEntity(project: Project, id: string): SelectedEntity | n
   }
   if (kind === "room") {
     const r = project.rooms.find((x) => x.id === id);
-    return r ? { id, kind, title: r.name ?? "Room", facts: roomFacts(r) } : null;
+    if (!r) return null;
+    const level = derive.levelOf(project, r.levelId) ?? derive.lowestLevel(project);
+    return { id, kind, title: r.name ?? "Room", facts: roomFacts(r, level) };
   }
   if (kind === "item") {
     const it = project.items.find((x) => x.id === id);
@@ -334,13 +340,7 @@ function sideFacts(w: Wall, side: "left" | "right", level: Level, north: number)
       colour: { effective: colour ?? hexOf(MATERIAL_COLOURS["wall-side"] ?? 0xe8e6e1) },
       empty: { shown: "default", action: "Use the default colour" },
       hint: "A hex colour, such as #E8E6E1. Empty uses the default wall colour.",
-      edit: (text) => {
-        if (text.trim() === "")
-          return { ok: true, command: colour === null ? null : finished({ color: null }), said: "default" };
-        const hex = parseHexColour(text);
-        if (hex === null) return { ok: false, message: "Colour needs a hex value, such as #E8E6E1." };
-        return { ok: true, command: hex === colour ? null : finished({ color: hex }), said: hex };
-      },
+      edit: hexEdit(colour, (color) => finished({ color }), "default", "#E8E6E1"),
     },
     {
       group,
@@ -422,21 +422,7 @@ function skirtingFacts(w: Wall, side: "left" | "right", level: Level): Fact[] {
       },
       empty: { shown: "as side", action: "Use the side's colour" },
       hint: "A hex colour, such as #FFFFFF. Empty takes the colour of the side it runs along.",
-      edit: (text) => {
-        if (text.trim() === "")
-          return {
-            ok: true,
-            command: current.color === null ? null : withSkirting({ ...current, color: null }),
-            said: "as its side",
-          };
-        const hex = parseHexColour(text);
-        if (hex === null) return { ok: false, message: "Colour needs a hex value, such as #FFFFFF." };
-        return {
-          ok: true,
-          command: hex === current.color ? null : withSkirting({ ...current, color: hex }),
-          said: hex,
-        };
-      },
+      edit: hexEdit(current.color, (color) => withSkirting({ ...current, color }), "as its side", "#FFFFFF"),
     },
   );
   return facts;
@@ -625,15 +611,194 @@ function choiceEdit(
   };
 }
 
-function roomFacts(r: Room): Fact[] {
+/** What a room is for, in the panel's words; the model's values are the enum's. */
+export const ROOM_PURPOSES: readonly Choice[] = [
+  { value: "meeting", label: "Meeting room" },
+  { value: "huddle", label: "Huddle room" },
+  { value: "boardroom", label: "Boardroom" },
+  { value: "training", label: "Training room" },
+  { value: "open-office", label: "Open office" },
+  { value: "focus", label: "Focus room" },
+  { value: "reception", label: "Reception" },
+  { value: "cafeteria", label: "Cafeteria" },
+  { value: "corridor", label: "Corridor" },
+  { value: "utility", label: "Utility" },
+  { value: "storage", label: "Storage" },
+  { value: "restroom", label: "Restroom" },
+  { value: "other", label: "Other" },
+];
+
+/** Seats a room may be given: none up to a hall's worth. */
+export const CAPACITY_RANGE = { min: 0, max: 10_000 } as const;
+
+/** A room name longer than this is a sentence, not a name. */
+export const NAME_LIMIT = 80;
+
+/**
+ * A room (ADR-017 D3): what it is called and for, how many it seats, how big it is, and its floor and
+ * ceiling. Area and corners are read, not typed: a room's shape changes by its corners on the plan.
+ */
+function roomFacts(r: Room, level: Level): Fact[] {
+  const modify = (changes: Record<string, unknown>): EditCommand => ({
+    type: "room.modify",
+    payload: { roomId: r.id, changes },
+  });
+  const surface = (which: "floor" | "ceiling", color: string | null): EditCommand =>
+    modify({
+      finishes: { ...r.finishes, [which]: tidyFinish({ ...(r.finishes[which] ?? blankFinish()), color }) },
+    });
   // Square metres: square millimetres is a number nobody reads. roomArea is already absolute and already
   // subtracts the holes (R-006), so there is nothing to correct for here.
   const areaM2 = derive.roomArea(r) / 1_000_000;
+  const plain = (key: string, fallback: number) => hexOf(MATERIAL_COLOURS[key] ?? fallback);
   return [
-    { label: "Corners", value: String(r.polygon.length) },
-    { label: "Area", value: `${areaM2.toFixed(2)} m²` },
-    { label: "Purpose", value: r.purpose },
+    {
+      label: "Name of room",
+      caption: "Name",
+      value: r.name ?? "",
+      align: "left",
+      empty: { shown: "unnamed", action: "Clear the name" },
+      edit: (text) => {
+        const name = text.trim();
+        if (name.length > NAME_LIMIT)
+          return { ok: false, message: `A name is at most ${NAME_LIMIT} characters.` };
+        const next = name === "" ? null : name;
+        return {
+          ok: true,
+          command: next === r.name ? null : modify({ name: next }),
+          said: next ?? "unnamed",
+        };
+      },
+    },
+    {
+      label: "Purpose",
+      value: r.purpose,
+      choices: ROOM_PURPOSES,
+      edit: choiceEdit("Purpose", ROOM_PURPOSES, r.purpose, (purpose) => modify({ purpose })),
+    },
+    {
+      label: "Capacity",
+      value: r.capacity === null ? "" : String(r.capacity),
+      unit: "seats",
+      empty: { shown: "not set", action: "Clear the capacity" },
+      hint: "How many people the room seats. Furnishing a room uses it.",
+      edit: (text) => {
+        const t = text.trim();
+        if (t === "")
+          return {
+            ok: true,
+            command: r.capacity === null ? null : modify({ capacity: null }),
+            said: "not set",
+          };
+        if (!/^\d+$/.test(t))
+          return { ok: false, message: "Capacity needs a whole number of seats, such as 8." };
+        const seats = Number(t);
+        if (seats > CAPACITY_RANGE.max)
+          return {
+            ok: false,
+            message: `Capacity must be from ${CAPACITY_RANGE.min} to ${CAPACITY_RANGE.max} seats.`,
+          };
+        return {
+          ok: true,
+          command: seats === r.capacity ? null : modify({ capacity: seats }),
+          said: `${seats} ${seats === 1 ? "seat" : "seats"}`,
+        };
+      },
+    },
+    { group: "Size", label: "Area", value: `${areaM2.toFixed(2)} m²` },
+    { group: "Size", label: "Corners", value: String(r.polygon.length) },
+    {
+      group: "Floor",
+      label: "Colour of floor",
+      caption: "Colour",
+      value: r.finishes.floor?.color ?? "",
+      colour: { effective: r.finishes.floor?.color ?? plain("floor", 0xc9c2b8) },
+      empty: { shown: "default", action: "Use the default floor colour" },
+      edit: hexEdit(
+        r.finishes.floor?.color ?? null,
+        (color) => surface("floor", color),
+        "default",
+        "#C9C2B8",
+      ),
+    },
+    {
+      group: "Floor",
+      label: "Show floor",
+      caption: "Show",
+      toggle: true,
+      value: String(r.floorVisible),
+      edit: toggleEdit(r.floorVisible, (floorVisible) => modify({ floorVisible })),
+    },
+    {
+      group: "Ceiling",
+      label: "Height of ceiling",
+      caption: "Height",
+      value: r.ceilingHeight === null ? "" : formatMm(r.ceilingHeight),
+      unit: "mm",
+      empty: { shown: `level · ${formatMm(level.height)} mm`, action: "Follow the level's height" },
+      hint: `Empty follows the level, ${describeLength(level.height)}.`,
+      edit: orEmpty(
+        lengthEdit("Ceiling height", r.ceilingHeight, HEIGHT_RANGE, (ceilingHeight) =>
+          modify({ ceilingHeight }),
+        ),
+        () => ({
+          ok: true,
+          command: r.ceilingHeight === null ? null : modify({ ceilingHeight: null }),
+          said: `follows the level, ${describeLength(level.height)}`,
+        }),
+      ),
+    },
+    {
+      group: "Ceiling",
+      label: "Colour of ceiling",
+      caption: "Colour",
+      value: r.finishes.ceiling?.color ?? "",
+      colour: { effective: r.finishes.ceiling?.color ?? plain("ceiling", 0xfafafa) },
+      empty: { shown: "default", action: "Use the default ceiling colour" },
+      edit: hexEdit(
+        r.finishes.ceiling?.color ?? null,
+        (color) => surface("ceiling", color),
+        "default",
+        "#FAFAFA",
+      ),
+    },
+    {
+      group: "Ceiling",
+      label: "Show ceiling",
+      caption: "Show",
+      toggle: true,
+      value: String(r.ceilingVisible),
+      edit: toggleEdit(r.ceilingVisible, (ceilingVisible) => modify({ ceilingVisible })),
+    },
   ];
+}
+
+/**
+ * An edit for a colour typed as hex. Empty stands for whatever the surface falls back to, named by
+ * `emptySaid`; the example is one a person would recognise for that surface.
+ */
+function hexEdit(
+  current: string | null,
+  set: (hex: string | null) => EditCommand,
+  emptySaid: string,
+  example: string,
+): (text: string) => EditOutcome {
+  return (text) => {
+    if (text.trim() === "")
+      return { ok: true, command: current === null ? null : set(null), said: emptySaid };
+    const hex = parseHexColour(text);
+    if (hex === null) return { ok: false, message: `Colour needs a hex value, such as ${example}.` };
+    return { ok: true, command: hex === current ? null : set(hex), said: hex };
+  };
+}
+
+/** An edit for a yes-or-no row: the checkbox sends "true" or "false". */
+function toggleEdit(current: boolean, set: (value: boolean) => EditCommand): (text: string) => EditOutcome {
+  return (text) => {
+    if (text !== "true" && text !== "false") return { ok: false, message: "This is a yes or no." };
+    const next = text === "true";
+    return { ok: true, command: next === current ? null : set(next), said: next ? "shown" : "hidden" };
+  };
 }
 
 /** An Item carries no name: it is named by what it refers to. ItemRef is a union of a catalogue product

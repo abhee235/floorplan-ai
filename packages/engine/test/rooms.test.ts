@@ -98,6 +98,24 @@ describe("floors and ceilings", () => {
     expect(kind(hidden, r.id, "floor")).toHaveLength(0);
   });
 
+  it("the floor and ceiling wear the room's own finishes, and the plain materials otherwise", () => {
+    const finish = {
+      color: "#8B5E3C",
+      textureId: null,
+      placement: null,
+      mirrorForLeftSide: false,
+      shininess: 0.25,
+    };
+    const plain = defaultRoom("room_000001", L, Lshape);
+    const dressed = { ...defaultRoom("room_000002", L, Lshape), finishes: { floor: finish, ceiling: null } };
+    const parts = buildRooms([plain], { level, isLowest: true });
+    expect(kind(parts, plain.id, "floor")[0]?.materialKey).toBe("floor");
+    expect(kind(parts, plain.id, "ceiling")[0]?.materialKey).toBe("ceiling");
+    const dressedParts = buildRooms([dressed], { level, isLowest: true });
+    expect(kind(dressedParts, dressed.id, "floor")[0]?.materialKey).toBe("floor|#8B5E3C|0.25");
+    expect(kind(dressedParts, dressed.id, "ceiling")[0]?.materialKey).toBe("ceiling");
+  });
+
   it("R-082 R-083 R-086 floor UVs are plan metres; rooms on another level are skipped", () => {
     const r = defaultRoom("room_zz0007", L, Lshape);
     const parts = buildRooms([r], { level, isLowest: true });

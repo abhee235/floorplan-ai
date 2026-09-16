@@ -80,6 +80,8 @@ export function PropertiesPanel({
                     empty={fact.empty}
                     hint={fact.hint}
                     colour={fact.colour}
+                    toggle={fact.toggle}
+                    {...(fact.align ? { align: fact.align } : {})}
                     edit={fact.edit}
                     send={send}
                   />
@@ -108,16 +110,31 @@ export function PropertiesPanel({
 
           {current ? (
             <Section title="Level">
-              <PropertyField id="level-name" label="Name" value={current.name} align="left" />
+              {/* "of level" in every name: the selection above can have a Name and a Height of its own, and two
+                  fields that sound the same cannot be told apart by a screen reader or by voice. */}
+              <PropertyField
+                id="level-name"
+                label="Name of level"
+                caption="Name"
+                value={current.name}
+                align="left"
+              />
               <PropertyField
                 id="level-elevation"
-                label="Elevation"
+                label="Elevation of level"
+                caption="Elevation"
                 value={`${formatMm(current.elevation)} mm`}
               />
-              <PropertyField id="level-height" label="Height" value={`${formatMm(current.height)} mm`} />
+              <PropertyField
+                id="level-height"
+                label="Height of level"
+                caption="Height"
+                value={`${formatMm(current.height)} mm`}
+              />
               <PropertyField
                 id="level-floor"
-                label="Floor"
+                label="Floor of level"
+                caption="Floor"
                 value={`${formatMm(current.floorThickness)} mm`}
               />
             </Section>

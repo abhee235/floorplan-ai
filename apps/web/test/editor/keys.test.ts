@@ -3,6 +3,7 @@ import {
   chordFromEvent,
   describeChord,
   describeShortcut,
+  isInsidePopup,
   isTypingTarget,
   type KeyLike,
   matchesChord,
@@ -114,5 +115,15 @@ describe("where a bare letter is typing, not a shortcut", () => {
     expect(isTypingTarget({ tagName: "BUTTON" })).toBe(false);
     expect(isTypingTarget({ tagName: "CANVAS" })).toBe(false);
     expect(isTypingTarget(null)).toBe(false);
+  });
+
+  it("leaves keys to an open list, menu or dialog, so typing to find an option picks no tool", () => {
+    const inside = (selector: string) => ({ closest: (s: string) => (s.includes(selector) ? {} : null) });
+    expect(isInsidePopup(inside('[role="listbox"]'))).toBe(true);
+    expect(isInsidePopup(inside('[role="menu"]'))).toBe(true);
+    expect(isInsidePopup(inside('[role="dialog"]'))).toBe(true);
+    expect(isInsidePopup({ closest: () => null })).toBe(false);
+    expect(isInsidePopup({})).toBe(false);
+    expect(isInsidePopup(null)).toBe(false);
   });
 });

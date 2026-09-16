@@ -472,3 +472,41 @@ describe("a colour field", () => {
     expect(text.className).toContain("pl-12");
   });
 });
+
+describe("a yes-or-no field", () => {
+  it("is a named checkbox that sends its new state on a click, and follows the model", async () => {
+    const editor = {
+      announcer: new Announcer({ polite: { textContent: "" }, assertive: { textContent: "" } }),
+    } as Partial<Editor> as Editor;
+    const sent: EditCommand[] = [];
+    const ui = (value: string) => (
+      <EditorContext.Provider value={editor}>
+        <PropertyField
+          id="room-show-ceiling"
+          label="Show ceiling"
+          caption="Show"
+          value={value}
+          toggle
+          edit={(text) => ({
+            ok: true,
+            command:
+              text === value ? null : { type: "room.modify", payload: { ceilingVisible: text === "true" } },
+            said: text === "true" ? "shown" : "hidden",
+          })}
+          send={async (command) => {
+            sent.push(command);
+            view.rerender(ui(String(command.payload.ceilingVisible)));
+          }}
+        />
+      </EditorContext.Provider>
+    );
+    const view = render(ui("true"));
+    const box = screen.getByRole("checkbox", { name: "Show ceiling" });
+    expect(box.getAttribute("aria-checked")).toBe("true");
+    await userEvent.setup().click(box);
+    expect(sent).toEqual([{ type: "room.modify", payload: { ceilingVisible: false } }]);
+    expect(screen.getByRole("checkbox", { name: "Show ceiling" }).getAttribute("aria-checked")).toBe("false");
+    // the printed label is the caption, and clicking it reaches the box
+    expect(view.container.querySelector("label")?.textContent).toBe("Show");
+  });
+});

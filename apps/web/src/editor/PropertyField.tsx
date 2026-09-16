@@ -9,6 +9,7 @@ import { RotateCcw } from "lucide-react";
 import type { JSX, KeyboardEvent, ReactNode } from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -18,7 +19,7 @@ import { parseHexColour } from "./status.js";
 import { useEditor } from "./useEditor.js";
 
 /** How a unit is read aloud; the printed unit is hidden from a screen reader in favour of this. */
-const UNIT_NAMES: Record<string, string> = { mm: "millimetres", "°": "degrees" };
+const UNIT_NAMES: Record<string, string> = { mm: "millimetres", "°": "degrees", seats: "seats" };
 
 export interface PropertyFieldProps {
   id: string;
@@ -37,15 +38,55 @@ export interface PropertyFieldProps {
   hint?: string | undefined;
   /** A colour row: a swatch opens the system picker, and shows `effective` while the value is empty. */
   colour?: { effective: string } | undefined;
+  /** A yes-or-no row, drawn as a checkbox; `value` is "true" or "false". */
+  toggle?: boolean | undefined;
   edit?: ((text: string) => EditOutcome) | undefined;
   /** Resolves once the host has taken the command, and throws with its reason when it refuses. */
   send?: ((command: EditCommand) => Promise<void>) | undefined;
 }
 
 export function PropertyField(props: PropertyFieldProps): JSX.Element {
-  const { choices, edit, send } = props;
+  const { choices, toggle, edit, send } = props;
+  if (toggle && edit && send) return <ToggleField {...props} edit={edit} send={send} />;
   if (choices && edit && send) return <ChoiceField {...props} choices={choices} edit={edit} send={send} />;
   return <TextField {...props} />;
+}
+
+/** A yes-or-no value. Like a list, the click is the commit; the box shows the model's value, so it moves
+ *  when the host's patch lands and stays put if the host refuses. */
+function ToggleField({
+  id,
+  label,
+  caption,
+  value,
+  hint,
+  edit,
+  send,
+}: PropertyFieldProps & { edit: (value: string) => EditOutcome }): JSX.Element {
+  const report = useReport(label, send);
+  const flip = async (next: boolean): Promise<void> => {
+    const outcome = edit(String(next));
+    if (!outcome.ok) {
+      report.refuse(outcome.message);
+      return;
+    }
+    report.clear();
+    if (outcome.command) await report.deliver(outcome.command, outcome.said);
+  };
+  return (
+    <Row id={id} label={label} caption={caption} hint={hint} error={report.error}>
+      <div className="flex h-7 items-center justify-end pr-3">
+        <Checkbox
+          id={id}
+          checked={value === "true"}
+          aria-label={nameOf(label, undefined)}
+          aria-invalid={report.error ? true : undefined}
+          aria-describedby={describedBy(id, hint, report.error)}
+          onCheckedChange={(next) => void flip(next === true)}
+        />
+      </div>
+    </Row>
+  );
 }
 
 function TextField({
@@ -256,8 +297,9 @@ function TextField({
           // value floats in the middle of the row, away from the column every other value ends on.
           align === "right" || !editable ? "text-right tabular-nums" : "",
           prefix || leading === 1 ? "pl-7" : leading === 2 ? "pl-12" : "",
-          // Room for the unit, and no more: "mm" wants a gap before it, a degree sign sits against its number.
-          unit && !showingEmpty ? (unit.length > 1 ? "pr-10" : "pr-5") : "",
+          // Room for the unit, and no more: "mm" wants a gap before it, a degree sign sits against its
+          // number, and a word such as "seats" needs its own width.
+          unit && !showingEmpty ? (unit.length > 2 ? "pr-14" : unit.length > 1 ? "pr-10" : "pr-5") : "",
           editable ? "" : "border-transparent bg-transparent shadow-none dark:bg-transparent",
         ]
           .filter(Boolean)

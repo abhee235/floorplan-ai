@@ -16,7 +16,7 @@ import { AppBar } from "./AppBar.js";
 import { Announcer } from "./announce.js";
 import { CommandPalette } from "./CommandPalette.js";
 import { CommandRegistry } from "./commands.js";
-import { isTypingTarget } from "./keys.js";
+import { isInsidePopup, isTypingTarget } from "./keys.js";
 import { PropertiesPanel } from "./PropertiesPanel.js";
 import { bindRoomDrawing } from "./room-drawing.js";
 import { StatusBar } from "./StatusBar.js";
@@ -360,6 +360,7 @@ export function EditorShell(): JSX.Element {
       if (paletteOpen) return;
       const target = event.target as HTMLElement | null;
       const bare = !event.ctrlKey && !event.metaKey && !event.altKey;
+      if (bare && isInsidePopup(target)) return;
       if (bare && event.key !== "Escape" && isTypingTarget(target)) return;
       if (bare && (event.key === " " || event.key === "Enter") && isControl(target)) return;
       if (event.key === "Escape" && toolRef.current !== "select") {

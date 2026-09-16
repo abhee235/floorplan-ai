@@ -21,6 +21,7 @@ export {
   chordFromEvent,
   describeChord,
   describeShortcut,
+  isInsidePopup,
   isTypingTarget,
   type KeyLike,
   matchesChord,

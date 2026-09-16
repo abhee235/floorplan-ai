@@ -8,7 +8,14 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { apply, type Ctx } from "@fpv/commands";
 import { buildWalls } from "@fpv/engine";
-import { derive, Project, type Project as ProjectT, sequentialIdGenerator, WallKind } from "@fpv/ir";
+import {
+  derive,
+  Project,
+  type Project as ProjectT,
+  RoomPurpose,
+  sequentialIdGenerator,
+  WallKind,
+} from "@fpv/ir";
 import { describe, expect, it } from "vitest";
 import {
   CURVE_LIMIT,
@@ -17,6 +24,8 @@ import {
   type EditOutcome,
   type Fact,
   HEIGHT_RANGE,
+  NAME_LIMIT,
+  ROOM_PURPOSES,
   SKIRTING_DEPTH,
   SKIRTING_DEPTH_RANGE,
   THICKNESS_RANGE,
@@ -130,15 +139,26 @@ describe("describing a selected entity", () => {
     for (const f of d?.facts ?? []) expect(f.label.startsWith(f.caption ?? f.label), f.label).toBe(true);
   });
 
-  it("describes a room by its corners, area and purpose", () => {
+  it("describes a room by its name, purpose, seats, size, floor and ceiling", () => {
     const p = withRoom();
     const room = p.rooms[0];
     expect(room).toBeDefined();
     const d = describeEntity(p, (room as { id: string }).id);
     expect(d?.kind).toBe("room");
-    expect(d?.facts.map((f) => f.label)).toEqual(["Corners", "Area", "Purpose"]);
+    expect(d?.facts.map((f) => f.label)).toEqual([
+      "Name of room",
+      "Purpose",
+      "Capacity",
+      "Area",
+      "Corners",
+      "Colour of floor",
+      "Show floor",
+      "Height of ceiling",
+      "Colour of ceiling",
+      "Show ceiling",
+    ]);
     // square metres, and a detected room of a six-wall plan is not zero
-    const area = Number(d?.facts[1]?.value.replace(" m²", ""));
+    const area = Number(d?.facts.find((f) => f.label === "Area")?.value.replace(" m²", ""));
     expect(area).toBeGreaterThan(0);
   });
 
@@ -708,5 +728,78 @@ describe("giving a wall's sides a baseboard (ADR-014 D8)", () => {
     });
     const p = run(painted, typed(painted, W1, "Height of baseboard, left side", "100")).project;
     expect(rowOf(p, W1, "Colour of baseboard, left side").colour).toEqual({ effective: "#123456" });
+  });
+});
+
+describe("editing a room (ADR-017 D3)", () => {
+  const roomOf = (p: ProjectT) => p.rooms[0] as ProjectT["rooms"][number];
+  const idOf = (p: ProjectT) => roomOf(p).id;
+
+  it("names a room, trims the name, and clears it when emptied", () => {
+    const p = withRoom();
+    const id = idOf(p);
+    const name = rowOf(p, id, "Name of room");
+    expect(name).toMatchObject({ value: "", align: "left", caption: "Name" });
+    const named = run(p, typed(p, id, "Name of room", "  Board room  ")).project;
+    expect(roomOf(named).name).toBe("Board room");
+    expect(describeEntity(named, id)?.title).toBe("Board room");
+    expect(outcomeOf(named, id, "Name of room", "Board room")).toMatchObject({ ok: true, command: null });
+    expect(roomOf(run(named, typed(named, id, "Name of room", "")).project).name).toBeNull();
+    expect(outcomeOf(p, id, "Name of room", "x".repeat(NAME_LIMIT + 1))).toMatchObject({ ok: false });
+  });
+
+  it("offers every purpose the model has, and sets one", () => {
+    const p = withRoom();
+    expect(ROOM_PURPOSES.map((c) => c.value).sort()).toEqual([...RoomPurpose.options].sort());
+    const { project } = run(p, typed(p, idOf(p), "Purpose", "boardroom"));
+    expect(roomOf(project).purpose).toBe("boardroom");
+  });
+
+  it("sets and clears the seats, and refuses what is not a whole number of them", () => {
+    const p = withRoom();
+    const id = idOf(p);
+    const seated = run(p, typed(p, id, "Capacity", "12")).project;
+    expect(roomOf(seated).capacity).toBe(12);
+    expect(outcomeOf(seated, id, "Capacity", "1")).toMatchObject({ said: "1 seat" });
+    expect(roomOf(run(seated, typed(seated, id, "Capacity", "")).project).capacity).toBeNull();
+    for (const bad of ["-1", "2.5", "a dozen"])
+      expect(outcomeOf(p, id, "Capacity", bad), bad).toEqual({
+        ok: false,
+        message: "Capacity needs a whole number of seats, such as 8.",
+      });
+    expect(outcomeOf(p, id, "Capacity", "10001")).toMatchObject({ ok: false });
+  });
+
+  it("gives the ceiling a height of its own, and follows the level again when emptied", () => {
+    const p = withRoom();
+    const id = idOf(p);
+    expect(rowOf(p, id, "Height of ceiling").empty).toEqual({
+      shown: `level · 2${NARROW}700 mm`,
+      action: "Follow the level's height",
+    });
+    const low = run(p, typed(p, id, "Height of ceiling", "2400")).project;
+    expect(roomOf(low).ceilingHeight).toBe(2400);
+    expect(roomOf(run(low, typed(low, id, "Height of ceiling", "")).project).ceilingHeight).toBeNull();
+  });
+
+  it("paints the floor and the ceiling, storing no finish once a colour is emptied", () => {
+    const p = withRoom();
+    const id = idOf(p);
+    expect(rowOf(p, id, "Colour of floor").colour).toEqual({ effective: "#C9C2B8" });
+    const wood = run(p, typed(p, id, "Colour of floor", "8b5e3c")).project;
+    expect(roomOf(wood).finishes.floor?.color).toBe("#8B5E3C");
+    expect(roomOf(wood).finishes.ceiling).toBeNull();
+    expect(roomOf(run(wood, typed(wood, id, "Colour of floor", "")).project).finishes.floor).toBeNull();
+  });
+
+  it("hides and shows the floor and the ceiling from a yes-or-no row", () => {
+    const p = withRoom();
+    const id = idOf(p);
+    const row = rowOf(p, id, "Show ceiling");
+    expect(row).toMatchObject({ toggle: true, value: "true", caption: "Show", group: "Ceiling" });
+    const open = run(p, typed(p, id, "Show ceiling", "false")).project;
+    expect(roomOf(open).ceilingVisible).toBe(false);
+    expect(outcomeOf(open, id, "Show ceiling", "false")).toMatchObject({ ok: true, command: null });
+    expect(outcomeOf(p, id, "Show floor", "maybe")).toMatchObject({ ok: false });
   });
 });

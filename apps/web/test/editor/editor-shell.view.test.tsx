@@ -6,6 +6,10 @@
 // the single-pane view modes rendered a container of their own, React replaced those nodes on every
 // switch: the canvases went with the old ones, and the editor was blank until a reload. The real app needs
 // WebGL, so it is stubbed here with one that marks the nodes it was handed, the way its canvases would.
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { apply } from "@fpv/commands";
+import { Project, sequentialIdGenerator } from "@fpv/ir";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -14,6 +18,7 @@ import { scaleLabel } from "../../src/editor/status.js";
 import { Replica } from "../../src/replica.js";
 
 const handed: AppElements[] = [];
+const started: { replica: Replica }[] = [];
 
 vi.mock("../../src/app.js", () => ({
   startApp: (el: AppElements) => {
@@ -24,8 +29,10 @@ vi.mock("../../src/app.js", () => ({
       host.appendChild(canvas);
     }
     const ok = async () => ({ id: "x", type: "result" as const, ok: true });
+    const replica = new Replica();
+    started.push({ replica });
     return {
-      replica: new Replica(),
+      replica,
       client: { close() {}, command: ok, undo: ok, redo: ok, select: ok },
       plan: {
         level: null,
@@ -72,6 +79,7 @@ beforeAll(() => {
 afterEach(() => {
   cleanup();
   handed.length = 0;
+  started.length = 0;
 });
 
 const hidden = (el: Element | null): boolean => Boolean(el?.closest("[data-view-hidden]"));
@@ -113,5 +121,32 @@ describe("switching what is on screen (ADR-017 D1)", () => {
     act(() => onScale?.(0.5));
     expect(screen.getAllByText(scaleLabel(0.5, dpr))).toHaveLength(2);
     expect(screen.queryAllByText(scaleLabel(0.05, dpr))).toHaveLength(0);
+  });
+
+  it("names every control in the properties panel differently, so none is mistaken for another", () => {
+    // From the repo root, where vitest runs: under jsdom import.meta.url is not a file URL.
+    const file = join(process.cwd(), "tools", "fixtures", "six-wall-room.fpviz", "project.json");
+    const base = Project.parse(JSON.parse(readFileSync(file, "utf8")));
+    const made = apply(
+      base,
+      { type: "room.create", payload: { levelId: "level_000000", atPoint: { x: 2000, y: 2000 } } },
+      { ids: sequentialIdGenerator(900), now: () => "2026-09-17T00:00:00.000Z" },
+    );
+    if (!made.ok) throw new Error(made.error.message);
+    const project = made.project;
+    render(<EditorShell />);
+    const { replica } = started[0] as { replica: Replica };
+    act(() => {
+      replica.applySnapshot({ type: "snapshot", seq: 0, project, historyPosition: 0, savedPosition: 0 });
+      replica.setSelection(["wall_000001", (project.rooms[0] as { id: string }).id]);
+    });
+    const panel = screen.getByRole("complementary", { name: "Properties" });
+    const names = [...panel.querySelectorAll("input, button[role=combobox], button[role=checkbox]")].map(
+      (el) => el.getAttribute("aria-label") ?? "",
+    );
+    expect(names.length).toBeGreaterThan(20);
+    expect(names.filter((n) => n === "")).toEqual([]);
+    const repeated = names.filter((n, k) => names.indexOf(n) !== k);
+    expect(repeated).toEqual([]);
   });
 });
