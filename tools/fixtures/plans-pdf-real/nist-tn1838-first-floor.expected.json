@@ -1,0 +1,13 @@
+{
+  "name": "nist-tn1838-first-floor",
+  "kind": "coarse",
+  "page": { "file": "nist-tn1838-first-floor.page.json" },
+  "mmPerUnit": 59.72,
+  "mmPerUnitTolerancePct": 3,
+  "scaleFrom": "dimension-text",
+  "rooms": [],
+  "doors": null,
+  "windows": null,
+  "wallsAtLeast": 10,
+  "note": "A dimensioned CAD floor plan of a house, drawn in metres on a US letter page. mmPerUnit is measured from the drawing itself: the outer walls are the 0.85 pt strokes forming a 287.2 by 102.96 pt rectangle, and the report gives the footprint as 17.15 m by 6.15 m, so one page point is 59.72 mm within a fraction of a percent (both directions agree). The plan names no rooms, so room recall is not scored; doors and windows are drawn from a legend with sizes written beside them rather than a repeated symbol, so an honest count is not possible without tracing every opening."
+}

@@ -1,0 +1,13 @@
+{
+  "name": "putnam-house-habs",
+  "kind": "coarse",
+  "image": { "file": "putnam-house-habs.png" },
+  "mmPerUnit": 16.81,
+  "mmPerUnitTolerancePct": 5,
+  "scaleFrom": "dimension-text",
+  "rooms": ["OLD KITCHEN", "DINING ROOM", "WEST PARLOR", "EAST PARLOR", "TOILETS"],
+  "doors": null,
+  "windows": null,
+  "wallsAtLeast": 8,
+  "note": "A scanned hand-lettered survey sheet, so walls are not labelled one by one. mmPerUnit is measured from the image: the long horizontal wall runs span x 197 to 1297 of 1557 pixels, which is 687.5 draft units, and the sheet gives the overall width as 37 ft 11 in (11557 mm), so one draft unit is 16.81 mm. Room names are the labels a reader should find; closets (CLO., CUPB.) and the door schedule are not counted. Door and window counts are null: the drawing shows door swings by schedule number and window sills without a consistent symbol, so an honest count is not possible from the sheet alone."
+}

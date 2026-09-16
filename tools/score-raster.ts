@@ -27,6 +27,8 @@ import { loadDotEnv } from "../apps/host/src/env.js";
 // FPV_READER_PROVIDER and FPV_READER_MODEL in .env configure the model as they do for the host
 loadDotEnv();
 const DIR = fileURLToPath(new URL("./fixtures/plans-raster/", import.meta.url));
+/** Plans drawn by other people (scans, photographs): scored coarsely, see their SOURCES.md. */
+const REAL_DIR = fileURLToPath(new URL("./fixtures/plans-raster-real/", import.meta.url));
 const EVAL = fileURLToPath(new URL("../docs/eval/", import.meta.url));
 
 const argValue = (flag: string) => {
@@ -79,18 +81,40 @@ const reader = replay
       { maxTokens: Number(process.env.FPV_READER_MAX_TOKENS) || 8_000 },
     );
 
-const names = readdirSync(DIR)
-  .filter((f) => f.endsWith(".expected.json"))
-  .map((f) => f.slice(0, -".expected.json".length))
-  .filter((n) => !only || n === only)
-  .sort();
+/** A hand-made expectation for a drawing we did not generate: names and counts, not centrelines. */
+interface CoarseExpectation {
+  name: string;
+  kind: "coarse";
+  image: { file: string };
+  mmPerUnit: number | null;
+  mmPerUnitTolerancePct: number;
+  scaleFrom: string | null;
+  rooms: string[];
+  doors: number | null;
+  windows: number | null;
+  wallsAtLeast: number;
+}
+
+const listPlans = (dir: string) =>
+  existsSync(dir)
+    ? readdirSync(dir)
+        .filter((f) => f.endsWith(".expected.json"))
+        .map((f) => ({ dir, name: f.slice(0, -".expected.json".length) }))
+    : [];
+const plans = [...listPlans(DIR), ...listPlans(REAL_DIR)]
+  .filter((p) => !only || p.name === only)
+  .sort((a, b) => a.name.localeCompare(b.name));
+
+const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
 const rows: Record<string, unknown>[] = [];
-for (const name of names) {
-  const expected = JSON.parse(readFileSync(`${DIR}${name}.expected.json`, "utf8")) as ExpectedPlan & {
-    image: { file: string };
-  };
-  const png = `${DIR}${expected.image.file}`;
+for (const { dir, name } of plans) {
+  const expected = JSON.parse(readFileSync(`${dir}${name}.expected.json`, "utf8")) as (
+    | ExpectedPlan
+    | CoarseExpectation
+  ) & { image: { file: string } };
+  const coarse = (expected as CoarseExpectation).kind === "coarse" ? (expected as CoarseExpectation) : null;
+  const png = `${dir}${expected.image.file}`;
   if (!existsSync(png)) {
     console.error(`${name}: ${expected.image.file} is missing; screenshot the SVG to make it`);
     continue;
@@ -132,8 +156,7 @@ for (const name of names) {
       refined = reading.refined;
     }
     const seconds = (performance.now() - start) / 1000;
-    const s = scoreDraft(withScale(draft, { mmPerUnit: expected.mmPerUnit }), expected);
-    const row = {
+    const common = {
       plan: name,
       model,
       refined: refined !== null,
@@ -147,11 +170,47 @@ for (const name of names) {
       openings: draft.openings.length,
       rooms: draft.rooms.map((r) => r.name),
       scaleReadAs: draft.units.scaleSource,
-      wallRecall: Math.round(s.wallRecall * 1000) / 1000,
-      wallPrecision: Math.round(s.wallPrecision * 1000) / 1000,
-      openingRecall: Math.round(s.openingRecall * 1000) / 1000,
-      roomRecall: Math.round(s.roomRecall * 1000) / 1000,
+      mmPerUnit: draft.units.mmPerUnit,
     };
+    let row: Record<string, unknown>;
+    if (coarse) {
+      // a drawing we did not generate: names and counts, and how far the scale is from the one measured by hand
+      const found = draft.rooms.map((r) => norm(r.name ?? ""));
+      const missing = coarse.rooms.filter(
+        (r) => !found.some((f) => f && (f === norm(r) || f.includes(norm(r)))),
+      );
+      const doors = draft.openings.filter((o) => o.kind === "door").length;
+      const windows = draft.openings.filter((o) => o.kind === "window").length;
+      const mmPerUnit = draft.units.mmPerUnit;
+      row = {
+        ...common,
+        coarse: true,
+        roomRecall: Math.round(((coarse.rooms.length - missing.length) / coarse.rooms.length) * 1000) / 1000,
+        missedRooms: missing,
+        doors,
+        windows,
+        doorRecall:
+          coarse.doors === null ? null : Math.round(Math.min(1, doors / coarse.doors) * 1000) / 1000,
+        windowRecall:
+          coarse.windows === null ? null : Math.round(Math.min(1, windows / coarse.windows) * 1000) / 1000,
+        enoughWalls: draft.walls.length >= coarse.wallsAtLeast,
+        scaleFromExpected: coarse.scaleFrom === null || draft.units.scaleSource === coarse.scaleFrom,
+        scaleErrorPct:
+          coarse.mmPerUnit === null || mmPerUnit === null
+            ? null
+            : Math.round((Math.abs(mmPerUnit - coarse.mmPerUnit) / coarse.mmPerUnit) * 1000) / 10,
+      };
+    } else {
+      const full = expected as ExpectedPlan;
+      const s = scoreDraft(withScale(draft, { mmPerUnit: full.mmPerUnit }), full);
+      row = {
+        ...common,
+        wallRecall: Math.round(s.wallRecall * 1000) / 1000,
+        wallPrecision: Math.round(s.wallPrecision * 1000) / 1000,
+        openingRecall: Math.round(s.openingRecall * 1000) / 1000,
+        roomRecall: Math.round(s.roomRecall * 1000) / 1000,
+      };
+    }
     rows.push({ ...row, reply });
     console.log(JSON.stringify(row));
   } catch (e) {

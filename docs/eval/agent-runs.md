@@ -24,6 +24,7 @@ and profile.
 | Card | Model | Profile | Result | Steps | Tool calls (failed) | Tokens in / out | Seconds | Validation errors | Missing | BOM verified | Date |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | boardroom | gpt-5.6-luna | medium | pass | 8 of 40 | 7 (1) | 89786 / 366 | 14 | 0 | none | 0% of 14 | 2026-09-15 |
+| import-messy-dxf | gpt-5.6-luna | medium | pass | 5 of 25 | 4 (0) | 51270 / 307 | 10 | 0 | none | - | 2026-09-16 |
 | import-office | gpt-5.6-luna | medium | pass | 5 of 20 | 4 (0) | 34360 / 184 | 8 | 0 | none | - | 2026-09-15 |
 <!-- runs:end -->
 

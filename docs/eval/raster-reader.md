@@ -55,6 +55,35 @@ Findings:
 - The images are generated; real scanned plans (noise, hatching, furniture,
   skew) are not yet measured.
 
+## A scanned drawing (2026-09-16)
+
+`tools/fixtures/plans-raster-real` holds drawings made by other people, with
+their licences in that directory's `SOURCES.md`. They cannot be labelled wall by
+wall, so they are scored coarsely: room names, counts, and how far the scale is
+from one measured by hand off the image.
+
+| Model | Plan | Seconds | Rooms found | Walls | Doors | Windows | Scale source | Scale error |
+|---|---|---|---|---|---|---|---|---|
+| gpt-5.6-luna | Putnam House, HABS survey scan | 61 | 5 of 5 | 21 | 22 | 12 | dimension text | 19.3 percent |
+
+The image is the first floor plan of a 1930s Historic American Buildings Survey
+sheet: hand lettered, scanned, with dimension chains, a door schedule and
+hatched chimney breasts, cropped to 1557 by 1600 pixels.
+
+- **Every room name was read**, including ones the expectation does not ask for
+  (NEW BAY, CLO., CLO., CUPB.). Hand lettering did not stop it.
+- **The scale was wrong by a fifth.** The model read the dimension text and
+  arrived at 13.57 mm per draft unit where the drawing gives 16.81 (measured
+  from the image: the long wall runs span 687.5 draft units and the sheet says
+  37 ft 11 in across). Two dimension readings agreeing with each other is what
+  the reader treats as confirmation, and here they agreed with each other and
+  not with the drawing, which is why a raster scale is never confirmed without a
+  person (spec 06 A1).
+- **It took two attempts** (the first reply did not validate) and 18,220 tokens,
+  61 seconds in all. Refinement snapped 27 walls and dropped 3.
+- Door and window counts have no truth to compare against on this sheet, so they
+  are recorded but not scored.
+
 Reproduce: set `FPV_READER_PROVIDER` (`ollama`, `openai` or `openrouter`) and
 `FPV_READER_MODEL` in `.env` (see `.env.example`), then
 `corepack pnpm exec tsx tools/score-raster.ts` (add `--no-refine` for the model's

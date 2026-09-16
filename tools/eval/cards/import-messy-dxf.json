@@ -1,0 +1,10 @@
+{
+  "id": "import-messy-dxf",
+  "title": "Import a real architect's DXF that asks a question",
+  "task": "Import the floor plan at tools/fixtures/plans-real/ceco-architecture.dxf into this empty project. It is a real architect's drawing, so the reader may be unsure about the scale or which layers hold the walls: read the questions it returns, answer them from what the drawing itself says (the review gives you the draft, its dimension checks and its layer report), and only then confirm the import. Finish by reporting how many walls and rooms were created and anything you had to decide.",
+  "maxSteps": 25,
+  "expect": {
+    "minWalls": 20,
+    "maxValidationErrors": 0
+  }
+}
