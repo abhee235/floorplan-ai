@@ -1,0 +1,4 @@
+/* Tailwind v4 is CSS-first: no tailwind.config.js, the plugin reads this file (ADR-018 D2).
+   Deliberately not imported by main.ts yet. `@import "tailwindcss"` brings Preflight with it, which
+   would reset the hand-written chrome still living in index.html; the port swaps both together. */
+@import "tailwindcss";
