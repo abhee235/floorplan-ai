@@ -2,6 +2,7 @@
 // actions. Every button runs a registered command rather than calling the bridge itself, so the palette,
 // the keyboard and the mouse all take one path (ADR-018 D3).
 
+import { Box, Columns2, Download, type LucideIcon, Map as MapIcon, Redo2, Undo2, Upload } from "lucide-react";
 import type { JSX } from "react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -19,16 +20,20 @@ export interface AppBarProps {
   onImport: () => void;
 }
 
-const VIEWS: [ViewMode, string][] = [
-  ["plan", "Plan"],
-  ["both", "Plan + 3D"],
-  ["3d", "3D"],
+const VIEWS: [ViewMode, string, LucideIcon][] = [
+  ["plan", "Plan", MapIcon],
+  ["both", "Plan + 3D", Columns2],
+  ["3d", "3D", Box],
 ];
 
 /** 28px, one step under the registry's `sm` (h-8). Set here rather than in the theme because a height is
  *  an ordinary utility, not a responsive variant, so it beats the component's own h-8/h-9 from a call site
- *  — unlike the text size, which had to be changed at the token. */
-const CONTROL = "h-7 px-2.5 font-normal";
+ *  — unlike the text size, which had to be changed at the token.
+ *
+ *  gap-1.5 rather than the registry's gap-2: at 13px an 8px gap lets the icon drift away from its label
+ *  and the pair stops reading as one thing. The icons themselves stay at the inherited 16px, which is the
+ *  usual 1.2x of a 13px label. */
+const CONTROL = "h-7 gap-1.5 px-2.5 font-normal";
 
 export function AppBar({ replica, level, onLevel, onImport }: AppBarProps): JSX.Element {
   const editor = useEditor();
@@ -57,9 +62,11 @@ export function AppBar({ replica, level, onLevel, onImport }: AppBarProps): JSX.
 
       <div className="flex gap-0.5" role="group" aria-label="History">
         <Button variant="ghost" className={CONTROL} onClick={() => run("edit.undo")}>
+          <Undo2 aria-hidden />
           Undo
         </Button>
         <Button variant="ghost" className={CONTROL} onClick={() => run("edit.redo")}>
+          <Redo2 aria-hidden />
           Redo
         </Button>
       </div>
@@ -76,12 +83,13 @@ export function AppBar({ replica, level, onLevel, onImport }: AppBarProps): JSX.
         aria-label="What is on screen"
         className="h-7"
       >
-        {VIEWS.map(([mode, label]) => (
+        {VIEWS.map(([mode, label, Icon]) => (
           <ToggleGroupItem
             key={mode}
             value={mode}
-            className="h-7 px-2.5 aria-checked:bg-accent aria-checked:text-accent-foreground"
+            className="h-7 gap-1.5 px-2.5 aria-checked:bg-accent aria-checked:text-accent-foreground"
           >
+            <Icon aria-hidden />
             {label}
           </ToggleGroupItem>
         ))}
@@ -90,9 +98,11 @@ export function AppBar({ replica, level, onLevel, onImport }: AppBarProps): JSX.
       <Separator orientation="vertical" className="mx-1 h-4" />
 
       <Button variant="outline" className={CONTROL} onClick={onImport}>
+        <Upload aria-hidden />
         Import plan…
       </Button>
       <Button className={CONTROL} onClick={() => run("file.export")}>
+        <Download aria-hidden />
         Export
       </Button>
     </header>

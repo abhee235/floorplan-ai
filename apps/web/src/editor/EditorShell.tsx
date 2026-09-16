@@ -2,6 +2,7 @@
 // canvases and the three.js viewport mounted into refs and left entirely to the imperative code that
 // already owns them. React never re-renders the canvas; it only renders the chrome around it.
 
+import { Maximize2, Minus, Plus } from "lucide-react";
 import type { JSX } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -336,21 +337,25 @@ export function EditorShell(): JSX.Element {
                   <aside ref={reviewRef} id="review" hidden />
                 </div>
                 <div className="absolute right-3 bottom-3 flex items-center gap-1 rounded-md border bg-card/95 p-1 shadow-sm">
+                  {/* Icons rather than the "−" and "+" characters these used to be: a minus sign and a
+                      plus sign come from the font and so carry its own weight and metrics, which at this
+                      size did not match anything else in the chrome. */}
                   <Button
                     variant="ghost"
                     size="icon-xs"
                     aria-label="Zoom out"
                     onClick={() => zoom(app, 1 / 1.15)}
                   >
-                    −
+                    <Minus aria-hidden />
                   </Button>
                   <span className="min-w-11 text-center text-xs tabular-nums text-muted-foreground">
                     {scaleLabel(scale, Math.min(2, window.devicePixelRatio))}
                   </span>
                   <Button variant="ghost" size="icon-xs" aria-label="Zoom in" onClick={() => zoom(app, 1.15)}>
-                    +
+                    <Plus aria-hidden />
                   </Button>
                   <Button ref={fitRef} variant="ghost" size="xs" aria-label="Fit the plan to the window">
+                    <Maximize2 aria-hidden />
                     Fit
                   </Button>
                 </div>

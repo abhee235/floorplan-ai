@@ -1,7 +1,23 @@
 // The tool rail (ADR-017 D1, D2). Radix owns the roving tabindex now, which is why roving.ts is gone:
 // a single-select ToggleGroup is one tab stop with arrow keys inside it, which is what the hand-written
-// version was for. The icons are the same paths the design canvas used, inlined as JSX.
+// version was for.
+//
+// The icons are lucide's, not ours. Every tool found a real match, so nothing is hand drawn any more: a
+// set someone else maintains stays consistent as it grows, and lucide's own geometry is better resolved
+// at 20px than the paths that were here. It also happens to be a drop-in — lucide draws at stroke 2 on a
+// 24-unit viewBox, which is the exact weight the hand-rolled set had been tuned to.
 
+import {
+  Armchair,
+  BrickWall,
+  DoorOpen,
+  Frame,
+  Hand,
+  type LucideIcon,
+  MousePointer2,
+  Ruler,
+  Type,
+} from "lucide-react";
 import type { JSX } from "react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -22,6 +38,22 @@ const ITEM =
   "size-8 rounded-lg! text-muted-foreground transition-colors hover:bg-muted hover:text-foreground " +
   "aria-checked:bg-accent aria-checked:text-accent-foreground";
 
+/** One lucide icon per tool. Keyed by ToolId rather than looked up by string, so adding a tool without an
+ *  icon is a type error rather than a blank button. */
+const ICONS: Record<ToolId, LucideIcon> = {
+  select: MousePointer2,
+  wall: BrickWall,
+  // Frame rather than Square: a room is an area defined by its edges, and the crop-mark corners say that
+  // where a plain square just says "shape". SquareDashed would have been the obvious alternative, but a
+  // dashed rectangle is the marquee idiom and would read as a second select tool.
+  room: Frame,
+  opening: DoorOpen,
+  item: Armchair,
+  measure: Ruler,
+  annotate: Type,
+  pan: Hand,
+};
+
 export function ToolRail(): JSX.Element {
   const editor = useEditor();
   return (
@@ -39,6 +71,7 @@ export function ToolRail(): JSX.Element {
     >
       {TOOLS.map((tool) => {
         const ready = toolReady(tool);
+        const Icon = ICONS[tool.id];
         return (
           <Tooltip key={tool.id}>
             <TooltipTrigger asChild>
@@ -48,7 +81,11 @@ export function ToolRail(): JSX.Element {
                 data-tool={tool.id}
                 className={ready ? ITEM : `${ITEM} opacity-40`}
               >
-                <ToolIcon id={tool.id} />
+                {/* The size is a CLASS, never the width/height props. toggleVariants ends with
+                    `[&_svg:not([class*='size-'])]:size-4` and a CSS rule beats a presentational
+                    attribute, so a sized prop would silently render at 16px — which is exactly what
+                    happened to the hand-rolled icons this replaced. */}
+                <Icon className="size-5" aria-hidden />
               </ToggleGroupItem>
             </TooltipTrigger>
             <TooltipContent side="right">
