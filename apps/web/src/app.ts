@@ -204,7 +204,13 @@ export function startApp(el: AppElements): {
    * while the button is still down. Endpoint and arc drags change the wall's SHAPE, so the translated
    * outline a selection move draws cannot stand in for them.
    */
-  let handling: { wallId: string; handle: WallHandle; preview: Wall | null } | null = null;
+  let handling: {
+    wallId: string;
+    handle: WallHandle;
+    /** The wall as the host last agreed it was, kept so the drag can be put back. */
+    before: Wall;
+    preview: Wall | null;
+  } | null = null;
 
   /** The wall the handles belong to: exactly one wall selected, on the level being drawn, or null. */
   const handleWall = (): Wall | null => {
@@ -298,7 +304,9 @@ export function startApp(el: AppElements): {
         1 / plan.view.scale,
       );
       if (handle) {
-        handling = { wallId: shaped.id, handle, preview: null };
+        // `before` is the wall as the host last agreed it was. The drag edits the local copy on every
+        // move, so this is the only way back if the gesture changes nothing or the host refuses it.
+        handling = { wallId: shaped.id, handle, before: shaped, preview: null };
         el.plan.setPointerCapture(e.pointerId);
         return;
       }
@@ -315,10 +323,16 @@ export function startApp(el: AppElements): {
   el.plan.addEventListener("pointermove", (e) => {
     if (handling) {
       const active = handling;
-      const w = replica.project?.walls.find((x) => x.id === active.wallId);
+      // Measured from the wall as it was when the press began, never from the wall as this drag has
+      // already left it: reading back the edited copy would compound each move into the last and the
+      // shape would run away from the pointer.
       // Alt bypasses snapping, which is what the tool options bar promises; for a bend, snapping means
       // whole degrees of arc (W-062).
-      if (w) handling = { ...active, preview: previewWall(w, active.handle, planPointOf(e), !e.altKey) };
+      const next = previewWall(active.before, active.handle, planPointOf(e), !e.altKey);
+      handling = { ...active, preview: next };
+      // The whole point: edit the real wall now, so the plan and the 3D scene both show the result while
+      // the button is still down. One command goes to the host at the end, not one per pointer move.
+      if (next) replica.replaceWallLocally(next);
       plan.invalidateOverlay();
       planDirty = true;
       return;
@@ -368,14 +382,15 @@ export function startApp(el: AppElements): {
       const done = handling;
       handling = null;
       drag = null;
-      const w = replica.project?.walls.find((x) => x.id === done.wallId);
       // One command for the whole gesture, not one per move: the history should hold "this wall was
       // reshaped", not every intermediate position the pointer passed through.
-      if (w && done.preview) {
-        const command = handleCommand(w, done.handle, done.preview);
-        if (command) void client.command(command);
-      }
-      // The preview goes as the real geometry arrives; leaving it up would briefly show both.
+      const command = done.preview ? handleCommand(done.before, done.handle, done.preview) : null;
+      // Put the wall back the way the host last agreed before asking for the change. The drag has been
+      // editing this copy without the host's knowledge, so leaving the edit standing would keep a shape
+      // on screen that was never accepted if the command is refused. The host's patch lands a moment
+      // later and puts the new shape back for real.
+      replica.replaceWallLocally(done.before);
+      if (command) void client.command(command);
       plan.invalidateOverlay();
       planDirty = true;
       return;
@@ -649,22 +664,11 @@ export function startApp(el: AppElements): {
       const level = plan.level;
       if (!project || !level) return;
 
-      // Mid-bend or mid-resize: draw the wall as it would be. This is the whole point of the preview —
-      // the shape changes, so a translated copy of the old outline would show the wrong thing.
-      const shaping = handling?.preview;
-      if (shaping) {
-        ctx.strokeStyle = HANDLE_COLOUR;
-        ctx.lineWidth = 2 / view.scale;
-        ctx.setLineDash([6 / view.scale, 4 / view.scale]);
-        ctx.beginPath();
-        wallFootprintUnjoined(shaping).forEach((p, i) =>
-          i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y),
-        );
-        ctx.closePath();
-        ctx.stroke();
-        ctx.setLineDash([]);
-        return;
-      }
+      // A handle drag draws nothing here any more. It used to paint a dashed outline of the wall as it
+      // would be, because the real one could not move until the host agreed; now the drag edits the
+      // local copy on every move, so the wall itself follows the pointer and a second blue shape over
+      // the top of it would only be in the way.
+      if (handling) return;
 
       if (!moving) {
         // Nothing is being dragged, so show what CAN be: the handles on the one selected wall.

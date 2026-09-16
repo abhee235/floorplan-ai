@@ -1,7 +1,7 @@
 // The browser's copy of the project (ADR-005 D2): applies snapshots and patch streams from the host,
 // tracks the history position, and detects when it has fallen out of sync.
 import type { ChangeSet, ChangesMsg, SnapshotMsg } from "@fpv/commands";
-import type { Problem, Project } from "@fpv/ir";
+import type { Problem, Project, Wall } from "@fpv/ir";
 import { applyPatches, enablePatches } from "immer";
 
 enablePatches();
@@ -73,6 +73,40 @@ export class Replica {
   setProblems(problems: Problem[]): void {
     this.problems = problems;
     this.notify({ commandType: "problems", added: [], updated: [], removed: [] });
+  }
+
+  /**
+   * Replace one wall locally, ahead of the host agreeing to it.
+   *
+   * A drag has to show its result while it is happening, not once the button comes up. Commands cross a
+   * bridge, so waiting for the host to answer every pointer move would be both slow and a history full of
+   * intermediate positions. Instead the drag edits this copy directly and sends ONE command at the end;
+   * the host's patch then lands on top and the two agree again.
+   *
+   * `seq` is deliberately untouched. It counts the host's messages, and `applyChanges` refuses anything
+   * that is not exactly the next one — so moving it here would make the very next real patch look like a
+   * gap and throw away the session with a resync.
+   *
+   * The caller keeps the wall this replaces, because nothing here can put it back: if the host refuses
+   * the command, restoring the original is the caller's job.
+   */
+  replaceWallLocally(wall: Wall): void {
+    const project = this.project;
+    if (!project) return;
+    const index = project.walls.findIndex((w) => w.id === wall.id);
+    if (index < 0) return;
+    // A new array and a new project: immer's patches are applied to whatever object this holds, and
+    // mutating the old one in place would edit a structure the host's next patch still expects to find
+    // unchanged.
+    const walls = [...project.walls];
+    walls[index] = wall;
+    this.project = { ...project, walls };
+    this.notify({
+      commandType: "local.wall",
+      added: [],
+      updated: [{ type: "wall", id: wall.id }],
+      removed: [],
+    });
   }
 
   private notify(changes: ChangeSet): void {
