@@ -5,9 +5,10 @@
 // commands, and two places working it out separately is how they drift.
 
 import type { JSX } from "react";
-import { Fragment } from "react";
+import { Fragment, useMemo } from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { Replica } from "../replica.js";
+import { projectColours } from "./colour.js";
 import { Keyed } from "./Phrase.js";
 import { PropertyField } from "./PropertyField.js";
 import {
@@ -41,6 +42,10 @@ export function PropertiesPanel({
   const selectionKey = useSelectionKey(replica);
   const selected = selectionKey ? selectionKey.split(",") : [];
   const current = project?.levels.find((l) => l.id === level) ?? project?.levels[0] ?? null;
+  // From the host's project, not the one on screen: a colour being dragged across the picker is not yet
+  // one the project uses, and would jump about in the swatches as it changed.
+  const agreed = replica.agreed ?? project;
+  const swatches = useMemo(() => (agreed ? projectColours(agreed) : []), [agreed]);
   // An id can outlive what it named — a patch may have removed it between the selection arriving and
   // this render — so anything describeEntity cannot find is dropped rather than shown as a blank band.
   const entities: SelectedEntity[] = project
@@ -92,6 +97,7 @@ export function PropertiesPanel({
                     empty={fact.empty}
                     hint={fact.hint}
                     colour={fact.colour}
+                    swatches={fact.colour ? swatches : undefined}
                     toggle={fact.toggle}
                     {...(fact.align ? { align: fact.align } : {})}
                     edit={fact.edit}

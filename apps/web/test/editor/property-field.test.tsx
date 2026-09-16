@@ -451,11 +451,12 @@ describe("a colour field", () => {
       };
     };
 
-  function setupColour(start: string) {
+  function setupColour(start: string, swatches?: readonly string[]) {
     const editor = {
       announcer: new Announcer({ polite: { textContent: "" }, assertive: { textContent: "" } }),
     } as Partial<Editor> as Editor;
     const sent: EditCommand[] = [];
+    const previews: (EditCommand | null)[] = [];
     const ui = (value: string) => (
       <EditorContext.Provider value={editor}>
         <TooltipProvider>
@@ -465,9 +466,11 @@ describe("a colour field", () => {
             caption="Colour"
             value={value}
             colour={{ effective: "#E8E6E1" }}
+            swatches={swatches}
             empty={{ shown: "default", action: "Use the default colour" }}
             edit={colourEdit(value)}
             send={send}
+            preview={(command) => previews.push(command)}
           />
         </TooltipProvider>
       </EditorContext.Provider>
@@ -478,32 +481,68 @@ describe("a colour field", () => {
       view.rerender(ui((command.payload.color as string | null) ?? ""));
     }
     const text = screen.getByRole("textbox") as HTMLInputElement;
-    const swatch = screen.getByLabelText("Colour, left side, picker") as HTMLInputElement;
-    return { text, swatch, sent, user: userEvent.setup() };
+    const swatch = screen.getByRole("button", { name: "Colour, left side, picker" });
+    return { text, swatch, sent, previews, user: userEvent.setup() };
   }
 
   it("shows the default colour on its swatch while the value is empty", () => {
     const { text, swatch } = setupColour("");
-    expect(swatch.type).toBe("color");
-    expect(swatch.value).toBe("#e8e6e1");
+    expect(swatch.style.background).toBe("rgb(232, 230, 225)");
     expect(text.value).toBe("");
     expect(text.placeholder).toBe("default");
   });
 
-  it("previews a colour from the picker in the text, and sends it only when the picker settles", () => {
-    const { text, swatch, sent } = setupColour("");
-    fireEvent.input(swatch, { target: { value: "#00ff00" } });
-    expect(text.value).toBe("#00FF00");
+  it("shows each colour as it is picked, and sends one change when the picker closes", async () => {
+    const { text, swatch, sent, previews, user } = setupColour("#808080");
+    await user.click(swatch);
+    const square = await screen.findByRole("slider", { name: "Saturation and brightness" });
+    expect(document.activeElement).toBe(square);
+    await user.keyboard("{ArrowUp}{ArrowUp}");
+    // brighter by two steps: shown in the row and on the plan, not yet sent
+    expect(text.value).toBe("#858585");
+    expect(previews.at(-1)).toEqual({ type: "paint", payload: { color: "#858585" } });
     expect(sent).toEqual([]);
-    fireEvent.change(swatch, { target: { value: "#00ff00" } });
-    expect(sent).toEqual([{ type: "paint", payload: { color: "#00FF00" } }]);
+    await user.click(screen.getByRole("button", { name: "#3E5C76" }));
+    expect(text.value).toBe("#3E5C76");
+    expect(sent).toEqual([]);
+    // closing keeps the last colour, as one change, and takes the preview down first
+    await user.click(swatch);
+    expect(previews.at(-1)).toBeNull();
+    expect(sent).toEqual([{ type: "paint", payload: { color: "#3E5C76" } }]);
+  });
+
+  it("puts everything back when the picker is closed with Escape", async () => {
+    const { text, swatch, sent, previews, user } = setupColour("#808080");
+    await user.click(swatch);
+    await screen.findByRole("slider", { name: "Saturation and brightness" });
+    await user.keyboard("{Shift>}{ArrowDown}{/Shift}");
+    expect(text.value).not.toBe("#808080");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("slider", { name: "Saturation and brightness" })).toBeNull();
+    expect(previews.at(-1)).toBeNull();
+    expect(text.value).toBe("#808080");
+    expect(sent).toEqual([]);
+  });
+
+  it("offers the project's own colours, and goes back to the colour it opened with", async () => {
+    const { text, swatch, sent, user } = setupColour("#808080", ["#D9A441"]);
+    await user.click(swatch);
+    const own = screen.getByRole("group", { name: "In this project" });
+    expect(own.querySelectorAll("button")).toHaveLength(1);
+    await user.click(screen.getAllByRole("button", { name: "#D9A441" })[0] as HTMLElement);
+    expect(text.value).toBe("#D9A441");
+    await user.click(screen.getByRole("button", { name: "Back to #808080" }));
+    expect(text.value).toBe("#808080");
+    await user.click(swatch);
+    // back where it began: nothing to send
+    expect(sent).toEqual([]);
   });
 
   it("follows a typed colour on its swatch, and sends it on Enter", async () => {
     const { text, swatch, sent, user } = setupColour("");
     await user.click(text);
     await user.keyboard("#0000ff");
-    expect(swatch.value).toBe("#0000ff");
+    expect(swatch.style.background).toBe("rgb(0, 0, 255)");
     await user.keyboard("{Enter}");
     expect(sent).toEqual([{ type: "paint", payload: { color: "#0000FF" } }]);
   });

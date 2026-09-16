@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ColourPicker } from "./ColourPicker.js";
 import { PatternSwatch } from "./PatternSwatch.js";
 import { beginScrub, paceOf, scrubKindOf, scrubStart, scrubText } from "./scrub.js";
 import type { Choice, EditCommand, EditOutcome, EmptyMeaning } from "./selection.js";
@@ -38,8 +39,10 @@ export interface PropertyFieldProps {
   empty?: EmptyMeaning | undefined;
   /** Read to a screen reader as the field's description. */
   hint?: string | undefined;
-  /** A colour row: a swatch opens the system picker, and shows `effective` while the value is empty. */
+  /** A colour row: a swatch opens the colour picker, and shows `effective` while the value is empty. */
   colour?: { effective: string } | undefined;
+  /** For a colour row: the colours the project already uses, offered in the picker. */
+  swatches?: readonly string[] | undefined;
   /** A yes-or-no row, drawn as a checkbox; `value` is "true" or "false". */
   toggle?: boolean | undefined;
   edit?: ((text: string) => EditOutcome) | undefined;
@@ -112,13 +115,13 @@ function TextField({
   empty,
   hint,
   colour,
+  swatches,
   edit,
   send,
   preview,
 }: PropertyFieldProps): JSX.Element {
   const report = useReport(label, send);
   const input = useRef<HTMLInputElement>(null);
-  const swatch = useRef<HTMLInputElement>(null);
   // What is typed but not yet taken, or null when the field shows the model. Kept in a ref as well as in
   // state, because a reply from the host can land after more typing and must not throw that typing away.
   const [draft, setDraftState] = useState<string | null>(null);
@@ -248,18 +251,12 @@ function TextField({
     input.current?.focus();
   };
 
-  // The picker commits on the native change event, when a colour is settled, not on every input event
-  // React reports while the picker is open: those only preview the colour, or dragging across the picker
-  // would leave a history entry per pixel. The listener reads the newest commit through a ref.
-  const commitRef = useRef(commit);
-  commitRef.current = commit;
-  useEffect(() => {
-    const el = swatch.current;
-    if (!el) return;
-    const settle = (): void => void commitRef.current("enter");
-    el.addEventListener("change", settle);
-    return () => el.removeEventListener("change", settle);
-  }, []);
+  // The picker shows every colour as it is picked and commits once, when it closes: sending each one would
+  // leave a history entry per pixel dragged across the square. Escape closes it keeping nothing.
+  const closePicker = (keep: boolean): void => {
+    if (keep) void commit("enter");
+    else if (latest.current !== null) revert();
+  };
 
   /**
    * A drag on the row's name or axis letter (see scrub.ts). The edit is the one this render was given:
@@ -352,14 +349,14 @@ function TextField({
         // First in the DOM, so the focus order runs left to right as the eye does.
         <span className="absolute inset-y-0 left-0.5 z-10 flex items-center gap-0.5">
           {colour && editable ? (
-            <input
-              ref={swatch}
-              type="color"
-              aria-label={`${label}, picker`}
+            <ColourPicker
+              label={label}
               // What is being typed, once it is a colour; otherwise the model's colour, or the default.
-              value={(parseHexColour(draft ?? "") ?? parseHexColour(value) ?? colour.effective).toLowerCase()}
-              onChange={(e) => type(e.target.value.toUpperCase())}
-              className="ml-1 size-4 shrink-0 cursor-pointer appearance-none rounded-sm border border-input bg-transparent p-0 [&::-moz-color-swatch]:rounded-[3px] [&::-moz-color-swatch]:border-none [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-[3px] [&::-webkit-color-swatch]:border-none"
+              value={parseHexColour(draft ?? "") ?? parseHexColour(value) ?? colour.effective}
+              swatches={swatches}
+              onPick={type}
+              onClose={closePicker}
+              className="ml-1"
             />
           ) : null}
           {resettable ? (
