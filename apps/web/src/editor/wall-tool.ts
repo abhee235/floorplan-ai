@@ -4,7 +4,15 @@
 //
 // Drawing by pointer and drawing by typing are the same gesture (ADR-017 D4): both end in `place`, and
 // both read the same snapping preferences, which the modifier keys invert (W-082).
-import { effectiveMagnetism, magnetizePoint, snapToFreeWallEnd, WALL_END_PX } from "@fpv/geometry";
+import {
+  alignToAxesWithSources,
+  effectiveMagnetism,
+  intersectLines,
+  magnetizePoint,
+  SELECTION_PX,
+  snapToFreeWallEnd,
+  WALL_END_PX,
+} from "@fpv/geometry";
 import type { Point, Wall } from "@fpv/ir";
 import { describeLength } from "./status.js";
 
@@ -21,9 +29,23 @@ export interface AimOptions {
   magnetism: boolean;
   /** Alt bypasses snapping, inverting the preference (W-082). */
   altHeld?: boolean;
+  /** Shift is the alignment modifier (W-082, ADR-017): angle magnetism only, no point snapping. */
+  shiftHeld?: boolean;
 }
 
-export type SnapKind = "none" | "angle" | "free-end" | "close";
+export type SnapKind = "none" | "angle" | "free-end" | "close" | "align";
+
+/**
+ * A line worth drawing because the point lined up with something (R-053, R-054).
+ *
+ * `axis: "x"` means the point took its x from `to`, so the two share a vertical line and the guide is
+ * drawn vertically between them. This is what makes a snap explainable: without the point it aligned
+ * WITH, a guide is just a line appearing for no stated reason.
+ */
+export interface Guide {
+  axis: "x" | "y";
+  to: Point;
+}
 
 export interface Aim {
   /** Where the point would actually land. */
@@ -36,6 +58,8 @@ export interface Aim {
   angleDeg: number;
   /** The whole sentence for the live region (ADR-017 D5). */
   announcement: string;
+  /** Alignment lines to draw, at most one per axis. Empty when nothing lined up. */
+  guides: Guide[];
 }
 
 export interface WallChainCommand {
@@ -112,6 +136,7 @@ export class WallTool {
     let point: Point;
     let snap: SnapKind;
     let snapNote: string;
+    let guides: Guide[] = [];
     if (closing && first) {
       point = { ...first };
       snap = "close";
@@ -124,6 +149,17 @@ export class WallTool {
       point = magnetizePoint(from, raw, options.pixelMm);
       snap = "angle";
       snapNote = "";
+      // R-052: angle steps first, THEN x/y alignment with nearby wall points. Shift is the alignment
+      // modifier and means angle magnetism ONLY, so it suppresses this (W-082).
+      if (!options.shiftHeld) {
+        const aligned = this.alignment(point, raw, from, options);
+        if (aligned) {
+          point = aligned.point;
+          guides = aligned.guides;
+          snap = "align";
+          snapNote = aligned.note;
+        }
+      }
     } else {
       point = { x: raw.x, y: raw.y };
       snap = "none";
@@ -143,7 +179,92 @@ export class WallTool {
       lengthMm,
       angleDeg,
       announcement: this.say(lengthMm, angleDeg, snapNote),
+      guides,
     };
+  }
+
+  /**
+   * Axis alignment against nearby wall ends and the chain's own corners (R-053), landed on the
+   * magnetised ray (R-054).
+   *
+   * R-054 is what stops alignment and angle magnetism fighting each other. Simply moving the point onto
+   * the aligned coordinate would break the 15-degree angle the previous step just established; instead
+   * the point becomes where the magnetised RAY crosses the aligned line, which keeps the angle exact and
+   * the alignment exact at once. It is only accepted when that crossing is still within a margin of where
+   * the pointer actually is, so a nearly-parallel ray cannot fling the point far away. The x branch is
+   * tried first, as the ledger specifies.
+   */
+  private alignment(
+    magnetised: Point,
+    raw: Point,
+    from: Point,
+    options: AimOptions,
+  ): { point: Point; guides: Guide[]; note: string } | null {
+    // R-053's tolerance is the selection margin (4px), wider than the 2px a free wall end catches at.
+    const margin = SELECTION_PX * options.pixelMm;
+    const candidates = this.alignmentCandidates(options.walls);
+    if (candidates.length === 0) return null;
+
+    const found = alignToAxesWithSources(magnetised, candidates, margin);
+    if (!found.x && !found.y) return null;
+
+    // Two axes name one corner, and no other point satisfies both lines. Taking them in turn would slide
+    // the point off the first line while putting it on the second, so the corner is accepted whole or not
+    // at all — and only when the pointer is genuinely near it, never as a side effect of two loose hits.
+    if (found.x && found.y) {
+      const corner = { x: found.x.x, y: found.y.y };
+      if (distance(corner, raw) <= margin)
+        return {
+          point: corner,
+          guides: [
+            { axis: "x", to: found.x },
+            { axis: "y", to: found.y },
+          ],
+          note: "aligned on x and y",
+        };
+    }
+
+    // One axis: the point is where the magnetised ray crosses the aligned line (R-054). x branch first.
+    for (const axis of ["x", "y"] as const) {
+      const source = axis === "x" ? found.x : found.y;
+      if (!source) continue;
+      const coord = axis === "x" ? source.x : source.y;
+      const value = axis === "x" ? magnetised.x : magnetised.y;
+
+      // Already on the line. A ray running parallel to it can never cross it, so intersectLines returns
+      // null and the alignment would be thrown away — even though it is real. That case is not exotic:
+      // it is a wall drawn straight up lining up with another corner's x, which is the commonest
+      // alignment there is.
+      if (Math.abs(value - coord) <= 0.5)
+        return { point: magnetised, guides: [{ axis, to: source }], note: `aligned on ${axis}` };
+
+      const a = axis === "x" ? { x: coord, y: 0 } : { x: 0, y: coord };
+      const b = axis === "x" ? { x: coord, y: 1000 } : { x: 1000, y: coord };
+      const onRay = intersectLines(from, magnetised, a, b);
+      // Within a margin of where the pointer actually is (R-054): a shallow crossing can otherwise fling
+      // the point a long way down the ray for a tiny alignment.
+      if (onRay && distance(onRay, raw) <= margin)
+        return { point: onRay, guides: [{ axis, to: source }], note: `aligned on ${axis}` };
+    }
+    return null;
+  }
+
+  /** Wall ends on this level, plus the corners already placed in this chain — but never the anchor. */
+  private alignmentCandidates(walls: readonly Wall[]): Point[] {
+    const out: Point[] = [];
+    for (const w of walls) {
+      out.push({ x: w.start.x, y: w.start.y });
+      out.push({ x: w.end.x, y: w.end.y });
+    }
+    // The chain's own corners count: lining a new wall up with one drawn a moment ago is the commonest
+    // case of all, and it is not in `walls` until the chain is committed.
+    //
+    // slice(0, -1) drops the ANCHOR, and that is not a detail. Angle magnetism puts a horizontal segment
+    // at exactly the anchor's y and a vertical one at exactly its x, so the anchor would satisfy the
+    // alignment test on nearly every stroke — and the tool would draw a guide from the wall back to the
+    // point it is already growing out of, saying nothing, on almost every move.
+    for (const p of this.points.slice(0, -1)) out.push({ x: p.x, y: p.y });
+    return out;
   }
 
   /** What a segment reads as out loud: plain digits, which a screen reader says as a number. */

@@ -86,23 +86,54 @@ export function snapToPoints(p: Point, candidates: readonly Point[], toleranceMm
 
 /** Align x and y independently to nearby candidate coordinates within tolerance (R-053). */
 export function alignToAxes(p: Point, candidates: readonly Point[], toleranceMm: number): Point {
+  const found = alignToAxesWithSources(p, candidates, toleranceMm);
+  return found.point;
+}
+
+/**
+ * What an axis alignment locked onto, per axis. `x` is the candidate whose x this point took, so the
+ * guide to draw for it is VERTICAL; `y` is the candidate whose y it took, and its guide is horizontal.
+ */
+export interface AxisAlignment {
+  point: Point;
+  x: Point | null;
+  y: Point | null;
+}
+
+/**
+ * alignToAxes, but reporting which candidate won each axis (R-053).
+ *
+ * The plain version throws that away, which is fine for moving a point and useless for drawing a guide:
+ * a guide line has to reach from the aligned point back to the thing it aligned WITH, or it says nothing
+ * about why the point moved. Kept as a separate function so R-053's own contract and test stay exactly
+ * as they were.
+ */
+export function alignToAxesWithSources(
+  p: Point,
+  candidates: readonly Point[],
+  toleranceMm: number,
+): AxisAlignment {
   let x = p.x;
   let y = p.y;
   let bx = toleranceMm;
   let by = toleranceMm;
+  let sourceX: Point | null = null;
+  let sourceY: Point | null = null;
   for (const c of candidates) {
     const dx = Math.abs(c.x - p.x);
     const dy = Math.abs(c.y - p.y);
     if (dx < bx) {
       bx = dx;
       x = c.x;
+      sourceX = c;
     }
     if (dy < by) {
       by = dy;
       y = c.y;
+      sourceY = c;
     }
   }
-  return { x, y };
+  return { point: { x, y }, x: sourceX, y: sourceY };
 }
 
 /** Effective magnetism is the preference XOR the held modifier (W-082, F-078). */

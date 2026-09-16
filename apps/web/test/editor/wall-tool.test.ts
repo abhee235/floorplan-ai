@@ -138,6 +138,53 @@ describe("what the next point catches", () => {
   });
 });
 
+describe("alignment guides (R-052, R-053, R-054)", () => {
+  // Far enough that its free ends never catch (2 mm at this scale), but its x is inside the wider
+  // alignment margin (4 mm) of where the magnetised point lands. That gap between the two tolerances is
+  // the whole point: alignment reaches further than a free-end snap.
+  const column = [wall("wall_1", [3002, -5000], [3002, 5000])];
+
+  it("R-054 lands on the magnetised ray where it crosses the aligned line", () => {
+    const t = tool();
+    t.place({ x: 0, y: 0 }, opts());
+    const aimed = t.aim({ x: 3000, y: 2 }, opts({ walls: column }));
+    expect(aimed.snap).toBe("align");
+    // the angle stays exactly 0 and the x becomes exactly the column's: both, not one or the other
+    expect(aimed.point).toEqual({ x: 3002, y: 0 });
+    expect(aimed.guides).toEqual([{ axis: "x", to: { x: 3002, y: -5000 } }]);
+    expect(aimed.announcement).toContain("aligned on x");
+  });
+
+  it("R-053 keeps the alignment when the ray runs parallel to the line it aligns with", () => {
+    const t = tool();
+    t.place({ x: 0, y: 0 }, opts());
+    // Drawn straight up: the ray is vertical and so is the line through x = 0, so they never cross and
+    // intersectLines returns null. The point is already on the line, so the guide is still true.
+    const aimed = t.aim({ x: 2, y: 3000 }, opts({ walls: [wall("w", [0, -5000], [0, -4000])] }));
+    expect(aimed.snap).toBe("align");
+    expect(aimed.point).toEqual({ x: 0, y: 3000 });
+    expect(aimed.guides.map((g) => g.axis)).toEqual(["x"]);
+  });
+
+  it("W-082 Shift aligns by angle alone, so it suppresses the guides", () => {
+    const t = tool();
+    t.place({ x: 0, y: 0 }, opts());
+    const aimed = t.aim({ x: 3000, y: 2 }, opts({ walls: column, shiftHeld: true }));
+    expect(aimed.snap).toBe("angle");
+    expect(aimed.guides).toEqual([]);
+  });
+
+  it("never guides back to the point the wall is growing from", () => {
+    const t = tool();
+    t.place({ x: 0, y: 0 }, opts());
+    // A horizontal segment shares its y with its own anchor by construction. That is not an alignment,
+    // and offering it would put a guide on screen for almost every stroke.
+    const aimed = t.aim({ x: 3000, y: 2 }, opts());
+    expect(aimed.guides).toEqual([]);
+    expect(aimed.snap).toBe("angle");
+  });
+});
+
 describe("drawing by typing (ADR-017 D4)", () => {
   it("offers a first wall along +x, then squares the next one to it (W-073, W-074)", () => {
     const t = tool();

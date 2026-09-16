@@ -9,6 +9,9 @@ import { type Aim, type AimOptions, type WallChainCommand, WallTool } from "./wa
 
 const ACCENT = "#1e88e5";
 const WALL_INK = "#3a3a3a";
+/** Guides are a different colour from the snap ring on purpose: one says "you are aligned with that",
+ *  the other says "your point has been moved onto this". Same blue for both would conflate them. */
+const GUIDE = "#e05fa8";
 
 export interface WallDrawingDeps {
   plan: PlanRenderer;
@@ -40,6 +43,7 @@ export function bindWallDrawing(deps: WallDrawingDeps): WallDrawing {
   let tool: WallTool | null = null;
   let aim: Aim | null = null;
   let altHeld = false;
+  let shiftHeld = false;
 
   const dpr = (): number => Math.min(2, window.devicePixelRatio);
 
@@ -55,6 +59,7 @@ export function bindWallDrawing(deps: WallDrawingDeps): WallDrawing {
     pixelMm: 1 / plan.view.scale,
     magnetism,
     altHeld,
+    shiftHeld,
   });
 
   // ---- the floating length and angle card (the design's keyboard entry) ----
@@ -175,12 +180,14 @@ export function bindWallDrawing(deps: WallDrawingDeps): WallDrawing {
     // region and the keyboard has to follow the pointer into it
     element.focus();
     altHeld = e.altKey;
+    shiftHeld = e.shiftKey;
     place(planPoint(e));
   };
 
   const onPointerMove = (e: PointerEvent): void => {
     if (!deps.active()) return;
     altHeld = e.altKey;
+    shiftHeld = e.shiftKey;
     const t = tool;
     if (!t) return;
     aim = t.aim(planPoint(e), aimOptions());
@@ -283,6 +290,22 @@ export function bindWallDrawing(deps: WallDrawingDeps): WallDrawing {
       ctx.moveTo(anchor.x, anchor.y);
       ctx.lineTo(pending.x, pending.y);
       ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // the alignment guides: a thin line from the point back to whatever it lined up with, so a snap
+    // explains itself instead of the wall silently jumping (R-053, R-054)
+    if (pending && aim?.guides.length) {
+      ctx.strokeStyle = GUIDE;
+      ctx.lineWidth = 1 * px;
+      ctx.setLineDash([4 * px, 3 * px]);
+      for (const guide of aim.guides) {
+        ctx.beginPath();
+        ctx.moveTo(pending.x, pending.y);
+        ctx.lineTo(guide.to.x, guide.to.y);
+        ctx.stroke();
+        ring(ctx, guide.to, 3 * px, GUIDE, px);
+      }
       ctx.setLineDash([]);
     }
 
