@@ -16,7 +16,7 @@ gpt-5.6-luna row on OpenAI. The Qwen replies are kept in
 | qwen3.8:27b | office | 119 | 0.96 | 1.00 | 1.00 | 0.88 | 3 of 3 |
 | qwen3.8:27b | L-shape | 203 | 0.81 | 1.00 | 1.00 | 0.86 | 3 of 3 |
 | gpt-5.6-luna | office | 18 | 1.00 | 1.00 | 1.00 | 1.00 | not run |
-| gpt-5.6-luna | L-shape | 23 | 0.77 | 0.97 | 1.00 | 0.57 | not run |
+| gpt-5.6-luna | L-shape | 23 | 0.77 | 1.00 | 1.00 | 0.86 | not run |
 
 Findings:
 
@@ -39,14 +39,17 @@ Findings:
   names, in 18 seconds against 41 to 119 for the local models. It needs no
   refinement on that image.
 - On the L-shaped plan it drew 17 wall pieces where 8 were wanted (recall 0.77,
-  precision 0.72 before refinement) but found 6 of 7 openings. It answers in one
-  attempt and gives coordinates in the same per-axis 0 to 1000 frame as Qwen.
-- **Refinement regression to look into.** On that L-shaped reading, refinement
-  raised walls (recall 0.97, precision 1.00) but dropped opening recall from
-  0.86 to 0.57 and left the scale as a guess instead of the dimension text the
-  model had read. Snapping walls changes the lengths the dimension checks
-  measure against, so the two agreeing checks no longer agree within 2 percent.
-  The Qwen readings did not show this because their raw walls were further out.
+  precision 0.72 before refinement) but found 6 of 7 openings. Refinement brings
+  the walls to 1.00 recall and precision and leaves the openings and the
+  dimension-text scale as they were. It answers in one attempt and gives
+  coordinates in the same per-axis 0 to 1000 frame as Qwen.
+- **The model varies between runs.** A second live reading of the L-shaped plan
+  found fewer openings (0.57) and fell back to a guessed scale. Replaying one
+  saved reply with and without refinement (`--replay`, `--no-refine`) shows
+  refinement is not the cause: on the same reply it raises walls from 0.77 and
+  0.72 to 1.00 and 1.00 and changes neither the openings nor the scale. One
+  live reading is therefore not a measurement; the recorded replies are what the
+  tests replay.
 - Room names and rooms made on commit were not measured for gpt-5.6-luna: this
   run scored the draft only. All three names were read on both images.
 - The images are generated; real scanned plans (noise, hatching, furniture,
