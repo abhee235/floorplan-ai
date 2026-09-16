@@ -252,6 +252,8 @@ model with spaces, dashes and case ignored; every query word in name, model,
 make or variant; tags and aliases, with the synonym table (tv, screen, couch
 and the like) applied; FTS ranking with each word as a prefix. Limit at most
 20; `total` counts the whole ordered list and `cursor` pages through it.
+An empty query lists the catalog to browse it: a category's products by name
+when a category is given, otherwise every product by category and name.
 Rejected products answer only to their exact id. Ambiguity returns all hits
 with id, category, dims and the tier that matched. The store is reached
 through the Node-only `@fpv/catalog/store` entry (ADR-002); `node:sqlite`

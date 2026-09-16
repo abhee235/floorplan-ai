@@ -59,6 +59,7 @@ Output: `{ errors: Problem[], warnings: Problem[] }`
 Description: "Find products or parametric recipes. Returns at most 20 with id, category and dimensions in mm. If several match, pick by id in the next call. Never invent a productId."
 Input: `{ kind: "product" | "recipe", query: string, category?: Category, limit?: number, cursor?: string }`
 Output: `{ hits: [{ id, name, make, model, category, dims, verified: boolean, price?, status?, matchedBy? }], total: number, cursor: string | null }`
+An empty query browses: a category's products by name, or with no category every product by category and name, a page at a time. The editor's catalog tab (P3-5) searches through this tool.
 
 ## 3. Render (tier: both)
 

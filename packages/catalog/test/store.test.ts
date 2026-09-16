@@ -128,6 +128,12 @@ describe("search (spec 02 section 5, ADR-008 D4)", () => {
     const tables = store.search({ query: "stack", category: "table" });
     expect(tables.hits.map((h) => h.id)).toEqual(["acme-t1"]);
     expect(store.search({ query: "", category: "table" }).hits.map((h) => h.id)).toEqual(["acme-t1"]);
+    // an empty query browses everything, by category and then name, a page at a time (P3-5 catalog tab)
+    const all = store.search({ query: "" });
+    expect(all.total).toBe(26);
+    expect(all.hits.map((h) => h.category)).toEqual(Array.from({ length: 20 }, () => "chair"));
+    const rest = store.search({ query: "  ", cursor: all.cursor as string });
+    expect(rest.hits.at(-1)?.id).toBe("acme-t1");
     expect(() => store.search({ query: "stack", cursor: "nope" })).toThrow(/bad cursor/);
     store.close();
   });

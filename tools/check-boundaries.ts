@@ -30,7 +30,7 @@ const ALLOWED: Record<string, readonly string[]> = {
     "exporters",
     "importers",
   ],
-  web: ["ir", "engine", "commands", "geometry", "assets", "importers"],
+  web: ["ir", "engine", "commands", "geometry", "assets", "importers", "catalog"],
 };
 
 /** Packages that must never import the DOM or three.js so they stay runnable in Node. */

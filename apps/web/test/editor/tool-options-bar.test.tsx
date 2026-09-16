@@ -1,19 +1,27 @@
 // @vitest-environment jsdom
 //
-// These exercise the select and item tools, whose options are checkboxes and a number field. Any tool
-// whose options include a Radix Select is left to the browser pass on purpose: a Select wants
-// ResizeObserver and pointer capture that jsdom does not provide, so a failure there would say nothing
-// about the behaviour under test. That rules out wall, opening, measure and annotate.
+// These exercise the select, room, item and measure tools. A Radix Select wants ResizeObserver and pointer
+// capture, which jsdom does not have, so the shims below stand in for them; only a closed Select is
+// rendered here, and nothing about its behaviour is under test.
 //
-// The inert-tool test used to use `room`, which is why it now uses `item`: room's gestures have landed,
-// and `item` is the only tool left that is both unimplemented and free of a Select.
+// The inert-tool example has moved as tools landed: from room, to item, to measure, which is now the
+// first tool on the rail with nothing behind it.
 import { render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { Announcer } from "../../src/editor/announce.js";
 import { CommandRegistry } from "../../src/editor/commands.js";
 import { ToolOptionsBar } from "../../src/editor/ToolOptionsBar.js";
 import { type ToolDefinition, toolById } from "../../src/editor/tools.js";
 import { type Editor, EditorContext } from "../../src/editor/useEditor.js";
+
+beforeAll(() => {
+  globalThis.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+  Element.prototype.hasPointerCapture ??= () => false;
+});
 
 function editorStub(tool: ToolDefinition, over: Partial<Editor> = {}): Editor {
   return {
@@ -60,11 +68,11 @@ describe("the tool options bar (ADR-017 D2)", () => {
   });
 
   it("admits when a tool has nothing behind it rather than pretending", () => {
-    const { container } = show(toolById("item") as ToolDefinition);
-    expect(container.textContent).toContain("Place item");
+    const { container } = show(toolById("measure") as ToolDefinition);
+    expect(container.textContent).toContain("Measure");
     expect(container.textContent).toContain("Not built yet");
     // and it does not claim modifiers that would do nothing
-    expect(container.textContent).not.toContain("Alt to bypass snapping");
+    expect(container.textContent).not.toContain("to measure along an axis");
   });
 
   it("stops saying that once a tool's gestures land", () => {
@@ -74,6 +82,11 @@ describe("the tool options bar (ADR-017 D2)", () => {
     const { container } = show(toolById("room") as ToolDefinition);
     expect(container.textContent).toContain("Draw room");
     expect(container.textContent).not.toContain("Not built yet");
+    // P3-5: the item tool places from the catalog now
+    const item = show(toolById("item") as ToolDefinition).container;
+    expect(item.textContent).toContain("Place item");
+    expect(item.textContent).not.toContain("Not built yet");
+    expect(item.textContent).toContain("to bypass snapping");
   });
 
   it("is a toolbar, so assistive technology treats it as one group", () => {

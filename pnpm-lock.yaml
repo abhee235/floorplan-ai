@@ -78,6 +78,9 @@ importers:
       '@fpv/assets':
         specifier: workspace:*
         version: link:../../packages/assets
+      '@fpv/catalog':
+        specifier: workspace:*
+        version: link:../../packages/catalog
       '@fpv/commands':
         specifier: workspace:*
         version: link:../../packages/commands

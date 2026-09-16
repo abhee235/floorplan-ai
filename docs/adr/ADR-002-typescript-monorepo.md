@@ -69,6 +69,11 @@ PlanDraft schema and scale helpers, so the tool and the panel apply one
 rule for when a scale counts as confirmed. The app does not parse files; the
 host reads them.
 
+Amendment 2026-09-17 (P3-5): `apps/web` may also import `catalog`, its pure
+entry only (never `@fpv/catalog/store`). The catalog tab narrows a search by
+the catalog's own category list rather than a copy of it. Searching stays the
+host's, through the same search_catalog tool an agent calls.
+
 ### D3. Toolchain
 
 | Concern | Choice | Reason |

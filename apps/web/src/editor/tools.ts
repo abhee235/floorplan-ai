@@ -251,7 +251,7 @@ export function checkTools(tools: readonly ToolDefinition[] = TOOLS): void {
 /** The tools that actually change something on the plan today. The rest are on the rail so the shape of
  *  the editor is visible, but they do nothing yet, and the shell says so rather than leaving a person
  *  clicking at a canvas that will not answer. Add a tool here as its gestures land. */
-const IMPLEMENTED: readonly ToolId[] = ["select", "wall", "room", "pan"];
+const IMPLEMENTED: readonly ToolId[] = ["select", "wall", "room", "item", "pan"];
 
 export function toolReady(tool: ToolDefinition | ToolId): boolean {
   return IMPLEMENTED.includes(typeof tool === "string" ? tool : tool.id);

@@ -8,19 +8,24 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Layout, LayoutChangedMeta } from "react-resizable-panels";
 import { Button } from "@/components/ui/button";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { startApp } from "../app.js";
 import type { BridgeClient } from "../bridge/client.js";
 import { drawCompass } from "../plan/compass.js";
 import { AppBar } from "./AppBar.js";
 import { Announcer } from "./announce.js";
+import { CatalogPanel, type CatalogSearch } from "./CatalogPanel.js";
 import { CommandPalette } from "./CommandPalette.js";
+import { pageOf } from "./catalog.js";
 import { CommandRegistry } from "./commands.js";
+import { bindItemPlacing, type ItemPlacing } from "./item-placing.js";
+import type { Placeable } from "./item-tool.js";
 import { isInsidePopup, isTypingTarget } from "./keys.js";
 import { PropertiesPanel } from "./PropertiesPanel.js";
 import { bindRoomDrawing } from "./room-drawing.js";
 import { StatusBar } from "./StatusBar.js";
-import { deleteCommands } from "./selection.js";
+import { deleteCommands, describeEntity, kindOf } from "./selection.js";
 import { scaleLabel } from "./status.js";
 import { ToolOptionsBar } from "./ToolOptionsBar.js";
 import { ToolRail } from "./ToolRail.js";
@@ -37,6 +42,9 @@ import { type Editor, EditorContext, type ViewMode } from "./useEditor.js";
 import { bindWallDrawing } from "./wall-drawing.js";
 
 type OptionValues = Record<string, string | number | boolean>;
+
+/** The side panel's two tabs (ADR-017 D3): the selection, and the catalog to add to it from. */
+type PanelTab = "properties" | "catalog";
 
 const initialOptions = (): OptionValues => {
   const values: OptionValues = {};
@@ -65,6 +73,14 @@ export function EditorShell(): JSX.Element {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [level, setLevel] = useState<string | null>(null);
   const [app, setApp] = useState<ReturnType<typeof startApp> | null>(null);
+  const [panelTab, setPanelTab] = useState<PanelTab>("properties");
+  const [selectionKey, setSelectionKey] = useState("");
+  // The piece the item tool places, picked in the catalog. Kept after the tool is left, so pressing I
+  // again carries on with it.
+  const pieceRef = useRef<Placeable | null>(null);
+  const itemPlacingRef = useRef<ItemPlacing | null>(null);
+  // the catalog's search field, which the item tool hands focus to when there is nothing to place yet
+  const catalogInputRef = useRef<HTMLInputElement | null>(null);
 
   const commands = useMemo(() => new CommandRegistry(), []);
 
@@ -100,7 +116,16 @@ export function EditorShell(): JSX.Element {
     (id: ToolId) => {
       const next = toolById(id);
       if (!next) return;
+      if (next.id === "item" && !pieceRef.current) {
+        // Nothing to place yet: the catalog is where a piece is picked, so go there instead.
+        setPanelTab("catalog");
+        requestAnimationFrame(() => catalogInputRef.current?.focus());
+        announcer.say("Pick a piece in the catalog, then place it on the plan.");
+        return;
+      }
       if (next.id !== toolRef.current) for (const end of endGestures.current) end();
+      // the ref first: the canvas bindings read it before React has rendered the change
+      toolRef.current = next.id;
       setToolId(next.id);
       announcer.say(
         // phraseText, not the Phrase itself: keyboard is an array of parts now, and interpolating it
@@ -226,9 +251,41 @@ export function EditorShell(): JSX.Element {
       },
     });
 
+    const itemPlacing = bindItemPlacing({
+      plan,
+      element: planRef.current as HTMLElement,
+      announcer,
+      project: () => replica.project,
+      piece: () => pieceRef.current,
+      settings: () => ({
+        magnetism: optionsRef.current["item.snapWalls"] !== false,
+        rotation: Number(optionsRef.current["item.rotation"] ?? 0),
+      }),
+      setRotation: (degrees) => {
+        optionsRef.current = { ...optionsRef.current, "item.rotation": degrees };
+        setOption("item", "rotation", degrees);
+      },
+      active: () => toolRef.current === "item",
+      send: async (command) => {
+        const result = await client.command(command);
+        if (!result.ok)
+          throw new Error(result.error ? result.error.message : "the host refused the placement");
+        const placed = (result.result as { result?: { id?: unknown } } | undefined)?.result;
+        return typeof placed?.id === "string" ? placed.id : null;
+      },
+      select: (ids) => void client.select(ids),
+      redraw,
+      status: setSnap,
+    });
+    itemPlacingRef.current = itemPlacing;
+
     // Leaving a tool finishes what it was drawing (W-090): what is already down is kept and committed,
     // rather than abandoned half drawn with its preview left standing in the 3D scene.
-    endGestures.current = [() => wallDrawing.finish(), () => roomDrawing.finish()];
+    endGestures.current = [
+      () => wallDrawing.finish(),
+      () => roomDrawing.finish(),
+      () => itemPlacing.finish(),
+    ];
 
     // One overlay painter: the draft review panel, both drawing tools and the compass all draw over the
     // plan. setOverlayExtra takes a single function, so anything new joins this composition rather than
@@ -237,6 +294,7 @@ export function EditorShell(): JSX.Element {
       review.draw(ctx, view2);
       wallDrawing.draw(ctx, view2);
       roomDrawing.draw(ctx, view2);
+      itemPlacing.draw(ctx, view2);
       app.drawSelectionDrag(ctx, view2);
       const north = replica.project?.meta.north;
       if (north !== undefined) drawCompass(ctx, view2, north);
@@ -344,14 +402,73 @@ export function EditorShell(): JSX.Element {
     const unsubscribe = replica.subscribe(() => {
       setScale(plan.view.scale);
       setLevel(plan.level);
+      setSelectionKey(replica.selection.join(","));
     });
     setScale(plan.view.scale);
     return () => {
       unsubscribe();
       wallDrawing.destroy();
       roomDrawing.destroy();
+      itemPlacing.destroy();
+      itemPlacingRef.current = null;
     };
-  }, [app, announcer, commands, setTool]);
+  }, [app, announcer, commands, setTool, setOption]);
+
+  // The panel is the selection (ADR-017 D3): picking something on the plan shows its properties. Not while
+  // placing, where each new piece is selected in turn and the catalog should stay where it is.
+  useEffect(() => {
+    if (selectionKey !== "" && toolRef.current !== "item") setPanelTab("properties");
+  }, [selectionKey]);
+
+  const searchCatalog = useCallback(
+    async (args: CatalogSearch) => {
+      if (!app) throw new Error("not connected to the host");
+      const reply = await app.client.tool("search_catalog", { ...args, limit: 20 });
+      const page = reply.ok ? pageOf(reply.result) : null;
+      if (!page) throw new Error(reply.error?.message ?? "the host sent no results");
+      return page;
+    },
+    [app],
+  );
+
+  const placePiece = useCallback(
+    (piece: Placeable) => {
+      pieceRef.current = piece;
+      // A new piece starts as placed, turned by the wall it meets; a turn asked for the last one is not
+      // this one's.
+      optionsRef.current = { ...optionsRef.current, "item.rotation": 0 };
+      setOption("item", "rotation", 0);
+      setTool("item");
+      planRef.current?.focus();
+      itemPlacingRef.current?.arm();
+      announcer.say(
+        `Placing ${piece.name}. Click on the plan, or move it with the arrows and press Enter. Escape finishes.`,
+      );
+    },
+    [announcer, setTool, setOption],
+  );
+
+  const replaceWith = useCallback(
+    async (piece: Placeable) => {
+      const project = app?.replica.project;
+      const [id] = app?.replica.selection ?? [];
+      if (!app || !project || !id || kindOf(id) !== "item") return;
+      const before = describeEntity(project, id)?.title ?? "The item";
+      try {
+        await sendOrThrow(app.client, { type: "item.setProduct", payload: { itemId: id, ref: piece.ref } });
+        announcer.say(`${before} replaced with ${piece.name}.`);
+      } catch (e) {
+        announcer.alert(`${before} could not be replaced: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    },
+    [app, announcer],
+  );
+
+  const selected = selectionKey ? selectionKey.split(",") : [];
+  const only = selected.length === 1 ? (selected[0] as string) : null;
+  const project = app?.replica.project ?? null;
+  const replacing =
+    only && kindOf(only) === "item" && project ? (describeEntity(project, only)?.title ?? null) : null;
 
   // Leaving the wall tool ends the chain rather than abandoning it half drawn (W-090); Escape returns to
   // select from anywhere, and is never treated as typing (ADR-017 D2).
@@ -516,11 +633,42 @@ export function EditorShell(): JSX.Element {
             })()}
 
             {app ? (
-              <PropertiesPanel
-                replica={app.replica}
-                level={level}
-                send={(command) => sendOrThrow(app.client, command)}
-              />
+              <Tabs
+                value={panelTab}
+                onValueChange={(v) => setPanelTab(v as PanelTab)}
+                className="flex min-h-0 flex-col gap-0 border-l bg-card"
+              >
+                <TabsList
+                  variant="line"
+                  aria-label="Side panel"
+                  className="h-9 w-full shrink-0 justify-start rounded-none border-b px-2"
+                >
+                  <TabsTrigger value="properties" className="flex-none px-2">
+                    Properties
+                  </TabsTrigger>
+                  <TabsTrigger value="catalog" className="flex-none px-2">
+                    Catalog
+                  </TabsTrigger>
+                </TabsList>
+                {/* Both stay mounted, so a half-typed search or a field being edited survives a look at the
+                    other tab; the inactive one is only hidden. */}
+                <TabsContent value="properties" forceMount className="min-h-0 data-[state=inactive]:hidden">
+                  <PropertiesPanel
+                    replica={app.replica}
+                    level={level}
+                    send={(command) => sendOrThrow(app.client, command)}
+                  />
+                </TabsContent>
+                <TabsContent value="catalog" forceMount className="min-h-0 data-[state=inactive]:hidden">
+                  <CatalogPanel
+                    inputRef={catalogInputRef}
+                    search={searchCatalog}
+                    onPlace={placePiece}
+                    onReplace={replaceWith}
+                    replacing={replacing}
+                  />
+                </TabsContent>
+              </Tabs>
             ) : (
               <aside className="border-l" />
             )}

@@ -269,7 +269,7 @@ export function itemSize(item: Item, sizes: SizeSource): Size3 | null {
  * Footprint corners in order [back-left, back-right, front-right, front-left] (F-007 adapted).
  * Local frame: x to the item's right, y toward its back; front faces local -y. Rotated counter-clockwise.
  */
-export function itemFootprint(item: Item, size: Size3): Point[] {
+export function itemFootprint(item: Pick<Item, "position" | "rotation">, size: Size3): Point[] {
   const hw = size.w / 2;
   const hd = size.d / 2;
   const local: Point[] = [

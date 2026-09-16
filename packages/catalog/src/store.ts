@@ -432,12 +432,17 @@ export class CatalogStore implements VerifyStore {
           )
           .all(fts) as Row[])
           if (accept(row)) add(row.id, "text");
-    } else if (q.category) {
-      // an empty query with a category lists that category
-      for (const row of this.db
-        .prepare("select id, category, status from products where category = ? order by name")
-        .all(q.category) as Row[])
-        if (accept(row)) add(row.id, "term");
+    } else {
+      // An empty query lists the catalog, to browse it: a category's products by name when one is given,
+      // otherwise everything by category and then name.
+      const rows = (
+        q.category
+          ? this.db
+              .prepare("select id, category, status from products where category = ? order by name, id")
+              .all(q.category)
+          : this.db.prepare("select id, category, status from products order by category, name, id").all()
+      ) as Row[];
+      for (const row of rows) if (accept(row)) add(row.id, "term");
     }
     const page = ordered.slice(offset, offset + limit);
     const hits = page.map(({ id, tier }) => this.hitOf(this.get(id) as Product, tier));

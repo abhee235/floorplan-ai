@@ -39,7 +39,7 @@ export function PropertiesPanel({
     : [];
 
   return (
-    <aside aria-label="Properties" className="flex min-h-0 w-72 flex-col border-l bg-card">
+    <aside aria-label="Properties" className="flex h-full min-h-0 flex-col">
       <ScrollArea className="min-h-0 grow">
         <div className="pb-4">
           <Section title={heading(selected.length)}>

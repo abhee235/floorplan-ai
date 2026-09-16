@@ -5,12 +5,23 @@
 // say exactly what came back.
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, onTestFinished } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, onTestFinished } from "vitest";
 import { TooltipProvider } from "../../src/components/ui/tooltip.js";
 import { Announcer, type LiveRegion } from "../../src/editor/announce.js";
 import { PropertyField } from "../../src/editor/PropertyField.js";
 import type { EditCommand, EditOutcome } from "../../src/editor/selection.js";
 import { type Editor, EditorContext } from "../../src/editor/useEditor.js";
+
+beforeAll(() => {
+  // A reset button's tooltip measures itself with a ResizeObserver, which jsdom lacks. Without one, a hover
+  // that opened the tooltip before the click landed threw, React took the field down, and the click was
+  // lost: the reset test failed now and then, only when the run was slow enough for that to happen.
+  globalThis.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+});
 
 afterEach(cleanup);
 

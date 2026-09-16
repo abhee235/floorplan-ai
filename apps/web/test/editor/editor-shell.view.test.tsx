@@ -29,11 +29,39 @@ vi.mock("../../src/app.js", () => ({
       host.appendChild(canvas);
     }
     const ok = async () => ({ id: "x", type: "result" as const, ok: true });
+    // the catalog tab's search: one chair, and no generic shapes
+    const tool = async (_name: string, args: Record<string, unknown>) => ({
+      id: "x",
+      type: "result" as const,
+      ok: true,
+      result: {
+        ok: true,
+        result:
+          args.kind === "product"
+            ? {
+                hits: [
+                  {
+                    id: "acme-chair",
+                    name: "Acme chair",
+                    make: "Acme",
+                    model: "C1",
+                    category: "chair",
+                    dims: { w: 600, d: 600, h: 900 },
+                    verified: true,
+                    price: null,
+                  },
+                ],
+                total: 1,
+                cursor: null,
+              }
+            : { hits: [], total: 0, cursor: null },
+      },
+    });
     const replica = new Replica();
     started.push({ replica });
     return {
       replica,
-      client: { close() {}, command: ok, undo: ok, redo: ok, select: ok },
+      client: { close() {}, command: ok, undo: ok, redo: ok, select: ok, tool },
       plan: {
         level: null,
         view: { scale: 1, offsetX: 0, offsetY: 0, width: 100, height: 100 },
@@ -58,6 +86,8 @@ vi.mock("../../src/app.js", () => ({
 const { EditorShell } = await import("../../src/editor/EditorShell.js");
 
 beforeAll(() => {
+  // cmdk keeps the highlighted catalog result in view
+  Element.prototype.scrollIntoView ??= () => {};
   // jsdom has neither; the panel library and the scroll area both observe sizes.
   globalThis.ResizeObserver ??= class {
     observe() {}
@@ -148,5 +178,22 @@ describe("switching what is on screen (ADR-017 D1)", () => {
     expect(names.filter((n) => n === "")).toEqual([]);
     const repeated = names.filter((n, k) => names.indexOf(n) !== k);
     expect(repeated).toEqual([]);
+  });
+
+  it("P3-5 sends the item tool to the catalog until a piece is picked, then arms it with the piece", async () => {
+    render(<EditorShell />);
+    const user = userEvent.setup();
+    const plan = document.getElementById("plan") as HTMLElement;
+    expect(screen.getByRole("tab", { name: "Properties" }).getAttribute("aria-selected")).toBe("true");
+    await user.click(screen.getByRole("radio", { name: "Place item, I" }));
+    // nothing picked yet: the catalog tab opens instead, and the tool stays as it was
+    expect(screen.getByRole("tab", { name: "Catalog" }).getAttribute("aria-selected")).toBe("true");
+    expect(plan.dataset.tool).toBe("select");
+    await user.click(await screen.findByRole("option", { name: /Acme chair/ }));
+    expect(plan.dataset.tool).toBe("item");
+    // the catalog stays open while placing
+    expect(screen.getByRole("tab", { name: "Catalog" }).getAttribute("aria-selected")).toBe("true");
+    await user.keyboard("{Escape}");
+    expect(plan.dataset.tool).toBe("select");
   });
 });
