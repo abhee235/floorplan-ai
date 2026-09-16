@@ -17,7 +17,7 @@ import {
 } from "@fpv/engine";
 import { wallFootprints } from "@fpv/geometry";
 import type { Item, Level, Point, Project, Wall } from "@fpv/ir";
-import { defaultWall, derive } from "@fpv/ir";
+import { defaultRoom, defaultWall, derive } from "@fpv/ir";
 import * as THREE from "three";
 import { MaterialCache } from "./materials.js";
 
@@ -270,7 +270,7 @@ export class SceneBinding {
     points: readonly Point[],
     options: { levelId: string; thickness: number; kind?: string } | null = null,
   ): void {
-    this.clearPreview();
+    this.clearPreview("wall");
     if (!this.project || !options || points.length < 2) return;
     const level = this.project.levels.find((l) => l.id === options.levelId);
     if (!level) return;
@@ -298,6 +298,7 @@ export class SceneBinding {
     for (const part of parts) {
       const mesh = new THREE.Mesh(toGeometry(part), this.materials.get(part.materialKey));
       mesh.name = `preview:${part.part}`;
+      mesh.userData = { preview: "wall" };
       mesh.castShadow = false; // a wall that is not there yet should not darken the ones that are
       mesh.receiveShadow = false;
       mesh.raycast = () => {}; // never pickable: it has no entity to select
@@ -305,11 +306,63 @@ export class SceneBinding {
     }
   }
 
-  /** Drop the drawing preview and its geometry. Safe to call when there is none. */
-  clearPreview(): void {
+  /**
+   * The room ring being drawn, shown as its floor before it is committed.
+   *
+   * Same contract as setWallPreview and the same group, so starting one preview clears the other: only
+   * one tool draws at a time, and a stale floor left under a wall chain would be worse than no preview.
+   * buildRooms already skips a polygon under three points (R-061), so a half-drawn ring previews as
+   * nothing without a guard here.
+   */
+  setRoomPreview(polygon: readonly Point[], options: { levelId: string } | null = null): void {
+    this.clearPreview("room");
+    if (!this.project || !options || polygon.length < 3) return;
+    const level = this.project.levels.find((l) => l.id === options.levelId);
+    if (!level) return;
+
+    const levels = [...this.project.levels].sort(derive.compareLevels);
+    const room = defaultRoom("preview_room", options.levelId, [...polygon]);
+    const parts = buildRooms([room], { level, isLowest: levels[0]?.id === level.id });
+    for (const part of parts) {
+      const mesh = new THREE.Mesh(toGeometry(part), this.materials.get(part.materialKey));
+      mesh.name = `preview:${part.part}`;
+      mesh.userData = { preview: "room", ownMaterial: true };
+      mesh.castShadow = false;
+      mesh.receiveShadow = false;
+      mesh.raycast = () => {}; // never pickable: it has no entity to select
+      // The floor sits exactly on the ground slab's top face — buildRooms uses level.elevation and so
+      // does buildGround — so without this the two coplanar surfaces z-fight into stripes. polygonOffset
+      // pushes the preview forward in depth only, leaving its real position alone.
+      //
+      // On a CLONE, never on the material MaterialCache returned. That cache hands the same instance to
+      // every mesh sharing a key, so setting the offset on it would silently leave every committed room's
+      // floor offset too, for the rest of the session — a global change to shared render state, made by a
+      // preview, and subtle enough that nothing would look obviously wrong. clearPreview disposes it.
+      const offset = (mesh.material as THREE.Material).clone();
+      offset.polygonOffset = true;
+      offset.polygonOffsetFactor = -1;
+      offset.polygonOffsetUnits = -1;
+      mesh.material = offset;
+      this.preview.add(mesh);
+    }
+  }
+
+  /**
+   * Drop the drawing preview and its geometry. Safe to call when there is none.
+   *
+   * `kind` matters because both drawing tools are bound at once and share this group: clearing all of it
+   * from either tool meant whichever moved last wiped the other's preview, non-deterministically. Omit it
+   * only to clear everything, as teardown does.
+   */
+  clearPreview(kind?: "wall" | "room"): void {
     for (const o of [...this.preview.children]) {
+      if (kind && o.userData?.preview !== kind) continue;
       o.removeFromParent();
-      if (o instanceof THREE.Mesh) (o.geometry as THREE.BufferGeometry).dispose();
+      if (!(o instanceof THREE.Mesh)) continue;
+      (o.geometry as THREE.BufferGeometry).dispose();
+      // Only a material this preview cloned for itself. A cached one belongs to MaterialCache and is
+      // shared with the committed geometry, so disposing it here would blank real meshes.
+      if (o.userData?.ownMaterial) (o.material as THREE.Material).dispose();
     }
   }
 
