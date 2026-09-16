@@ -7,6 +7,7 @@ import type { Project, Wall } from "@fpv/ir";
 import { derive, sequentialIdGenerator } from "@fpv/ir";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { BridgeClient, bridgeUrl } from "./bridge/client.js";
 import { kindOf, moveCommands, nextSelection } from "./editor/selection.js";
 import {
@@ -73,6 +74,13 @@ export function startApp(el: AppElements): {
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
   el.viewport.appendChild(renderer.domElement);
   binding.scene.background = new THREE.Color(0xf3f1ec);
+  // Glass needs something to reflect or it is only a tinted pane. A soft studio room, prefiltered once,
+  // given to glass and its frames alone: the scene is not lit by it, so everything else looks as before.
+  {
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    binding.setEnvironment(pmrem.fromScene(new RoomEnvironment(), 0.04).texture);
+    pmrem.dispose();
+  }
   const camera = new THREE.PerspectiveCamera(50, 1, 0.05, 500);
   camera.position.set(12, 9, 12);
   const controls = new OrbitControls(camera, renderer.domElement);

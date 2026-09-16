@@ -4,6 +4,7 @@ import {
   MATERIAL_COLOURS,
   materialColour,
   materialKeyOf,
+  materialLook,
   materialRoughness,
   roughnessForShininess,
 } from "../src/index.js";
@@ -45,5 +46,26 @@ describe("finished material keys (ADR-003 D4)", () => {
   it("keeps two finishes apart as two materials", () => {
     expect(materialKeyOf("wall-side|#FF0000|")).not.toBe(materialKeyOf("wall-side|#0000FF|"));
     expect(materialKeyOf("recipe:table:boat:3600x1400x750")).toBe("recipe:table");
+  });
+
+  it("draws glass seen through, smooth and reflective, and its frame solid metal", () => {
+    expect(materialLook("wall-glass")).toEqual({
+      colour: MATERIAL_COLOURS["wall-glass"],
+      roughness: 0.05,
+      metalness: 0,
+      opacity: 0.3,
+      reflective: true,
+    });
+    expect(materialLook("wall-glass-frame")).toMatchObject({ opacity: 1, metalness: 0.6, reflective: true });
+    expect(materialLook("wall-side")).toMatchObject({ opacity: 1, metalness: 0, reflective: false });
+  });
+
+  it("tints painted glass without making it solid, and frosts it with a finish", () => {
+    expect(materialLook("wall-glass|#88CC88|")).toMatchObject({
+      colour: 0x88cc88,
+      opacity: 0.3,
+      roughness: 0.05,
+    });
+    expect(materialLook("wall-glass||0.6").roughness).toBeGreaterThan(materialLook("wall-glass").roughness);
   });
 });

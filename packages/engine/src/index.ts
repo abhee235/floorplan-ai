@@ -30,8 +30,10 @@ export {
   type FinishLike,
   finishedMaterialKey,
   MATERIAL_COLOURS,
+  type MaterialLook,
   materialColour,
   materialKeyOf,
+  materialLook,
   materialRoughness,
   roughnessForShininess,
 } from "./palette.js";

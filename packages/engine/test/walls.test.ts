@@ -207,3 +207,21 @@ describe("openings and slopes", () => {
     expect(buildWalls([w], [], ctx)).toHaveLength(0);
   });
 });
+
+describe("glass walls", () => {
+  it("W-106 a glass wall is glass on both faces and framed at its top, ends and reveals", () => {
+    const walls = project.walls.map((w) => (w.id === "wall_000001" ? { ...w, kind: "glass" as const } : w));
+    const parts = buildWalls(walls, project.openings, ctx);
+    const key = (id: string, kind: string) => partsOf(parts, id, kind)[0]?.materialKey;
+    expect(key("wall_000001", "wall-left")).toBe("wall-glass");
+    expect(key("wall_000001", "wall-right")).toBe("wall-glass");
+    expect(key("wall_000001", "wall-top")).toBe("wall-glass-frame");
+    expect(key("wall_000001", "wall-end-start")).toBe("wall-glass-frame");
+    // the door set into it is framed in the same metal
+    expect(key("opening_000001", "opening-jamb")).toBe("wall-glass-frame");
+    expect(key("opening_000001", "opening-head")).toBe("wall-glass-frame");
+    // and a solid neighbour is unchanged
+    expect(key("wall_000002", "wall-left")).toBe("wall-side");
+    expect(key("wall_000002", "wall-end-start")).toBe("wall-side");
+  });
+});

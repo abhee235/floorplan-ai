@@ -94,6 +94,11 @@ export class SceneBinding {
     this.lights.add(sun, sky);
   }
 
+  /** The reflections glass and its frames show; see MaterialCache.setEnvironment. */
+  setEnvironment(texture: THREE.Texture | null): void {
+    this.materials.setEnvironment(texture);
+  }
+
   /** Replace the project: everything is rebuilt on the next flush. */
   setProject(project: Project): void {
     this.project = project;

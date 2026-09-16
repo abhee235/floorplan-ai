@@ -252,6 +252,7 @@ function buildReveal(
   c: Cut,
   el: WallElevations,
   out: GeometryPart[],
+  revealKey: string,
 ): void {
   const hole = intersection(columnRegion(c, len, el), c.shape as MultiPoly);
   const a = at(left, c.from);
@@ -302,7 +303,7 @@ function buildReveal(
         });
         s += edge;
       }
-  if (!mb.isEmpty) out.push(mb.toPart(c.opening.id, "opening-reveal", "opening-reveal"));
+  if (!mb.isEmpty) out.push(mb.toPart(c.opening.id, "opening-reveal", revealKey));
 }
 
 function buildOpeningFaces(
@@ -312,9 +313,10 @@ function buildOpeningFaces(
   c: Cut,
   el: WallElevations,
   out: GeometryPart[],
+  revealKey: string,
 ): void {
   if (c.shape) {
-    buildReveal(left, right, len, c, el, out);
+    buildReveal(left, right, len, c, el, out, revealKey);
     return;
   }
   const oid = c.opening.id;
@@ -338,7 +340,7 @@ function buildOpeningFaces(
       { x: 0, y: 0, z: 1 },
       planUv,
     );
-    out.push(sill.toPart(oid, "opening-sill", "opening-reveal"));
+    out.push(sill.toPart(oid, "opening-sill", revealKey));
   }
   if (c.headZ < top) {
     const head = new MeshBuilder();
@@ -352,7 +354,7 @@ function buildOpeningFaces(
       { x: 0, y: 0, z: -1 },
       planUv,
     );
-    out.push(head.toPart(oid, "opening-head", "opening-reveal"));
+    out.push(head.toPart(oid, "opening-head", revealKey));
   }
   const jambs = new MeshBuilder();
   const vb = Math.max(c.sillZ, el.bottom);
@@ -378,7 +380,7 @@ function buildOpeningFaces(
       (p) => [Math.hypot(p.x - lt.x, p.y - lt.y) / MM_PER_M, p.z / MM_PER_M],
     );
   }
-  if (!jambs.isEmpty) out.push(jambs.toPart(oid, "opening-jamb", "opening-reveal"));
+  if (!jambs.isEmpty) out.push(jambs.toPart(oid, "opening-jamb", revealKey));
 }
 
 /** Build every part for the walls of one level. */
@@ -400,9 +402,15 @@ export function buildWalls(
     const right = makeSide([...fp.slice(n)].reverse(), w);
     const el = wallElevations(w, ctx);
     const cutList = cuts(w, openings, ctx.level, ctx.cutOuts);
-    // Each side wears its own finish (W-106); the end caps and reveals keep the plain wall material.
-    const leftKey = finishedMaterialKey("wall-side", w.finishes.left);
-    const rightKey = finishedMaterialKey("wall-side", w.finishes.right);
+    // Each side wears its own finish (W-106); the end caps and reveals keep the plain wall material. A glass
+    // wall is glass on both faces and aluminium everywhere it has an edge: its top, its ends and the reveals
+    // of anything set into it, which is how a glazed partition is actually built.
+    const glass = w.kind === "glass";
+    const sideBase = glass ? "wall-glass" : "wall-side";
+    const edgeKey = glass ? "wall-glass-frame" : "wall-side";
+    const revealKey = glass ? "wall-glass-frame" : "opening-reveal";
+    const leftKey = finishedMaterialKey(sideBase, w.finishes.left);
+    const rightKey = finishedMaterialKey(sideBase, w.finishes.right);
     out.push(buildSide(left, right, len, cutList, el).toPart(w.id, "wall-left", leftKey));
     out.push(buildSide(right, left, len, cutList, el).toPart(w.id, "wall-right", rightKey));
     // top: full footprint ring with per-vertex top elevation (W-093 sloped tops)
@@ -415,7 +423,13 @@ export function buildWalls(
       }),
     ];
     top.addFace(ring, { x: 0, y: 0, z: 1 }, planUv);
-    out.push(top.toPart(w.id, "wall-top", finishedMaterialKey("wall-top", w.finishes.top)));
+    out.push(
+      top.toPart(
+        w.id,
+        "wall-top",
+        finishedMaterialKey(glass ? "wall-glass-frame" : "wall-top", w.finishes.top),
+      ),
+    );
     // end caps (W-003 corners)
     const dir = { x: w.end.x - w.start.x, y: w.end.y - w.start.y, z: 0 };
     const ls = left.points[0] as Point;
@@ -433,7 +447,7 @@ export function buildWalls(
       { x: -dir.x, y: -dir.y, z: 0 },
       (p) => [Math.hypot(p.x - ls.x, p.y - ls.y) / MM_PER_M, p.z / MM_PER_M],
     );
-    out.push(capStart.toPart(w.id, "wall-end-start", "wall-side"));
+    out.push(capStart.toPart(w.id, "wall-end-start", edgeKey));
     const capEnd = new MeshBuilder();
     capEnd.addFace(
       [
@@ -445,8 +459,8 @@ export function buildWalls(
       dir,
       (p) => [Math.hypot(p.x - le.x, p.y - le.y) / MM_PER_M, p.z / MM_PER_M],
     );
-    out.push(capEnd.toPart(w.id, "wall-end-end", "wall-side"));
-    for (const c of cutList) buildOpeningFaces(left, right, len, c, el, out);
+    out.push(capEnd.toPart(w.id, "wall-end-end", edgeKey));
+    for (const c of cutList) buildOpeningFaces(left, right, len, c, el, out, revealKey);
   }
   return out;
 }

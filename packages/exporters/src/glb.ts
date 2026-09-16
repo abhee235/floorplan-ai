@@ -11,9 +11,8 @@ import {
   buildRooms,
   buildWalls,
   type GeometryPart,
-  materialColour,
   materialKeyOf,
-  materialRoughness,
+  materialLook,
   noAssets,
   snapshotCutOuts,
 } from "@fpv/engine";
@@ -129,7 +128,8 @@ class GltfBuilder {
     const norm = materialKeyOf(key);
     const known = this.materialIndex.get(norm);
     if (known !== undefined) return known;
-    const c = materialColour(norm);
+    const look = materialLook(norm);
+    const c = look.colour;
     this.materials.push({
       name: norm,
       pbrMetallicRoughness: {
@@ -137,11 +137,13 @@ class GltfBuilder {
           round6(srgbToLinear((c >> 16) & 255)),
           round6(srgbToLinear((c >> 8) & 255)),
           round6(srgbToLinear(c & 255)),
-          1,
+          look.opacity,
         ],
-        metallicFactor: 0,
-        roughnessFactor: materialRoughness(norm),
+        metallicFactor: look.metalness,
+        roughnessFactor: look.roughness,
       },
+      // glTF treats alpha as opaque unless told otherwise; glass has to say it blends.
+      ...(look.opacity < 1 ? { alphaMode: "BLEND" } : {}),
     });
     this.materialIndex.set(norm, this.materials.length - 1);
     return this.materials.length - 1;

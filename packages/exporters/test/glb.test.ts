@@ -200,4 +200,22 @@ describe("glTF binary export (PRD P2-5)", () => {
     // the plain wall material is still there for every other side
     expect(materials.some((m) => m.name === "wall-side")).toBe(true);
   });
+
+  it("exports glass as a blended, see-through material", () => {
+    const wall = project.walls[0];
+    if (!wall) throw new Error("fixture has no wall");
+    const glazed = {
+      ...project,
+      walls: project.walls.map((w) => (w.id === wall.id ? { ...w, kind: "glass" as const } : w)),
+    };
+    const materials = parseGlb(projectToGlb(glazed, base).bytes).json
+      .materials as (Gltf["materials"][number] & {
+      alphaMode?: string;
+    })[];
+    const glass = materials.find((m) => m.name === "wall-glass");
+    expect(glass?.alphaMode).toBe("BLEND");
+    expect(glass?.pbrMetallicRoughness.baseColorFactor[3]).toBe(0.3);
+    // solid materials stay opaque, with no alpha mode at all
+    expect(materials.find((m) => m.name === "wall-side")?.alphaMode).toBeUndefined();
+  });
 });

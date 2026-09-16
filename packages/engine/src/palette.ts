@@ -3,6 +3,10 @@
 
 export const MATERIAL_COLOURS: Readonly<Record<string, number>> = {
   "wall-side": 0xe8e6e1,
+  // the plan's glass blue, lightened: seen through at a third of its strength it reads as a tint
+  "wall-glass": 0xa9cfe4,
+  // anodised aluminium, for the frame a glass partition stands in
+  "wall-glass-frame": 0x7d848c,
   "wall-top": 0xd9d6d0,
   "opening-reveal": 0xf4f2ee,
   floor: 0xc9c2b8,
@@ -61,9 +65,42 @@ export function materialKeyOf(key: string): string {
   return key;
 }
 
+/** Everything a renderer needs to draw a key, in one place so the viewer and the export cannot differ. */
+export interface MaterialLook {
+  /** sRGB. */
+  colour: number;
+  roughness: number;
+  metalness: number;
+  /** 1 is solid; below 1 the surface is seen through and drawn blended. */
+  opacity: number;
+  /** Takes the environment map, when there is one: glass and its frame. Nothing else does, so the rest of
+   *  the scene keeps its flat office look. */
+  reflective: boolean;
+}
+
+/** How a kind of surface differs from the flat, matt, solid default. */
+const LOOKS: Readonly<Record<string, Partial<MaterialLook>>> = {
+  "wall-glass": { roughness: 0.05, opacity: 0.3, reflective: true },
+  "wall-glass-frame": { roughness: 0.35, metalness: 0.6, reflective: true },
+  "recipe:display": { roughness: 0.35 },
+};
+
+export function materialLook(key: string): MaterialLook {
+  const { base, colour, shininess } = splitKey(key);
+  const kind = materialKeyOf(base);
+  const look = LOOKS[kind] ?? {};
+  return {
+    colour: colour ?? MATERIAL_COLOURS[kind] ?? MATERIAL_COLOURS.item ?? 0x8f9aa6,
+    // A finish's shininess replaces the kind's roughness: satin or gloss on glass reads as frosted.
+    roughness: shininess !== null ? roughnessForShininess(shininess) : (look.roughness ?? 0.85),
+    metalness: look.metalness ?? 0,
+    opacity: look.opacity ?? 1,
+    reflective: look.reflective ?? false,
+  };
+}
+
 export function materialColour(key: string): number {
-  const { base, colour } = splitKey(key);
-  return colour ?? MATERIAL_COLOURS[materialKeyOf(base)] ?? MATERIAL_COLOURS.item ?? 0x8f9aa6;
+  return materialLook(key).colour;
 }
 
 /**
@@ -75,7 +112,5 @@ export function roughnessForShininess(shininess: number): number {
 }
 
 export function materialRoughness(key: string): number {
-  const { base, shininess } = splitKey(key);
-  if (shininess !== null) return roughnessForShininess(shininess);
-  return materialKeyOf(base) === "recipe:display" ? 0.35 : 0.85;
+  return materialLook(key).roughness;
 }
