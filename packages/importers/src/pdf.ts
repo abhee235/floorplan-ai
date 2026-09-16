@@ -416,6 +416,8 @@ export const PAPER_SCALES: readonly number[] = [
 ].map((n) => (n * 25.4) / 72);
 
 const DASHED = "pdf-dashed";
+/** Text away from the wall line work: a legend, a title block or a note, never a room name. */
+const NOTES = "pdf-notes";
 const ARCS = "pdf-arcs";
 const TEXT = "pdf-text";
 const DIMENSIONS = "pdf-dimensions";
@@ -439,7 +441,7 @@ function luminance(color: string): number {
 }
 
 /** Share of a group's line length that has a parallel, overlapping partner at a wall-like distance. */
-function pairedShare(lines: readonly DxfLine[]): { share: number; length: number } {
+function pairedShare(lines: readonly DxfLine[]): { share: number; length: number; meanPaired: number } {
   const segs = lines
     .map((l) => {
       const d = sub(l.b, l.a);
@@ -452,6 +454,7 @@ function pairedShare(lines: readonly DxfLine[]): { share: number; length: number
   const sample = segs.slice(0, 1500);
   const sinTol = Math.sin((2 * Math.PI) / 180);
   let paired = 0;
+  let pairedCount = 0;
   let sampled = 0;
   for (const s of sample) {
     sampled += s.length;
@@ -465,9 +468,16 @@ function pairedShare(lines: readonly DxfLine[]): { share: number; length: number
       const overlap = Math.min(s.length, Math.max(t1, t2)) - Math.max(0, Math.min(t1, t2));
       return overlap > 0.25 * Math.min(s.length, o.length);
     });
-    if (hit) paired += s.length;
+    if (hit) {
+      paired += s.length;
+      pairedCount += 1;
+    }
   }
-  return { share: sampled > 0 ? paired / sampled : 0, length };
+  return {
+    share: sampled > 0 ? paired / sampled : 0,
+    length,
+    meanPaired: pairedCount > 0 ? paired / pairedCount : 0,
+  };
 }
 
 export interface PdfDocumentConversion {
@@ -546,30 +556,77 @@ export function pdfPageToDocument(content: PdfPageContent): PdfDocumentConversio
     }
   });
 
+  // Walls, before the labels: a plan's overall dimension is stated across its wall line work, so the walls
+  // have to be known before the scale can be read off them. Hatching, furniture and symbols pair as readily
+  // as wall faces do, but they draw short lines, so the groups of long parallel pairs are the walls whatever
+  // stroke weight they are drawn at.
+  const diagonal = Math.hypot(content.width, content.height);
+  const pickWalls = (): Set<string> => {
+    const stats = [...groups.values()]
+      .filter((g) => g.lines.length > 0)
+      .map((g) => ({ g, ...pairedShare(g.lines) }));
+    const maxLength = Math.max(0, ...stats.map((s) => s.length));
+    const candidates = stats
+      .filter(
+        (s) =>
+          s.share >= 0.5 &&
+          s.length >= 0.05 * maxLength &&
+          s.meanPaired >= 0.02 * diagonal &&
+          (!s.g.fill || luminance(s.g.color) < 0.6),
+      )
+      .map((s) => ({ ...s, paired: s.share * s.length }));
+    const most = Math.max(0, ...candidates.map((s) => s.paired));
+    // a second group joins the walls only when it carries nearly as much paired line work: on a drawing
+    // whose walls are unmistakable, the thin detail lines are window and door symbols, not walls
+    return new Set(candidates.filter((s) => s.paired >= 0.8 * most).map((s) => s.g.layer));
+  };
+  const boxOf = (layers: ReadonlySet<string>) => {
+    const pts = [...groups.values()]
+      .filter((g) => layers.has(g.layer))
+      .flatMap((g) => g.lines)
+      .flatMap((l) => [l.a, l.b]);
+    if (pts.length === 0) return null;
+    const xs = pts.map((p) => p.x);
+    const ys = pts.map((p) => p.y);
+    return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
+  };
+  const roughBox = boxOf(pickWalls());
+
   // labels, dimension labels and the dimension line beside each
   const labels = pageLabels(content.texts);
   const moved = new Set<DxfLine>();
   let header: StatedUnits | null = null;
+  let longestMm = 0;
+  const lengths: { at: DxfPoint; height: number; rotation: number; mm: number }[] = [];
   for (const t of labels) {
     const scaleNote = /\b1\s*:\s*(\d{1,5})\b/.exec(t.text);
     if (scaleNote && !header) {
       const n = Number(scaleNote[1]);
       if (n > 0) header = { units: "unknown", mmPerUnit: (n * 25.4) / 72, label: `the sheet says 1:${n}` };
     }
-    const isLength = /\d/.test(t.text) && parseLengthMm(t.text) !== null;
+    const mm = /\d/.test(t.text) ? parseLengthMm(t.text) : null;
     entities.push({
       type: "TEXT",
-      layer: isLength ? DIMENSIONS : TEXT,
+      layer: mm === null ? TEXT : DIMENSIONS,
       handle: null,
       at: t.at,
       height: t.height,
       text: t.text,
       rotation: t.rotation,
     });
-    if (!isLength) continue;
+    if (mm === null || !(mm > 0)) continue;
+    if (mm > longestMm) longestMm = mm;
+    lengths.push({ at: t.at, height: t.height, rotation: t.rotation, mm });
+  }
+  // The longest length the drawing states is its overall dimension, and that is measured across the plan, so
+  // the wall line work gives millimetres per point even when the dimension lines are broken around their text
+  // and no single line is as long as the length beside it.
+  const span = roughBox ? Math.max(roughBox.maxX - roughBox.minX, roughBox.maxY - roughBox.minY) : 0;
+  const fromExtent = span > 0 && longestMm > 0 ? longestMm / span : null;
+  for (const t of lengths) {
     const r = (t.rotation * Math.PI) / 180;
     const dir = { x: Math.cos(r), y: Math.sin(r) };
-    let best: { line: DxfLine; d: number } | null = null;
+    let best: { line: DxfLine; d: number; implied: number } | null = null;
     for (const g of groups.values()) {
       if (g.fill) continue;
       for (const line of g.lines) {
@@ -582,30 +639,48 @@ export function pdfPageToDocument(content: PdfPageContent): PdfDocumentConversio
         if (Math.abs(dot(off, u)) > 0.25 * l) continue;
         const d = Math.abs(cross(u, off));
         if (d > 3 * t.height) continue;
-        if (!best || d < best.d) best = { line, d };
+        if (!best || d < best.d) best = { line, d, implied: t.mm / l };
       }
     }
-    if (best) moved.add(best.line);
+    // a label beside a line that is not its dimension implies a scale the plan's own extent disagrees with
+    const agrees = fromExtent === null || Math.abs(best ? best.implied - fromExtent : 0) / fromExtent <= 0.1;
+    if (best && agrees) moved.add(best.line);
   }
   for (const line of moved) line.layer = DIMENSIONS;
   for (const g of groups.values()) g.lines = g.lines.filter((l) => !moved.has(l));
+  // only when no label sits beside a line of its own length: a drawing that dimensions itself properly
+  // should be read from its dimension text, which a person can confirm, not from this reading of its extent
+  // a lone label beside a line of its own length is not enough for the scale to be read from dimension text
+  // (two must agree), so the extent reading stands in for it; two or more accepted lines speak for themselves
+  if (!header && moved.size < 2 && fromExtent !== null)
+    header = {
+      units: "unknown",
+      mmPerUnit: fromExtent,
+      label: `the plan measures ${Math.round(longestMm / 100) / 10} m across`,
+    };
 
-  // walls: the heaviest stroke groups, and dark fills, made mostly of parallel pairs
-  const stats = [...groups.values()]
-    .filter((g) => g.lines.length > 0)
-    .map((g) => ({ g, ...pairedShare(g.lines) }));
-  const maxLength = Math.max(0, ...stats.map((s) => s.length));
-  const candidates = stats.filter((s) => s.share >= 0.5 && s.length >= 0.05 * maxLength);
-  const strokeCandidates = candidates.filter((s) => !s.g.fill);
-  const maxWidth = Math.max(0, ...strokeCandidates.map((s) => s.g.width));
-  const walls = new Set([
-    ...strokeCandidates.filter((s) => s.g.width >= 0.75 * maxWidth).map((s) => s.g.layer),
-    ...candidates.filter((s) => s.g.fill && luminance(s.g.color) < 0.6).map((s) => s.g.layer),
-  ]);
+  // the dimension lines are out of the way now, so the wall groups are chosen again without them
+  const walls = pickWalls();
+  const wallBox = boxOf(walls);
+  if (wallBox) {
+    const mx = 0.05 * (wallBox.maxX - wallBox.minX);
+    const my = 0.05 * (wallBox.maxY - wallBox.minY);
+    for (const e of entities)
+      if (
+        e.type === "TEXT" &&
+        e.layer === TEXT &&
+        (e.at.x < wallBox.minX - mx ||
+          e.at.x > wallBox.maxX + mx ||
+          e.at.y < wallBox.minY - my ||
+          e.at.y > wallBox.maxY + my)
+      )
+        e.layer = NOTES;
+  }
   const layerRoles = new Map<string, LayerRole>([
     [DASHED, "ignore"],
     [ARCS, "door"],
     [TEXT, "text"],
+    [NOTES, "ignore"],
     [DIMENSIONS, "dimension"],
   ]);
   // with no wall-like group every group is unknown, and the reader asks which lines are walls
