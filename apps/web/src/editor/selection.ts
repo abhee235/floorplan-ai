@@ -69,6 +69,66 @@ export function deleteCommands(ids: readonly string[]): DeleteCommand[] {
 /** Openings before walls: deleting a wall takes its openings with it, so the reverse order would
  *  delete ids that no longer exist. Same reasoning puts items and rooms ahead of the walls they sit in. */
 
+export interface MoveCommand {
+  type: string;
+  payload: Record<string, unknown>;
+}
+
+/**
+ * Moving a selection by (dx, dy) in plan millimetres.
+ *
+ * Openings are deliberately absent. opening.move takes a position ALONG a wall — a fraction or a
+ * distance — not a vector, because an opening slides in its host wall rather than moving freely.
+ * Turning a free drag into a wall parameter is its own design problem (which wall wins when the drag
+ * crosses two, what happens past the ends), and guessing at it here would be worse than leaving
+ * openings where they are.
+ *
+ * Rooms have no move command at all, so each one moves by setPolygon with every point translated. That
+ * is why this needs the project and not just the ids.
+ */
+export function moveCommands(
+  project: Project,
+  ids: readonly string[],
+  dx: number,
+  dy: number,
+): MoveCommand[] {
+  // Whole millimetres: Mm is an integer and Polygon is an array of integer points, so a fractional
+  // delta is refused by the schema and nothing moves at all.
+  const x = Math.round(dx);
+  const y = Math.round(dy);
+  if (x === 0 && y === 0) return [];
+
+  const byKind = new Map<EntityKind, string[]>();
+  for (const id of ids) {
+    const kind = kindOf(id);
+    if (!kind) continue;
+    byKind.set(kind, [...(byKind.get(kind) ?? []), id]);
+  }
+
+  const out: MoveCommand[] = [];
+  const wallIds = byKind.get("wall") ?? [];
+  if (wallIds.length > 0) out.push({ type: "wall.move", payload: { wallIds, dx: x, dy: y } });
+
+  for (const roomId of byKind.get("room") ?? []) {
+    const room = project.rooms.find((r) => r.id === roomId);
+    if (!room) continue;
+    const shift = (p: { x: number; y: number }) => ({ x: p.x + x, y: p.y + y });
+    out.push({
+      type: "room.setPolygon",
+      payload: {
+        roomId,
+        polygon: room.polygon.map(shift),
+        ...(room.holes.length > 0 ? { holes: room.holes.map((h) => h.map(shift)) } : {}),
+      },
+    });
+  }
+
+  const itemIds = byKind.get("item") ?? [];
+  if (itemIds.length > 0) out.push({ type: "item.move", payload: { itemIds, dx: x, dy: y } });
+
+  return out;
+}
+
 export interface SelectedEntity {
   id: string;
   kind: EntityKind;

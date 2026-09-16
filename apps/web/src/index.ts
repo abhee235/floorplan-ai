@@ -37,6 +37,17 @@ export {
   type RoomToolOptions,
 } from "./editor/room-tool.js";
 export {
+  type DeleteCommand,
+  deleteCommands,
+  describeEntity,
+  type EntityKind,
+  kindOf,
+  type MoveCommand,
+  moveCommands,
+  nextSelection,
+  type SelectedEntity,
+} from "./editor/selection.js";
+export {
   type CountsLike,
   countsText,
   describeLength,

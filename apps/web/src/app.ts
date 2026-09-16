@@ -5,7 +5,7 @@ import { SELECTION_PX } from "@fpv/geometry";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { BridgeClient, bridgeUrl } from "./bridge/client.js";
-import { nextSelection } from "./editor/selection.js";
+import { moveCommands, nextSelection } from "./editor/selection.js";
 import { type Ctx2D, PlanRenderer } from "./plan/plan.js";
 import { DraftReview } from "./plan/review.js";
 import { Replica } from "./replica.js";
@@ -155,13 +155,29 @@ export function startApp(el: AppElements): {
     sizes.observe(el.viewport);
   };
 
-  // pan and zoom on the plan
+  // pan, zoom, and dragging a selection on the plan
   let drag: { x: number; y: number } | null = null;
+  /** A press that began on something already selected: that drags the selection instead of panning. */
+  let moving: { fromX: number; fromY: number; ids: string[] } | null = null;
+
+  const planPointOf = (e: { clientX: number; clientY: number }) => {
+    const rect = el.plan.getBoundingClientRect();
+    const dpr = Math.min(2, window.devicePixelRatio);
+    return plan.toPlan((e.clientX - rect.left) * dpr, (e.clientY - rect.top) * dpr);
+  };
+
   el.plan.addEventListener("pointerdown", (e) => {
+    // Pressing on an entity that is ALREADY selected moves the selection; pressing anywhere else still
+    // pans. Requiring it to be selected first is what keeps panning usable: otherwise every press that
+    // happened to land on a wall would drag it.
+    const hit = plan.hitTest(planPointOf(e), SELECTION_PX / plan.view.scale);
+    if (hit && replica.selection.includes(hit))
+      moving = { fromX: e.clientX, fromY: e.clientY, ids: [...replica.selection] };
     drag = { x: e.clientX, y: e.clientY };
     el.plan.setPointerCapture(e.pointerId);
   });
   el.plan.addEventListener("pointermove", (e) => {
+    if (moving) return; // dragging a selection, so the view must hold still
     if (!drag) return;
     const dpr = Math.min(2, window.devicePixelRatio);
     plan.panBy((e.clientX - drag.x) * dpr, (e.clientY - drag.y) * dpr);
@@ -169,6 +185,24 @@ export function startApp(el: AppElements): {
     planDirty = true;
   });
   el.plan.addEventListener("pointerup", (e) => {
+    if (moving) {
+      const moved = moving;
+      moving = null;
+      drag = null;
+      const dxPx = e.clientX - moved.fromX;
+      const dyPx = e.clientY - moved.fromY;
+      // Under the 3 px threshold this was a click, not a drag: fall through to selection next time
+      // rather than committing a move of nothing.
+      if (Math.hypot(dxPx, dyPx) >= 3 && replica.project) {
+        const dpr = Math.min(2, window.devicePixelRatio);
+        // Screen pixels to plan millimetres. y is negated because the plan's y axis points up while the
+        // screen's points down (see toScreen).
+        const dx = (dxPx * dpr) / plan.view.scale;
+        const dy = -(dyPx * dpr) / plan.view.scale;
+        for (const command of moveCommands(replica.project, moved.ids, dx, dy)) void client.command(command);
+      }
+      return;
+    }
     if (drag && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 3) {
       const rect = el.plan.getBoundingClientRect();
       const dpr = Math.min(2, window.devicePixelRatio);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deleteCommands, kindOf, nextSelection } from "../../src/editor/selection.js";
+import { deleteCommands, kindOf, moveCommands, nextSelection } from "../../src/editor/selection.js";
 
 describe("what an id names", () => {
   it("reads the kind from the prefix", () => {
@@ -42,6 +42,78 @@ describe("deleting a selection", () => {
   it("skips ids it cannot classify and still deletes the rest", () => {
     const cmds = deleteCommands(["zone_000001", "wall_000001"]);
     expect(cmds).toEqual([{ type: "wall.delete", payload: { wallIds: ["wall_000001"] } }]);
+  });
+});
+
+describe("moving a selection", () => {
+  const project = {
+    walls: [],
+    items: [],
+    openings: [],
+    rooms: [
+      {
+        id: "room_000001",
+        polygon: [
+          { x: 0, y: 0 },
+          { x: 1000, y: 0 },
+          { x: 1000, y: 800 },
+        ],
+        holes: [
+          [
+            { x: 200, y: 200 },
+            { x: 400, y: 200 },
+            { x: 400, y: 400 },
+          ],
+        ],
+      },
+    ],
+  } as unknown as Parameters<typeof moveCommands>[0];
+
+  it("emits nothing for a drag that goes nowhere", () => {
+    expect(moveCommands(project, ["wall_000001"], 0, 0)).toEqual([]);
+    // and nothing for a sub-millimetre drag, which would round to zero anyway
+    expect(moveCommands(project, ["wall_000001"], 0.4, -0.4)).toEqual([]);
+  });
+
+  it("rounds to whole millimetres, because Mm is an integer", () => {
+    const [cmd] = moveCommands(project, ["wall_000001"], 12.6, -4.2);
+    expect(cmd).toEqual({ type: "wall.move", payload: { wallIds: ["wall_000001"], dx: 13, dy: -4 } });
+  });
+
+  it("moves walls and items as one command each", () => {
+    const cmds = moveCommands(project, ["wall_000001", "wall_000002", "item_000001"], 100, 50);
+    expect(cmds).toEqual([
+      { type: "wall.move", payload: { wallIds: ["wall_000001", "wall_000002"], dx: 100, dy: 50 } },
+      { type: "item.move", payload: { itemIds: ["item_000001"], dx: 100, dy: 50 } },
+    ]);
+  });
+
+  it("translates a room polygon and its holes, since rooms have no move command", () => {
+    const [cmd] = moveCommands(project, ["room_000001"], 100, -50);
+    expect(cmd?.type).toBe("room.setPolygon");
+    expect(cmd?.payload).toEqual({
+      roomId: "room_000001",
+      polygon: [
+        { x: 100, y: -50 },
+        { x: 1100, y: -50 },
+        { x: 1100, y: 750 },
+      ],
+      holes: [
+        [
+          { x: 300, y: 150 },
+          { x: 500, y: 150 },
+          { x: 500, y: 350 },
+        ],
+      ],
+    });
+  });
+
+  it("leaves openings alone: they slide along a wall rather than moving freely", () => {
+    expect(moveCommands(project, ["opening_a1b2c3"], 100, 50)).toEqual([]);
+  });
+
+  it("skips a room that is not in the project rather than emitting a broken command", () => {
+    expect(moveCommands(project, ["room_zzzzzz"], 100, 50)).toEqual([]);
   });
 });
 
