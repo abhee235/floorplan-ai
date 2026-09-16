@@ -10,9 +10,13 @@
    beside the #1E88E5 the plan canvas already draws selection with (oklch 61.8% 0.167 250.9), so the chrome
    and the drawing finally agree on what "selected" looks like.
 
-   Density: the registry's own scale, not a tighter one. The base is 14px, controls are 32 to 40px and the
-   radius is 8px. An earlier pass squeezed all of that down to a drafting-tool density and the chrome
-   became hard to read, so the sizes here are deliberately the standard desktop ones. */
+   Density: one step tighter than the registry. The base is 13px, ambient text 11px, controls are 28px and
+   the radius is 8px. The bars are 40 / 36 / 28 and the rail is 48 with 32px targets.
+
+   An earlier pass went to 12px with 22px controls and was genuinely hard to read, but two real defects
+   were hiding inside that judgement: the rail icons were rendering at 16px whatever their width attribute
+   said, and --border sat at 1.27:1 against the card. With those fixed, 13px reads as tight rather than
+   cramped, which 12px did not. The sizes below are measured in a browser, not assumed. */
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
@@ -110,6 +114,22 @@
 
 @theme inline {
   --font-sans: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  /* 13px, not Tailwind's 14. This is a drafting tool: the chrome should give the plan its room back, and
+     a row saved in the properties panel is a row of plan gained.
+
+     Redefining what text-sm MEANS is the whole trick. shadcn writes `text-sm` on nearly every component,
+     so one theme change moves the entire registry at once — including the `text-base md:text-sm` on Input,
+     which cannot be beaten from a call site at all (tailwind-merge treats a responsive variant as its own
+     group, so an unprefixed text-[13px] never wins above 768px). Overriding the token sidesteps that fight
+     rather than winning it.
+
+     Line heights are whole pixels on purpose: 13 x Tailwind's default 1.4286 ratio is 18.57px, and
+     fractional line boxes put text on half pixels, which is exactly where hinting goes soft. */
+  --text-xs: 11px;
+  --text-xs--line-height: 16px;
+  --text-sm: 13px;
+  --text-sm--line-height: 18px;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -153,13 +173,13 @@
   }
   body {
     @apply bg-background text-foreground;
-    /* 14px, the same as the registry's own text-sm, so the components sit at their intended size instead
-       of being fought down one class at a time.
+    /* 13px, matching the redefined --text-sm above so inherited text and component text are the same size.
 
        It sits on BODY rather than on html deliberately. Tailwind v4 measures spacing in rem, so setting
        the ROOT font size rescales every h-9 and w-11 with it; an earlier 12px root quietly shrank the
-       whole chrome to three quarters of its intended size. The root stays at the browser default. */
-    font-size: 14px;
+       whole chrome to three quarters of its intended size, and left control heights on fractional pixels.
+       The root stays at the browser default and every size here is stated in whole pixels. */
+    font-size: 13px;
     font-family: var(--font-sans);
     font-feature-settings: "cv02", "cv03", "cv04", "cv11"; /* Inter's clearer digits and letterforms */
     -webkit-font-smoothing: antialiased;

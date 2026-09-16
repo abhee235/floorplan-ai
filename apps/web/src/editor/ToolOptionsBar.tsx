@@ -24,10 +24,10 @@ export function ToolOptionsBar(): JSX.Element {
     <div
       role="toolbar"
       aria-label="Settings for the active tool"
-      className="flex h-10 items-center gap-3 overflow-hidden border-b bg-muted/30 px-3 whitespace-nowrap"
+      className="flex h-9 items-center gap-3 overflow-hidden border-b bg-muted/30 px-3 whitespace-nowrap"
     >
       <span className="font-semibold">{tool.title}</span>
-      <Separator orientation="vertical" className="h-5" />
+      <Separator orientation="vertical" className="h-4" />
       <div className="flex items-center gap-4">
         {tool.options.map((option) => (
           <OptionField key={option.id} option={option} />
@@ -73,7 +73,7 @@ function OptionField({ option }: { option: ToolOption }): JSX.Element {
           type="number"
           value={String(value ?? "")}
           onChange={(e) => editor.setOption(toolId, option.id, Number(e.target.value))}
-          className="w-20 text-right tabular-nums"
+          className="h-7 w-20 text-right tabular-nums"
         />
         {option.unit ? <span className="text-muted-foreground">{option.unit}</span> : null}
       </div>
@@ -86,7 +86,7 @@ function OptionField({ option }: { option: ToolOption }): JSX.Element {
         {option.label}
       </Label>
       <Select value={String(value ?? "")} onValueChange={(next) => editor.setOption(toolId, option.id, next)}>
-        <SelectTrigger id={id} size="sm" className="gap-1">
+        <SelectTrigger id={id} size="sm" className="h-7 gap-1">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>

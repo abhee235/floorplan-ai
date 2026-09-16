@@ -25,8 +25,10 @@ const VIEWS: [ViewMode, string][] = [
   ["3d", "3D"],
 ];
 
-/** The registry's small size, which is the standard 32px control. */
-const CONTROL = "h-8 px-3 font-normal";
+/** 28px, one step under the registry's `sm` (h-8). Set here rather than in the theme because a height is
+ *  an ordinary utility, not a responsive variant, so it beats the component's own h-8/h-9 from a call site
+ *  — unlike the text size, which had to be changed at the token. */
+const CONTROL = "h-7 px-2.5 font-normal";
 
 export function AppBar({ replica, level, onLevel, onImport }: AppBarProps): JSX.Element {
   const editor = useEditor();
@@ -35,13 +37,13 @@ export function AppBar({ replica, level, onLevel, onImport }: AppBarProps): JSX.
   const run = (id: string) => void editor.commands.run(id);
 
   return (
-    <header className="flex h-11 items-center gap-2 border-b bg-card px-3">
+    <header className="flex h-10 items-center gap-2 border-b bg-card px-3">
       <strong className="truncate font-semibold">{project?.meta.name ?? "floorplan-viz"}</strong>
 
-      <Separator orientation="vertical" className="mx-1 h-5" />
+      <Separator orientation="vertical" className="mx-1 h-4" />
 
       <Select value={level ?? ""} onValueChange={onLevel}>
-        <SelectTrigger size="sm" aria-label="Level" className="w-[104px] gap-1">
+        <SelectTrigger size="sm" aria-label="Level" className="h-7 w-[104px] gap-1">
           <SelectValue placeholder="—" />
         </SelectTrigger>
         <SelectContent>
@@ -72,20 +74,20 @@ export function AppBar({ replica, level, onLevel, onImport }: AppBarProps): JSX.
         }}
         variant="outline"
         aria-label="What is on screen"
-        className="h-8"
+        className="h-7"
       >
         {VIEWS.map(([mode, label]) => (
           <ToggleGroupItem
             key={mode}
             value={mode}
-            className="h-8 px-3 aria-checked:bg-accent aria-checked:text-accent-foreground"
+            className="h-7 px-2.5 aria-checked:bg-accent aria-checked:text-accent-foreground"
           >
             {label}
           </ToggleGroupItem>
         ))}
       </ToggleGroup>
 
-      <Separator orientation="vertical" className="mx-1 h-5" />
+      <Separator orientation="vertical" className="mx-1 h-4" />
 
       <Button variant="outline" className={CONTROL} onClick={onImport}>
         Import plan…

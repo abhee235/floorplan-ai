@@ -25,7 +25,7 @@ const RULE = <Separator orientation="vertical" className="h-4 opacity-60" />;
 export function StatusBar({ replica, activityRef }: StatusBarProps): JSX.Element {
   const editor = useEditor();
   return (
-    <footer className="flex h-9 items-center gap-3 overflow-hidden border-t bg-card px-3 text-muted-foreground">
+    <footer className="flex h-7 items-center gap-3 overflow-hidden border-t bg-card px-3 text-xs text-muted-foreground">
       {/* Only takes space once there is a pointer to report. The width is fixed so the bar does not
           jitter as the coordinates change, but reserving it while the pointer is off the plan just
           indented everything after it for no reason. */}
@@ -48,7 +48,7 @@ export function StatusBar({ replica, activityRef }: StatusBarProps): JSX.Element
       <span className="tabular-nums">{scaleLabel(editor.scale, Math.min(2, window.devicePixelRatio))}</span>
       {RULE}
       <span className="flex items-center gap-1.5">
-        <kbd className="rounded-md border bg-muted px-1.5 py-0.5 font-sans text-xs leading-none">Ctrl K</kbd>
+        <kbd className="rounded-md border bg-muted px-1.5 py-0.5 font-sans leading-none">Ctrl K</kbd>
         commands
       </span>
     </footer>

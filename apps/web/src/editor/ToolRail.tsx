@@ -15,10 +15,11 @@ import { useEditor } from "./useEditor.js";
 // `data-[state=on]:` never matched and the active tool had no visible state at all. aria-checked is the
 // toggle's own, and is what assistive technology reads anyway.
 //
-// 40px targets, which is the rail's own scale rather than the 32px of a bar button: these are the one
-// control a person aims at all day, and they sit alone in a column with nothing to line up against.
+// 32px targets: the rail sits at the chrome's density rather than above it. They still read as the largest
+// thing in the chrome because they are square and hold a 20px icon, where a bar control is 28px of mostly
+// text.
 const ITEM =
-  "size-10 rounded-lg! text-muted-foreground transition-colors hover:bg-muted hover:text-foreground " +
+  "size-8 rounded-lg! text-muted-foreground transition-colors hover:bg-muted hover:text-foreground " +
   "aria-checked:bg-accent aria-checked:text-accent-foreground";
 
 export function ToolRail(): JSX.Element {
@@ -34,7 +35,7 @@ export function ToolRail(): JSX.Element {
       }}
       orientation="vertical"
       aria-label="Tools"
-      className="flex w-14 flex-col items-center gap-1 border-r bg-card py-2"
+      className="flex w-12 flex-col items-center gap-0.5 border-r bg-card py-1.5"
     >
       {TOOLS.map((tool) => {
         const ready = toolReady(tool);
@@ -62,7 +63,7 @@ export function ToolRail(): JSX.Element {
   );
 }
 
-/** 22px line icons, the same geometry the design canvas drew.
+/** 20px line icons, the same geometry the design canvas drew.
  *
  * The size is a CLASS, not the width/height attributes, and that is the whole point. toggleVariants ends
  * with `[&_svg:not([class*='size-'])]:size-4`, and a CSS rule beats a presentational attribute no matter
@@ -70,15 +71,15 @@ export function ToolRail(): JSX.Element {
  * is the registry's own opt-out: any class containing "size-" takes the rule out of the running. Measured,
  * not assumed — `getComputedStyle(svg).width` said 16px while the attribute said 22.
  *
- * The 24-unit viewBox scales the stroke with the icon, so weight is not automatic either: at 22px a 1.7
- * stroke renders about 1.56 device px, which is what made these read as faint. 1.9 lands just over 1.7px. */
+ * The 24-unit viewBox scales the stroke with the icon, so shrinking one thins the other: at 20px a 1.9
+ * stroke would render 1.58 device px, lighter than the 1.74 it had at 22px. 2.0 holds it at 1.67. */
 function ToolIcon({ id }: { id: ToolId }): JSX.Element {
   const common = {
-    className: "size-5.5",
+    className: "size-5",
     viewBox: "0 0 24 24",
     fill: "none",
     stroke: "currentColor",
-    strokeWidth: 1.9,
+    strokeWidth: 2,
     "aria-hidden": true,
   } as const;
   switch (id) {

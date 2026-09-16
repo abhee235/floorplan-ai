@@ -56,9 +56,9 @@ function heading(count: number): string {
 /** Sections carry their own divider, so the panel reads as bands rather than a run of paragraphs. */
 function Section({ title, children }: { title: string; children: React.ReactNode }): JSX.Element {
   return (
-    <section className="border-b px-3 py-2.5 last:border-b-0">
-      <p className="mb-2.5 text-xs font-medium tracking-[0.06em] text-muted-foreground uppercase">{title}</p>
-      <div className="space-y-2">{children}</div>
+    <section className="border-b px-3 py-2 last:border-b-0">
+      <p className="mb-2 text-xs font-medium tracking-[0.06em] text-muted-foreground uppercase">{title}</p>
+      <div className="space-y-1.5">{children}</div>
     </section>
   );
 }
@@ -83,7 +83,7 @@ function Field({
         id={id}
         readOnly
         value={value}
-        className={`w-[150px] ${align === "right" ? "text-right tabular-nums" : ""}`}
+        className={`h-7 w-[150px] ${align === "right" ? "text-right tabular-nums" : ""}`}
       />
     </div>
   );
