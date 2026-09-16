@@ -29,6 +29,29 @@ export {
   type TargetLike,
 } from "./editor/keys.js";
 export { type Orientation, type RovingOptions, rovingNext } from "./editor/roving.js";
+export {
+  type CountsLike,
+  countsText,
+  describeLength,
+  formatMm,
+  type PaletteSection,
+  type ProblemLike,
+  type ProblemSummary,
+  paletteSections,
+  pointerText,
+  problemSummary,
+  scaleLabel,
+} from "./editor/status.js";
+export {
+  checkTool,
+  checkTools,
+  TOOLS,
+  type ToolDefinition,
+  type ToolId,
+  type ToolOption,
+  toolById,
+  toolForKey,
+} from "./editor/tools.js";
 export { type Ctx2D, type PlanLayers, PlanRenderer, type PlanView } from "./plan/plan.js";
 export { Replica, type ReplicaListener } from "./replica.js";
 export {

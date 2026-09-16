@@ -31,6 +31,7 @@ export function startApp(el: AppElements): {
   binding: SceneBinding;
   plan: PlanRenderer;
   review: DraftReview;
+  client: BridgeClient;
 } {
   const replica = new Replica();
   const raf = (cb: () => void) => requestAnimationFrame(cb);
@@ -339,7 +340,7 @@ export function startApp(el: AppElements): {
   resize();
   updateStatus();
   requestAnimationFrame(loop);
-  return { replica, binding, plan, review };
+  return { replica, binding, plan, review, client };
 }
 
 /** A file's bytes as base64, in chunks so large images do not overflow the argument list. */

@@ -1,0 +1,100 @@
+// What the chrome says in words: the status bar, the zoom readout and the palette's sections
+// (ADR-017 D1, D3, D5). Pure string building, kept out of the DOM shell so the wording is testable.
+import type { CommandMatch } from "./commands.js";
+
+/** Enough of an IR Problem to summarise; a real Problem satisfies it. */
+export interface ProblemLike {
+  severity: string;
+}
+
+const GROUP = " "; // narrow no-break space: "12 250" reads as one number, and never wraps
+
+/** A length for the eye: grouped in thousands, as drawings write them. */
+export function formatMm(mm: number, group = true): string {
+  const rounded = Math.round(mm);
+  const digits = Math.abs(rounded).toString();
+  // drawings group at the thousand: "4 250" and "12 250", but "900" plain
+  if (!group || digits.length < 4) return rounded.toString();
+  const parts: string[] = [];
+  for (let end = digits.length; end > 0; end -= 3) parts.unshift(digits.slice(Math.max(0, end - 3), end));
+  return `${rounded < 0 ? "-" : ""}${parts.join(GROUP)}`;
+}
+
+/** A length for a screen reader: plain digits, which are read as a number rather than spelled out. */
+export function describeLength(mm: number): string {
+  return `${Math.round(mm)} millimetres`;
+}
+
+/** The pointer's place on the plan, for the status bar. */
+export function pointerText(at: { x: number; y: number } | null): string {
+  if (!at) return "";
+  return `x ${formatMm(at.x)} · y ${formatMm(at.y)} mm`;
+}
+
+export interface ProblemSummary {
+  text: string;
+  tone: "ok" | "warning" | "error";
+}
+
+/** "No problems", "1 error, 2 warnings" — never a code (ADR-017 D3). */
+export function problemSummary(problems: readonly ProblemLike[]): ProblemSummary {
+  const errors = problems.filter((p) => p.severity === "error").length;
+  const warnings = problems.length - errors;
+  if (!problems.length) return { text: "No problems", tone: "ok" };
+  const parts: string[] = [];
+  if (errors) parts.push(`${errors} ${errors === 1 ? "error" : "errors"}`);
+  if (warnings) parts.push(`${warnings} ${warnings === 1 ? "warning" : "warnings"}`);
+  return { text: parts.join(", "), tone: errors ? "error" : "warning" };
+}
+
+/**
+ * The drawing scale, as a drawing states it: "1:50" means one millimetre on the screen is fifty on the
+ * plan. `pixelsPerMm` is the renderer's device pixels per millimetre, so the device pixel ratio has to
+ * come out again before comparing with a real millimetre of screen (96 CSS pixels to the inch).
+ */
+export function scaleLabel(pixelsPerMm: number, devicePixelRatio = 1): string {
+  if (!(pixelsPerMm > 0) || !(devicePixelRatio > 0)) return "—";
+  const ratio = (devicePixelRatio * (96 / 25.4)) / pixelsPerMm;
+  if (ratio >= 1) return `1:${Math.round(ratio)}`;
+  return `${Math.round(1 / ratio)}:1`;
+}
+
+export interface CountsLike {
+  walls: readonly unknown[];
+  rooms: readonly unknown[];
+  items: readonly unknown[];
+}
+
+/** What this level holds, for the properties panel when nothing is selected (ADR-017 D3). */
+export function countsText(project: CountsLike | null): string {
+  if (!project) return "Nothing loaded yet";
+  const n = (list: readonly unknown[], one: string, many: string) =>
+    `${list.length} ${list.length === 1 ? one : many}`;
+  return [
+    n(project.walls, "wall", "walls"),
+    n(project.rooms, "room", "rooms"),
+    n(project.items, "item", "items"),
+  ].join(" · ");
+}
+
+export interface PaletteSection {
+  group: string;
+  items: CommandMatch[];
+}
+
+/** The palette's rows under their headings, each group first appearing where its best match ranked. */
+export function paletteSections(matches: readonly CommandMatch[]): PaletteSection[] {
+  const sections: PaletteSection[] = [];
+  const byGroup = new Map<string, PaletteSection>();
+  for (const match of matches) {
+    const group = match.command.group;
+    let section = byGroup.get(group);
+    if (!section) {
+      section = { group, items: [] };
+      byGroup.set(group, section);
+      sections.push(section);
+    }
+    section.items.push(match);
+  }
+  return sections;
+}
