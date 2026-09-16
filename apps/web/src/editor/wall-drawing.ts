@@ -154,9 +154,15 @@ export function bindWallDrawing(deps: WallDrawingDeps): WallDrawing {
 
   const onPointerDown = (e: PointerEvent): void => {
     if (!deps.active() || e.button !== 0) return;
+    // the length and angle card sits over the plan: a press on it belongs to the field being typed in,
+    // not to the drawing, or the fields could never be reached with a pointer at all
+    if (e.target instanceof Node && card.contains(e.target)) return;
     // the wall tool owns the press: the pan and select handlers on the plan must not also run
     e.stopPropagation();
     e.preventDefault();
+    // preventDefault stops the press focusing the plan on its own, so do it here: the canvas is a focus
+    // region and the keyboard has to follow the pointer into it
+    element.focus();
     altHeld = e.altKey;
     place(planPoint(e));
   };
@@ -195,9 +201,10 @@ export function bindWallDrawing(deps: WallDrawingDeps): WallDrawing {
   const onKeyDown = (e: KeyboardEvent): void => {
     if (!deps.active()) return;
     if (e.key === "Escape" && tool?.drawing) {
-      e.stopPropagation();
       e.preventDefault();
       finish(); // W-090: what is drawn stays
+      // Deliberately not stopped here: the shell takes the same Escape back to the select tool, so one
+      // press both keeps the walls and puts the crosshair away (ADR-017 D2).
       return;
     }
     if (e.key === "Enter") {

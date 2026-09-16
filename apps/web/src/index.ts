@@ -51,6 +51,7 @@ export {
   type ToolOption,
   toolById,
   toolForKey,
+  toolReady,
 } from "./editor/tools.js";
 export {
   type Aim,

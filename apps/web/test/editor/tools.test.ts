@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkTool, checkTools, TOOLS, toolById, toolForKey } from "../../src/index.js";
+import { checkTool, checkTools, TOOLS, toolById, toolForKey, toolReady } from "../../src/index.js";
 
 describe("the tools on the rail (ADR-017 D2)", () => {
   it("is the set the design names, in rail order", () => {
@@ -38,6 +38,13 @@ describe("the tools on the rail (ADR-017 D2)", () => {
     expect(toolForKey("W")?.id).toBe("wall");
     expect(toolForKey(" ")?.id).toBe("pan"); // events spell the space bar " "
     expect(toolForKey("q")).toBeNull();
+  });
+
+  it("states which tools actually do something, so the rail cannot pretend", () => {
+    // this list is the promise the UI makes; extend it as each tool's gestures land
+    expect(TOOLS.filter((t) => toolReady(t)).map((t) => t.id)).toEqual(["select", "wall", "pan"]);
+    expect(toolReady("room")).toBe(false);
+    expect(toolReady("wall")).toBe(true);
   });
 
   it("finds a tool by id", () => {

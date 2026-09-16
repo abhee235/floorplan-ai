@@ -9,7 +9,7 @@ import { isTypingTarget } from "./keys.js";
 import { createPalette, type Palette } from "./palette.js";
 import { rovingNext } from "./roving.js";
 import { countsText, formatMm, type ProblemLike, pointerText, problemSummary, scaleLabel } from "./status.js";
-import { checkTools, TOOLS, type ToolDefinition, type ToolId, toolById } from "./tools.js";
+import { checkTools, TOOLS, type ToolDefinition, type ToolId, toolById, toolReady } from "./tools.js";
 
 /** The elements the rest of the app mounts into; this is exactly what startApp asks for. */
 export interface ShellSlots {
@@ -113,8 +113,10 @@ export function mountShell(root: HTMLElement): Shell {
     b.dataset.tool = tool.id;
     b.tabIndex = index === 0 ? 0 : -1; // one tab stop for the whole rail
     b.setAttribute("aria-pressed", "false");
-    b.title = `${tool.title} (${tool.shortcut})`;
-    b.setAttribute("aria-label", `${tool.title}, ${tool.shortcut}`);
+    const ready = toolReady(tool);
+    b.title = ready ? `${tool.title} (${tool.shortcut})` : `${tool.title} (${tool.shortcut}) — not built yet`;
+    b.setAttribute("aria-label", `${tool.title}, ${tool.shortcut}${ready ? "" : ", not built yet"}`);
+    b.classList.toggle("unready", !ready);
     b.innerHTML = TOOL_ICONS[tool.id];
     b.addEventListener("click", () => setTool(tool.id));
     railButtons.set(tool.id, b);
@@ -238,7 +240,11 @@ export function mountShell(root: HTMLElement): Shell {
   const renderOptions = (): void => {
     const tool = toolById(activeTool) as ToolDefinition;
     optionsTitle.textContent = tool.title;
-    modifiersNote.textContent = tool.modifiers;
+    const ready = toolReady(tool);
+    modifiersNote.textContent = ready
+      ? tool.modifiers
+      : "Not built yet: this tool changes nothing on the plan so far.";
+    modifiersNote.classList.toggle("fpv-warning", !ready);
     optionsFields.replaceChildren();
     for (const option of tool.options) {
       const key = `${tool.id}.${option.id}`;
@@ -283,7 +289,11 @@ export function mountShell(root: HTMLElement): Shell {
     }
     renderOptions();
     plan.dataset.tool = tool.id;
-    announcer.say(`${tool.title}. ${tool.keyboard}.`);
+    announcer.say(
+      toolReady(tool)
+        ? `${tool.title}. ${tool.keyboard}.`
+        : `${tool.title}. Not built yet, so the plan will not answer.`,
+    );
     for (const fn of toolListeners) fn(tool);
   };
 
@@ -326,7 +336,9 @@ export function mountShell(root: HTMLElement): Shell {
     if (palette.isOpen) return;
     const target = event.target as HTMLElement | null;
     const bare = !event.ctrlKey && !event.metaKey && !event.altKey;
-    if (bare && isTypingTarget(target)) return;
+    // Escape is the way out of anything and is never typing: with focus in the length or angle field it
+    // still has to put the tool down and return to select (ADR-017 D2).
+    if (bare && event.key !== "Escape" && isTypingTarget(target)) return;
     // Space and Enter belong to whatever control has focus, not to a tool shortcut
     if (bare && (event.key === " " || event.key === "Enter") && isControl(target)) return;
     if (event.key === "Escape" && activeTool !== "select") {
