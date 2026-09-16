@@ -5,9 +5,12 @@
 import { Maximize2, Minus, Plus } from "lucide-react";
 import type { JSX } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Layout, LayoutChangedMeta } from "react-resizable-panels";
 import { Button } from "@/components/ui/button";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { startApp } from "../app.js";
+import { drawCompass } from "../plan/compass.js";
 import { AppBar } from "./AppBar.js";
 import { Announcer } from "./announce.js";
 import { CommandPalette } from "./CommandPalette.js";
@@ -142,7 +145,10 @@ export function EditorShell(): JSX.Element {
     });
     setApp(started);
     setLevel(started.plan.level);
-    return () => started.client.close();
+    return () => {
+      started.client.close();
+      started.destroy(); // the size observer outlives the socket otherwise, one leak per remount
+    };
   }, []);
 
   // ---- everything that used to live in main.ts ---------------------------
@@ -187,10 +193,14 @@ export function EditorShell(): JSX.Element {
       status: setSnap,
     });
 
-    // One overlay painter: the draft review panel and the wall preview both draw over the plan.
+    // One overlay painter: the draft review panel, the wall preview and the compass all draw over the
+    // plan. setOverlayExtra takes a single function, so anything new joins this composition rather than
+    // replacing it — registering a second painter would silently drop the first.
     plan.setOverlayExtra((ctx, view2) => {
       review.draw(ctx, view2);
       wallDrawing.draw(ctx, view2);
+      const north = replica.project?.meta.north;
+      if (north !== undefined) drawCompass(ctx, view2, north);
     });
 
     commands.add(
@@ -326,56 +336,109 @@ export function EditorShell(): JSX.Element {
           <div className="grid min-h-0 grid-cols-[48px_minmax(0,1fr)_288px]">
             <ToolRail />
 
-            <div
-              className={
-                view === "plan"
-                  ? "grid min-h-0 grid-rows-[minmax(0,1fr)_0]"
-                  : view === "3d"
-                    ? "grid min-h-0 grid-rows-[0_minmax(0,1fr)]"
-                    : "grid min-h-0 grid-rows-[minmax(0,1fr)_232px]"
-              }
-            >
-              <div className={`relative min-h-0 overflow-hidden ${view === "3d" ? "hidden" : ""}`}>
-                <div
-                  ref={planRef}
-                  id="plan"
-                  tabIndex={0}
-                  role="application"
-                  aria-label="Plan. Press Enter to work inside it, Escape to leave."
-                  data-tool={toolId}
-                  className="relative h-full w-full touch-none overflow-hidden bg-[#fbfaf7]"
-                >
-                  <aside ref={reviewRef} id="review" hidden />
-                </div>
-                <div className="absolute right-3 bottom-3 flex items-center gap-1 rounded-md border bg-card/95 p-1 shadow-sm">
-                  {/* Icons rather than the "−" and "+" characters these used to be: a minus sign and a
-                      plus sign come from the font and so carry its own weight and metrics, which at this
-                      size did not match anything else in the chrome. */}
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    aria-label="Zoom out"
-                    onClick={() => zoom(app, 1 / 1.15)}
-                  >
-                    <Minus aria-hidden />
-                  </Button>
-                  <span className="min-w-11 text-center text-xs tabular-nums text-muted-foreground">
-                    {scaleLabel(scale, Math.min(2, window.devicePixelRatio))}
-                  </span>
-                  <Button variant="ghost" size="icon-xs" aria-label="Zoom in" onClick={() => zoom(app, 1.15)}>
-                    <Plus aria-hidden />
-                  </Button>
-                  <Button ref={fitRef} variant="ghost" size="xs" aria-label="Fit the plan to the window">
-                    <Maximize2 aria-hidden />
-                    Fit
-                  </Button>
-                </div>
-              </div>
+            {/* The panes are written once and mounted into whichever container the view mode asks for.
+                They must not be duplicated per branch: planRef and viewportRef are handed to imperative
+                code that appends canvases to them, and a second copy would take the ref on mount and
+                leave the first holding a detached node.
 
-              <div className={`relative min-h-0 overflow-hidden border-t ${view === "plan" ? "hidden" : ""}`}>
-                <div ref={viewportRef} id="viewport" className="h-full w-full overflow-hidden" />
-              </div>
-            </div>
+                Only "both" gets the splitter. react-resizable-panels lays out in percentages, so it has
+                no way to express "this pane is collapsed to nothing" that is as honest as simply not
+                rendering the group — the single-pane modes keep the grid they already had. */}
+            {(() => {
+              // h-full, because these panes are flex children now rather than grid tracks. A grid track
+              // stretched them for free; a flex item does not, so without it the wrapper collapsed to
+              // zero and took the canvas host down with it.
+              const planPane = (
+                <div className={`relative h-full min-h-0 overflow-hidden ${view === "3d" ? "hidden" : ""}`}>
+                  <div
+                    ref={planRef}
+                    id="plan"
+                    tabIndex={0}
+                    role="application"
+                    aria-label="Plan. Press Enter to work inside it, Escape to leave."
+                    data-tool={toolId}
+                    className="relative h-full w-full touch-none overflow-hidden bg-[#fbfaf7]"
+                  >
+                    <aside ref={reviewRef} id="review" hidden />
+                  </div>
+                  <div className="absolute right-3 bottom-3 flex items-center gap-1 rounded-md border bg-card/95 p-1 shadow-sm">
+                    {/* Icons rather than the "−" and "+" characters these used to be: a minus sign and a
+                        plus sign come from the font and so carry its own weight and metrics, which at this
+                        size did not match anything else in the chrome. */}
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label="Zoom out"
+                      onClick={() => zoom(app, 1 / 1.15)}
+                    >
+                      <Minus aria-hidden />
+                    </Button>
+                    <span className="min-w-11 text-center text-xs tabular-nums text-muted-foreground">
+                      {scaleLabel(scale, Math.min(2, window.devicePixelRatio))}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      aria-label="Zoom in"
+                      onClick={() => zoom(app, 1.15)}
+                    >
+                      <Plus aria-hidden />
+                    </Button>
+                    <Button ref={fitRef} variant="ghost" size="xs" aria-label="Fit the plan to the window">
+                      <Maximize2 aria-hidden />
+                      Fit
+                    </Button>
+                  </div>
+                </div>
+              );
+              const viewPane = (
+                <div
+                  className={`relative h-full min-h-0 overflow-hidden ${view === "plan" ? "hidden" : ""}`}
+                  data-pane="3d"
+                >
+                  <div ref={viewportRef} id="viewport" className="h-full w-full overflow-hidden" />
+                </div>
+              );
+
+              if (view !== "both")
+                return (
+                  <div
+                    className={
+                      view === "plan"
+                        ? "grid min-h-0 grid-rows-[minmax(0,1fr)_0]"
+                        : "grid min-h-0 grid-rows-[0_minmax(0,1fr)]"
+                    }
+                  >
+                    {planPane}
+                    {viewPane}
+                  </div>
+                );
+
+              return (
+                // `orientation`, not `direction`: v4 renamed it, and it is what the handle's own
+                // aria-[orientation=vertical] styling keys off.
+                //
+                // The sizes are STRINGS on purpose. v4 reads a bare number as PIXELS and a unitless
+                // string as a percentage, so defaultSize={72} would ask for a 72-pixel plan above a
+                // 28-pixel 3D view — the exact complaint this change exists to fix.
+                <ResizablePanelGroup
+                  id="fpv.planVsView"
+                  orientation="vertical"
+                  defaultLayout={savedLayout()}
+                  onLayoutChanged={saveLayout}
+                >
+                  <ResizablePanel id={PLAN_PANEL} defaultSize="72" minSize="20" className="relative min-h-0">
+                    {planPane}
+                  </ResizablePanel>
+                  {/* The handle is a real separator: focusable, with arrow keys, because a divider that
+                      only answers to a drag is a divider a keyboard cannot move. */}
+                  <ResizableHandle withHandle aria-label="Resize the plan and the 3D view" />
+                  <ResizablePanel id={VIEW_PANEL} defaultSize="28" minSize="10" className="relative min-h-0">
+                    {viewPane}
+                  </ResizablePanel>
+                </ResizablePanelGroup>
+              );
+            })()}
 
             {replica ? <PropertiesPanel replica={replica} level={level} /> : <aside className="border-l" />}
           </div>
@@ -404,6 +467,56 @@ export function EditorShell(): JSX.Element {
       </TooltipProvider>
     </EditorContext.Provider>
   );
+}
+
+// Remembering where the divider was left. v4 dropped `autoSaveId`, so this is ours to do: `defaultLayout`
+// in, `onLayoutChanged` out.
+//
+// A Layout is keyed BY PANEL ID, not an ordered pair, which is why both panels below are given explicit
+// ids. GroupProps says id "falls back to useId when not provided", and a useId value is not stable across
+// reloads — a layout saved under those keys would restore nothing at all, silently.
+// The panel ids are NOT "plan" and "view", and that is not cosmetic. react-resizable-panels stamps a
+// panel's id onto its own wrapper div, so `id="plan"` put a second element with that id in the document —
+// above the real #plan that hosts the canvases. document.querySelector("#plan") then returned the panel,
+// which resizes happily, while the actual canvas host sat at height 0 and every buffer kept the `|| 300`
+// fallback. The plan drew into a 300px buffer stretched over its real height and the grid vanished.
+//
+// The key moves to v2 with them: a layout persisted under the old ids would restore nothing.
+const LAYOUT_KEY = "fpv.planVsView.v2";
+const PLAN_PANEL = "pane-plan";
+const VIEW_PANEL = "pane-view";
+
+function savedLayout(): Layout | undefined {
+  try {
+    const raw = localStorage.getItem(LAYOUT_KEY);
+    if (!raw) return undefined;
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    // Both panels must be present and positive, or the value is treated as absent rather than trusted:
+    // a corrupt entry would collapse a pane, and a pane you cannot see is hard to work out how to recover.
+    const entries = Object.entries(parsed as Record<string, unknown>);
+    const ok =
+      entries.length === 2 &&
+      [PLAN_PANEL, VIEW_PANEL].every((id) => {
+        const v = (parsed as Record<string, unknown>)[id];
+        return typeof v === "number" && Number.isFinite(v) && v > 0;
+      });
+    return ok ? (parsed as Layout) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function saveLayout(layout: Layout, meta: LayoutChangedMeta): void {
+  // Only a real drag or key press. isUserInteraction is false for the initial mount, for constraint
+  // recomputes and for default-size changes, and writing on those would overwrite a split someone chose
+  // with a transient computed one the first time the window resized.
+  if (!meta.isUserInteraction) return;
+  try {
+    localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
+  } catch {
+    // A split that does not survive a reload is a much smaller problem than a crash on every drag.
+  }
 }
 
 function zoom(app: ReturnType<typeof startApp> | null, factor: number): void {

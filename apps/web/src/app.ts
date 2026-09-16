@@ -32,6 +32,8 @@ export function startApp(el: AppElements): {
   plan: PlanRenderer;
   review: DraftReview;
   client: BridgeClient;
+  /** Release what startApp attached to the document: the size observer and the window listener. */
+  destroy: () => void;
 } {
   const replica = new Replica();
   const raf = (cb: () => void) => requestAnimationFrame(cb);
@@ -102,7 +104,14 @@ export function startApp(el: AppElements): {
     planDirty = true;
   });
 
-  const resize = () => {
+  // Sizing is two jobs, and conflating them is why the splitter could not work. `resizeBuffers` matches
+  // the drawing surfaces to their boxes; `resize` does that AND re-frames the drawing. Dragging a divider
+  // must only ever do the first — re-fitting on every pointer move would wrench the pan and zoom out from
+  // under whoever is dragging.
+  //
+  // The sizes are read off el.plan and el.viewport, never off a canvas: the canvases are absolutely
+  // positioned inside el.plan, so mid-resize they still report the size they are about to stop being.
+  const resizeBuffers = () => {
     const w = el.viewport.clientWidth || 400;
     const h = el.viewport.clientHeight || 300;
     renderer.setSize(w, h, false);
@@ -118,10 +127,29 @@ export function startApp(el: AppElements): {
       c.style.height = `${ph}px`;
     }
     plan.resize(pw * dpr, ph * dpr);
+    planDirty = true;
+  };
+
+  /** Buffers AND re-frame. This is also the restore path after a render capture, which deliberately
+   *  leaves the renderer and the plan at the captured size (see capturePlan and onRender's finally). */
+  const resize = () => {
+    resizeBuffers();
     plan.fit();
     planDirty = true;
   };
-  window.addEventListener("resize", resize);
+
+  // A ResizeObserver, not a window listener: dragging the 2D/3D divider changes these boxes without the
+  // window changing at all, and before this the canvas kept its old backing store — a blurry plan and a
+  // 3D camera on a stale aspect. The observer covers window resizes too, so there is no second listener.
+  const sizes = new ResizeObserver(() => {
+    // A zero box means the pane is hidden (a single-pane view mode) rather than resized. Sizing a buffer
+    // to zero there would discard the drawing and force a full repaint when it comes back.
+    if (el.plan.clientHeight > 0 || el.viewport.clientHeight > 0) resizeBuffers();
+  });
+  const observeSizes = () => {
+    sizes.observe(el.plan);
+    sizes.observe(el.viewport);
+  };
 
   // pan and zoom on the plan
   let drag: { x: number; y: number } | null = null;
@@ -340,9 +368,10 @@ export function startApp(el: AppElements): {
     });
   }
   resize();
+  observeSizes(); // after resize(): see the note on `sizes` for why this order matters
   updateStatus();
   requestAnimationFrame(loop);
-  return { replica, binding, plan, review, client };
+  return { replica, binding, plan, review, client, destroy: () => sizes.disconnect() };
 }
 
 /** A file's bytes as base64, in chunks so large images do not overflow the argument list. */
