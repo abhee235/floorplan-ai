@@ -24,11 +24,34 @@ and profile.
 | Card | Model | Profile | Result | Steps | Tool calls (failed) | Tokens in / out | Seconds | Validation errors | Missing | BOM verified | Date |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | boardroom | gpt-5.6-luna | medium | pass | 8 of 40 | 7 (1) | 89786 / 366 | 14 | 0 | none | 0% of 14 | 2026-09-15 |
+| boardroom | qwen3.6:35b | medium | pass | 17 of 40 | 16 (2) | 304651 / 1413 | 125 | 0 | none | 0% of 14 | 2026-09-16 |
 | import-messy-dxf | gpt-5.6-luna | medium | pass | 5 of 25 | 4 (0) | 51270 / 307 | 10 | 0 | none | - | 2026-09-16 |
+| import-messy-dxf | qwen3.6:35b | medium | pass | 10 of 25 | 9 (1) | 251778 / 1295 | 68 | 0 | none | - | 2026-09-16 |
 | import-office | gpt-5.6-luna | medium | pass | 5 of 20 | 4 (0) | 34360 / 184 | 8 | 0 | none | - | 2026-09-15 |
+| import-office | qwen3.6:35b | medium | pass | 5 of 20 | 4 (0) | 50667 / 708 | 20 | 0 | none | - | 2026-09-16 |
 <!-- runs:end -->
 
 ## Findings (2026-09-16)
+
+- **qwen3.6:35b, local on Ollama, passed all three cards** at the medium
+  profile, with no validation errors and nothing missing: the boardroom in 17
+  turns, the messy DXF in 10, the office DXF in 5. That is the second provider
+  PRD P1-8 asks for, and the phase 1 metrics are now measured for a local model.
+- **It costs more turns and far more tokens than the hosted model.** Boardroom:
+  17 turns, 304,651 input tokens and 125 seconds against 8 turns, 89,786 tokens
+  and 14 seconds for gpt-5.6-luna. The extra turns are exploratory rather than
+  corrective: after furnishing the room it called `search_catalog` seven times
+  and `verify_product` once, then `render`. Both refusals (no search provider,
+  no viewer) were handled and it carried on, which is what the tool surface is
+  designed for.
+- **Loading the model is the fragile part, not the run.** At a 32,768-token
+  context this 24 GB model failed to load twice on this machine, with
+  llama-server reporting out of memory allocating a 9.9 GB host buffer, and
+  succeeded on the third attempt. A separate preload returned the same 500. The
+  runner's retries absorbed it; without them the run would have ended at step 1.
+- Both models leave BOM verified at 0 percent, which measures the seed catalog
+  rather than the model: its products stay unverified until `verify_product`
+  runs with a search provider.
 
 - **gpt-5.6-luna (OpenAI)** passed both cards. Boardroom: 8 turns in 14 s
   (get_scene, a history checkpoint, create_room_from_brief, validate,
