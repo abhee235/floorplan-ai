@@ -51,7 +51,7 @@ Changes: added walls; updated any pre-existing wall joined at the ends.
 ### wall.modify
 Payload: `{ wallId, changes: Partial<Wall minus joins> }`
 Preconditions: thickness > 0; start != end after change.
-Effect: applies changes. If start or end moves, joined neighbours' coincident endpoints move with it (propagation as in wall.move). heightAtEnd equal to height stored as null; arcExtent 0 stored as null.
+Effect: applies changes. If start or end moves, joined neighbours' coincident endpoints move with it (propagation as in wall.move). heightAtEnd equal to height stored as null; arcExtent 0 stored as null. `finishes` and `skirting` replace the whole object, so a change to one side sends the other side as it is.
 Changes: updated wall, joined neighbours, openings on the wall.
 
 ### wall.move

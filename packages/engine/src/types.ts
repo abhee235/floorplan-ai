@@ -7,6 +7,8 @@ export type PartKind =
   | "wall-top"
   | "wall-end-start"
   | "wall-end-end"
+  | "skirting-left"
+  | "skirting-right"
   | "opening-sill"
   | "opening-head"
   | "opening-jamb"

@@ -187,6 +187,7 @@ export function wallModify(p: Project, payload: PayloadOf<"wall.modify">, _ctx: 
   if (c.arcExtent !== undefined) w.arcExtent = c.arcExtent;
   if (c.kind !== undefined) w.kind = c.kind;
   if (c.finishes !== undefined) w.finishes = c.finishes;
+  if (c.skirting !== undefined) w.skirting = c.skirting;
   if (c.properties !== undefined) w.properties = c.properties;
   Object.assign(w, normalizeWall(w));
   changes.update("wall", w.id);

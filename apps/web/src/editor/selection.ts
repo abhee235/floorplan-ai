@@ -285,8 +285,8 @@ function wallFacts(w: Wall, level: Level, north: number): Fact[] {
       ),
     },
     ...heightFacts(w, level),
-    ...sideFacts(w, "left", north),
-    ...sideFacts(w, "right", north),
+    ...sideFacts(w, "left", level, north),
+    ...sideFacts(w, "right", level, north),
   ];
 }
 
@@ -326,7 +326,7 @@ function tidyFinish(f: FinishRef): FinishRef | null {
  * Every label names its side as well as its field: two "Colour" rows in one wall would otherwise share an id,
  * and a screen reader jumping between fields would hear the same name twice.
  */
-function sideFacts(w: Wall, side: "left" | "right", north: number): Fact[] {
+function sideFacts(w: Wall, side: "left" | "right", level: Level, north: number): Fact[] {
   const name = `${side} side`;
   const group = `${side === "left" ? "Left" : "Right"} side, facing ${derive.wallCompassSide(w, side, north)}`;
   const current = w.finishes[side];
@@ -369,7 +369,63 @@ function sideFacts(w: Wall, side: "left" | "right", north: number): Fact[] {
         finished({ shininess: SHININESS[value] ?? null }),
       ),
     },
+    ...skirtingFacts(w, side, level, group),
   ];
+}
+
+/**
+ * How deep a new baseboard is when only its height was typed: a common painted skirting board. The depth
+ * row appears once there is a baseboard, for anyone who wants another.
+ */
+export const SKIRTING_DEPTH = 12;
+
+/** A baseboard deeper than this is a plinth or a typing slip, not a skirting board. */
+export const SKIRTING_DEPTH_RANGE = { min: 1, max: 200 } as const;
+
+/**
+ * The baseboard of one side (ADR-014 D8). Its height stands for the whole thing: empty is no baseboard, as
+ * an empty height elsewhere stands for "the level's". The depth row only exists while there is a baseboard
+ * to be deep, so a wall without one shows one row per side, not two that mean nothing.
+ *
+ * A height above the wall is refused rather than stored (W-100): the view would cut it at the wall's top
+ * anyway, and a panel should not keep a number the drawing does not show.
+ */
+function skirtingFacts(w: Wall, side: "left" | "right", level: Level, group: string): Fact[] {
+  const name = `${side} side`;
+  const current = w.skirting[side];
+  const tallest = Math.round(derive.wallMaxHeight(w, level));
+  const withSkirting = (value: Wall["skirting"]["left"]): EditCommand =>
+    wallModify(w.id, { skirting: { ...w.skirting, [side]: value } });
+  const facts: Fact[] = [
+    {
+      group,
+      label: `Baseboard height, ${name}`,
+      caption: "Baseboard",
+      value: current ? formatMm(current.height) : "",
+      unit: "mm",
+      empty: { shown: "none", action: "Remove the baseboard" },
+      hint: "The height of the baseboard along this side. Empty means none.",
+      edit: orEmpty(
+        lengthEdit("Baseboard height", current?.height ?? null, { min: 1, max: tallest }, (height) =>
+          withSkirting({ thickness: current?.thickness ?? SKIRTING_DEPTH, height }),
+        ),
+        () => ({ ok: true, command: current ? withSkirting(null) : null, said: "none" }),
+      ),
+    },
+  ];
+  if (current)
+    facts.push({
+      group,
+      label: `Depth of baseboard, ${name}`,
+      caption: "Depth",
+      value: formatMm(current.thickness),
+      unit: "mm",
+      hint: "How far the baseboard stands out from the wall.",
+      edit: lengthEdit("Baseboard depth", current.thickness, SKIRTING_DEPTH_RANGE, (thickness) =>
+        withSkirting({ ...current, thickness }),
+      ),
+    });
+  return facts;
 }
 
 /**

@@ -23,6 +23,7 @@ import {
   RoomId,
   RoomPurpose,
   Size3,
+  Skirting,
   WallId,
   WallKind,
   ZoneId,
@@ -97,6 +98,7 @@ export const WallModify = z.object({
         right: FinishRef.nullable(),
         top: FinishRef.nullable(),
       }),
+      skirting: z.object({ left: Skirting.nullable(), right: Skirting.nullable() }),
       properties: z.record(z.string()),
     })
     .partial(),

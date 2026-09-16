@@ -54,6 +54,8 @@ export {
   moveCommands,
   nextSelection,
   type SelectedEntity,
+  SKIRTING_DEPTH,
+  SKIRTING_DEPTH_RANGE,
   THICKNESS_RANGE,
   WALL_FINISHES,
 } from "./editor/selection.js";

@@ -8,6 +8,7 @@
 import {
   difference,
   intersection,
+  intersectLines,
   type MultiPoly,
   multiArea,
   ringToMulti,
@@ -461,6 +462,175 @@ export function buildWalls(
     );
     out.push(capEnd.toPart(w.id, "wall-end-end", edgeKey));
     for (const c of cutList) buildOpeningFaces(left, right, len, c, el, out, revealKey);
+    // Baseboards take the side's own finish when it has one, and their own quiet colour otherwise (W-112);
+    // on glass they are part of the frame.
+    for (const [name, side] of [
+      ["left", left],
+      ["right", right],
+    ] as const) {
+      const base = glass ? "wall-glass-frame" : "wall-skirting";
+      const key = glass ? base : finishedMaterialKey(base, w.finishes[name]);
+      buildSkirting(w, name, side, len, cutList, el, ctx.level, key, out);
+    }
   }
   return out;
+}
+
+/**
+ * A baseboard along one side (ADR-014 D8): a strip standing out from the side's face by its thickness, from
+ * the floor up to its height.
+ *
+ * - It stands on the level's floor, not on the wall's bottom, which drops through the slab on upper levels,
+ *   and its top is flat even on a sloping wall (W-099) — except that it never rises above the wall where
+ *   the wall is lower (W-100).
+ * - The strip lies between the side's own outline and that outline offset outward (W-107). At a joined end
+ *   the offset stops on the line through the join and the side's corner, which is the line the neighbour's
+ *   baseboard stops on too, so a corner closes without either one knowing about the other.
+ * - Any opening that starts below the baseboard's top breaks it (W-113), leaving an end face each side.
+ * - On the inside of a curve the offset never passes the arc's centre (W-057 reversed).
+ */
+function buildSkirting(
+  w: Wall,
+  name: "left" | "right",
+  side: Side,
+  len: number,
+  cutList: readonly Cut[],
+  el: WallElevations,
+  level: Level,
+  key: string,
+  out: GeometryPart[],
+): void {
+  const sk = w.skirting[name];
+  const pts = side.points;
+  if (!sk || pts.length < 2) return;
+
+  // outward normal of each segment: left of the start-to-end direction for the left side, right for the right
+  const segNormals: Point[] = [];
+  for (let i = 0; i + 1 < pts.length; i += 1) {
+    const a = pts[i] as Point;
+    const b = pts[i + 1] as Point;
+    const l = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+    const dx = (b.x - a.x) / l;
+    const dy = (b.y - a.y) / l;
+    segNormals.push(name === "left" ? { x: -dy, y: dx } : { x: dy, y: -dx });
+  }
+  const arc = derive.arcParams(w);
+  const offsetAt = (i: number): Point => {
+    const p = pts[i] as Point;
+    const nPrev = segNormals[Math.max(0, i - 1)] as Point;
+    const nNext = segNormals[Math.min(segNormals.length - 1, i)] as Point;
+    // mitre between the neighbouring segments, so the offset stays parallel to both
+    let mx = nPrev.x + nNext.x;
+    let my = nPrev.y + nNext.y;
+    const ml = Math.hypot(mx, my) || 1;
+    mx /= ml;
+    my /= ml;
+    const cos = mx * nNext.x + my * nNext.y;
+    let d = sk.thickness / (Math.abs(cos) < 1e-6 ? 1 : cos);
+    if (arc) {
+      // W-057 reversed: toward the centre, the offset stops at the centre instead of passing through it
+      const toCentre = Math.hypot(arc.centre.x - p.x, arc.centre.y - p.y);
+      const inward = (arc.centre.x - p.x) * mx + (arc.centre.y - p.y) * my > 0;
+      if (inward) d = Math.min(d, toCentre);
+    }
+    return { x: p.x + mx * d, y: p.y + my * d };
+  };
+  const offset = pts.map((_, i) => offsetAt(i));
+  // Joined ends: slide the offset end along the offset line onto the corner line through the join.
+  const endOnCornerLine = (i: number, next: number, joint: Point): void => {
+    const p = pts[i] as Point;
+    const q = offset[i] as Point;
+    const n = pts[next] as Point;
+    if (Math.hypot(p.x - joint.x, p.y - joint.y) < 1e-6) return;
+    // the offset line runs through q parallel to the side's end segment; the corner line through the join
+    const hit = intersectLines(q, { x: q.x + (n.x - p.x), y: q.y + (n.y - p.y) }, joint, p);
+    if (hit) offset[i] = hit;
+  };
+  if (w.joins.start) endOnCornerLine(0, 1, w.start);
+  if (w.joins.end) endOnCornerLine(pts.length - 1, pts.length - 2, w.end);
+  // Positions along the wall for the offset line. A straight wall measures them by projection, as its face
+  // does, so a door break is square across the baseboard; reusing the face's positions would skew it by the
+  // corner offset. On a curve a radial offset keeps each point at the face point's angle, so the face's
+  // positions are the right ones, and the two strips below stay vertex for vertex.
+  const outer: Side = derive.isArc(w)
+    ? { points: offset, u: side.u, start: side.start, end: side.end }
+    : makeSide(offset, w);
+
+  const bottom = level.elevation;
+  const topAt = (u: number): number => Math.min(bottom + sk.height, el.top(len === 0 ? 0 : u / len));
+  if (topAt(side.start) <= bottom && topAt(side.end) <= bottom) return;
+
+  // runs of the side not broken by an opening that starts below the baseboard's top
+  const breaks = cutList
+    .filter((c) => c.sillZ < bottom + sk.height)
+    .map((c) => [Math.max(side.start, c.from), Math.min(side.end, c.to)] as const)
+    .filter(([a, b]) => b > a);
+  const runs: [number, number][] = [];
+  let from = side.start;
+  for (const [a, b] of breaks) {
+    if (a > from) runs.push([from, a]);
+    from = Math.max(from, b);
+  }
+  if (side.end > from) runs.push([from, side.end]);
+
+  type Stop = { p: Point; u: number };
+  // A clamped end can repeat a vertex; a zero-length edge would only make degenerate triangles.
+  const distinct = (stops: Stop[]): Stop[] =>
+    stops.filter(
+      (s, k) =>
+        k === 0 || Math.hypot(s.p.x - (stops[k - 1] as Stop).p.x, s.p.y - (stops[k - 1] as Stop).p.y) > 1e-6,
+    );
+
+  const mb = new MeshBuilder();
+  for (const [ua, ub] of runs) {
+    if (ub - ua < 0.5) continue;
+    // The face and the offset line are walked separately: on a straight wall the offset line starts and ends
+    // a little further along than the face (it stops on the corner lines), so their vertices do not pair up.
+    const inner = distinct(strip(side, ua, ub));
+    const skin = distinct(strip(outer, ua, ub));
+    if (inner.length < 2 || skin.length < 2) continue;
+    // front: the offset line, bottom to top, facing away from the wall
+    for (let k = 0; k + 1 < skin.length; k += 1) {
+      const a = skin[k] as Stop;
+      const b = skin[k + 1] as Stop;
+      const mid = (a.u + b.u) / 2;
+      const face = at(side, mid);
+      const off = at(outer, mid);
+      mb.addFace(
+        [
+          { ...a.p, z: bottom },
+          { ...b.p, z: bottom },
+          { ...b.p, z: topAt(b.u) },
+          { ...a.p, z: topAt(a.u) },
+        ],
+        { x: off.x - face.x, y: off.y - face.y, z: 0 },
+        (q) => [(a.u + Math.hypot(q.x - a.p.x, q.y - a.p.y)) / MM_PER_M, q.z / MM_PER_M],
+      );
+    }
+    // top: one band from the face out to the offset line
+    mb.addFace(
+      [...inner, ...[...skin].reverse()].map((s) => ({ ...s.p, z: topAt(s.u) })),
+      { x: 0, y: 0, z: 1 },
+      (q) => [q.x / MM_PER_M, q.y / MM_PER_M],
+    );
+    // An end face wherever the run stops: at the wall's ends and either side of a break. Each faces along the
+    // run's own direction there, not the chord's, which on a curve can point well away from it.
+    for (const [i, within, o] of [
+      [inner[0], inner[1], skin[0]],
+      [inner[inner.length - 1], inner[inner.length - 2], skin[skin.length - 1]],
+    ] as [Stop, Stop, Stop][]) {
+      const t = topAt(o.u);
+      mb.addFace(
+        [
+          { ...i.p, z: bottom },
+          { ...o.p, z: bottom },
+          { ...o.p, z: t },
+          { ...i.p, z: t },
+        ],
+        { x: i.p.x - within.p.x, y: i.p.y - within.p.y, z: 0 },
+        (q) => [Math.hypot(q.x - i.p.x, q.y - i.p.y) / MM_PER_M, q.z / MM_PER_M],
+      );
+    }
+  }
+  if (!mb.isEmpty) out.push(mb.toPart(w.id, name === "left" ? "skirting-left" : "skirting-right", key));
 }

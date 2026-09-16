@@ -8,6 +8,8 @@ export const MATERIAL_COLOURS: Readonly<Record<string, number>> = {
   // anodised aluminium, for the frame a glass partition stands in
   "wall-glass-frame": 0x7d848c,
   "wall-top": 0xd9d6d0,
+  // an off-white a step lighter than the wall, so a baseboard on an unpainted wall still reads as one
+  "wall-skirting": 0xf6f5f1,
   "opening-reveal": 0xf4f2ee,
   floor: 0xc9c2b8,
   ceiling: 0xfafafa,
