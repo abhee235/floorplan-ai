@@ -1,12 +1,21 @@
 // Browser shell: renderer, controls, plan canvases, bridge connection. Everything DOM-bound lives here;
 // the binding, the plan renderer and the bridge client are testable without it.
 import type { Layer } from "@fpv/engine";
-import { SELECTION_PX } from "@fpv/geometry";
+import { SELECTION_PX, wallFootprintUnjoined } from "@fpv/geometry";
+import type { Wall } from "@fpv/ir";
 import { derive } from "@fpv/ir";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { BridgeClient, bridgeUrl } from "./bridge/client.js";
 import { moveCommands, nextSelection } from "./editor/selection.js";
+import {
+  handleAnchors,
+  handleAt,
+  handleCommand,
+  indicatorMarginMm,
+  previewWall,
+  type WallHandle,
+} from "./editor/wall-handles.js";
 import { type Ctx2D, outlineOf, PlanRenderer, type PlanView } from "./plan/plan.js";
 import { DraftReview } from "./plan/review.js";
 import { Replica } from "./replica.js";
@@ -28,6 +37,14 @@ export interface AppElements {
   /** Panel for reviewing a plan draft, placed over the plan. */
   review?: HTMLElement;
 }
+
+/**
+ * The selection blue, shared by the drag ghost, the reshape preview and the wall handles.
+ *
+ * The plan renderer keeps the same value in its own private COLOURS table. One name here beats the bare
+ * literal repeated at each use, and the two are meant to match: a handle belongs to the outline it sits on.
+ */
+const HANDLE_COLOUR = "#1e88e5";
 
 export function startApp(el: AppElements): {
   replica: Replica;
@@ -178,13 +195,100 @@ export function startApp(el: AppElements): {
     };
   };
 
+  /**
+   * A press that began on a handle of the selected wall: that reshapes the wall rather than moving it or
+   * panning the view.
+   *
+   * `preview` is the wall as it would be, recomputed on every move so that the drag shows its result
+   * while the button is still down. Endpoint and arc drags change the wall's SHAPE, so the translated
+   * outline a selection move draws cannot stand in for them.
+   */
+  let handling: { wallId: string; handle: WallHandle; preview: Wall | null } | null = null;
+
+  /** The wall the handles belong to: exactly one wall selected, on the level being drawn, or null. */
+  const handleWall = (): Wall | null => {
+    if (replica.selection.length !== 1) return null;
+    const id = replica.selection[0] as string;
+    const level = plan.level;
+    return replica.project?.walls.find((x) => x.id === id && x.levelId === level) ?? null;
+  };
+
   const planPointOf = (e: { clientX: number; clientY: number }) => {
     const rect = el.plan.getBoundingClientRect();
     const dpr = Math.min(2, window.devicePixelRatio);
     return plan.toPlan((e.clientX - rect.left) * dpr, (e.clientY - rect.top) * dpr);
   };
 
+  /**
+   * The handles on a selected wall: one at each end to pull it out, one on a side surface to bend it.
+   *
+   * Authored in screen pixels and rotated by hand rather than drawn under the layer's transform. That
+   * transform scales with the zoom and flips y, so a glyph drawn through it would shrink to nothing as
+   * the plan zoomed out and every arrowhead would come out mirrored.
+   */
+  const drawWallHandles = (ctx: Ctx2D, view: PlanView, w: Wall) => {
+    const anchors = handleAnchors(w, wallFootprintUnjoined(w));
+    if (!anchors) return;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.strokeStyle = HANDLE_COLOUR;
+    ctx.lineWidth = 1.5;
+    for (const kind of ["start", "end", "arc"] as const) {
+      const anchor = anchors[kind];
+      const sx = view.offsetX + anchor.at.x * view.scale;
+      const sy = view.offsetY - anchor.at.y * view.scale;
+      // Plan angles run anticlockwise with y up; on screen y points down, so the rotation reverses.
+      const rad = (-anchor.angleDeg * Math.PI) / 180;
+      const cos = Math.cos(rad);
+      const sin = Math.sin(rad);
+      const at = (x: number, y: number) => ({ x: sx + x * cos - y * sin, y: sy + x * sin + y * cos });
+      if (kind === "arc") {
+        // A stem out to a bow: the bend it would put in the wall, drawn small.
+        const from = at(4, 0);
+        const to = at(9, 0);
+        ctx.beginPath();
+        ctx.moveTo(from.x, from.y);
+        ctx.lineTo(to.x, to.y);
+        ctx.stroke();
+        const centre = at(13, 0);
+        ctx.beginPath();
+        ctx.arc(centre.x, centre.y, 4.5, rad + Math.PI * 0.55, rad + Math.PI * 1.45);
+        ctx.stroke();
+        continue;
+      }
+      // An arrow pointing out of the wall: the direction pulling this end would take it.
+      const tail = at(5, 0);
+      const tip = at(12, 0);
+      const left = at(8.5, -3);
+      const right = at(8.5, 3);
+      ctx.beginPath();
+      ctx.moveTo(tail.x, tail.y);
+      ctx.lineTo(tip.x, tip.y);
+      ctx.moveTo(left.x, left.y);
+      ctx.lineTo(tip.x, tip.y);
+      ctx.lineTo(right.x, right.y);
+      ctx.stroke();
+    }
+    ctx.restore();
+  };
+
   el.plan.addEventListener("pointerdown", (e) => {
+    // A handle of the selected wall beats everything else. The handles are drawn over the wall's own
+    // ends, so a press that lands on one has to reshape rather than move the wall or pan the view.
+    const shaped = handleWall();
+    if (shaped) {
+      const handle = handleAt(
+        shaped,
+        wallFootprintUnjoined(shaped),
+        planPointOf(e),
+        indicatorMarginMm(plan.view.scale, e.pointerType === "touch"),
+      );
+      if (handle) {
+        handling = { wallId: shaped.id, handle, preview: null };
+        el.plan.setPointerCapture(e.pointerId);
+        return;
+      }
+    }
     // Pressing on an entity that is ALREADY selected moves the selection; pressing anywhere else still
     // pans. Requiring it to be selected first is what keeps panning usable: otherwise every press that
     // happened to land on a wall would drag it.
@@ -195,6 +299,16 @@ export function startApp(el: AppElements): {
     el.plan.setPointerCapture(e.pointerId);
   });
   el.plan.addEventListener("pointermove", (e) => {
+    if (handling) {
+      const active = handling;
+      const w = replica.project?.walls.find((x) => x.id === active.wallId);
+      // Alt bypasses snapping, which is what the tool options bar promises; for a bend, snapping means
+      // whole degrees of arc (W-062).
+      if (w) handling = { ...active, preview: previewWall(w, active.handle, planPointOf(e), !e.altKey) };
+      plan.invalidateOverlay();
+      planDirty = true;
+      return;
+    }
     if (moving) {
       // The view holds still while a selection is dragged, but the ghost has to follow the pointer:
       // repaint the overlay on every move, or the drag stays invisible until the button comes up.
@@ -211,6 +325,22 @@ export function startApp(el: AppElements): {
     planDirty = true;
   });
   el.plan.addEventListener("pointerup", (e) => {
+    if (handling) {
+      const done = handling;
+      handling = null;
+      drag = null;
+      const w = replica.project?.walls.find((x) => x.id === done.wallId);
+      // One command for the whole gesture, not one per move: the history should hold "this wall was
+      // reshaped", not every intermediate position the pointer passed through.
+      if (w && done.preview) {
+        const command = handleCommand(w, done.handle, done.preview);
+        if (command) void client.command(command);
+      }
+      // The preview goes as the real geometry arrives; leaving it up would briefly show both.
+      plan.invalidateOverlay();
+      planDirty = true;
+      return;
+    }
     if (moving) {
       const moved = moving;
       moving = null;
@@ -478,13 +608,37 @@ export function startApp(el: AppElements): {
     drawSelectionDrag: (ctx: Ctx2D, view: PlanView) => {
       const project = replica.project;
       const level = plan.level;
-      if (!moving || !project || !level) return;
+      if (!project || !level) return;
+
+      // Mid-bend or mid-resize: draw the wall as it would be. This is the whole point of the preview —
+      // the shape changes, so a translated copy of the old outline would show the wrong thing.
+      const shaping = handling?.preview;
+      if (shaping) {
+        ctx.strokeStyle = HANDLE_COLOUR;
+        ctx.lineWidth = 2 / view.scale;
+        ctx.setLineDash([6 / view.scale, 4 / view.scale]);
+        ctx.beginPath();
+        wallFootprintUnjoined(shaping).forEach((p, i) =>
+          i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y),
+        );
+        ctx.closePath();
+        ctx.stroke();
+        ctx.setLineDash([]);
+        return;
+      }
+
+      if (!moving) {
+        // Nothing is being dragged, so show what CAN be: the handles on the one selected wall.
+        const shaped = handleWall();
+        if (shaped) drawWallHandles(ctx, view, shaped);
+        return;
+      }
       // Read once: `moving` is a mutable closure variable, so the narrowing above does not survive into
       // the callback below.
       const { ids, dx, dy } = moving;
       if (dx === 0 && dy === 0) return;
       const sizes = derive.snapshotSizeSource(project);
-      ctx.strokeStyle = "#1e88e5";
+      ctx.strokeStyle = HANDLE_COLOUR;
       ctx.lineWidth = 2 / view.scale;
       ctx.setLineDash([6 / view.scale, 4 / view.scale]);
       for (const id of ids) {

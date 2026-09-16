@@ -77,6 +77,18 @@ export {
   toolReady,
 } from "./editor/tools.js";
 export {
+  arcExtentThrough,
+  type HandleAnchor,
+  handleAnchors,
+  handleAt,
+  handleCommand,
+  indicatorMarginMm,
+  MAX_ARC_EXTENT_DEG,
+  previewWall,
+  type WallHandle,
+  type WallHandleCommand,
+} from "./editor/wall-handles.js";
+export {
   type Aim,
   type AimOptions,
   angleOf,
