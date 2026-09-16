@@ -1,9 +1,11 @@
 // Browser shell: renderer, controls, plan canvases, bridge connection. Everything DOM-bound lives here;
 // the binding, the plan renderer and the bridge client are testable without it.
 import type { Layer } from "@fpv/engine";
+import { SELECTION_PX } from "@fpv/geometry";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { BridgeClient, bridgeUrl } from "./bridge/client.js";
+import { nextSelection } from "./editor/selection.js";
 import { type Ctx2D, PlanRenderer } from "./plan/plan.js";
 import { DraftReview } from "./plan/review.js";
 import { Replica } from "./replica.js";
@@ -32,6 +34,8 @@ export function startApp(el: AppElements): {
   plan: PlanRenderer;
   review: DraftReview;
   client: BridgeClient;
+  /** Ask for the plan to be drawn again on the next frame. */
+  redraw: () => void;
   /** Release what startApp attached to the document: the size observer and the window listener. */
   destroy: () => void;
 } {
@@ -171,8 +175,13 @@ export function startApp(el: AppElements): {
       const at = plan.toPlan((e.clientX - rect.left) * dpr, (e.clientY - rect.top) * dpr);
       if (review.active) review.select(review.hitWall(at, plan.view.scale));
       else {
-        const id = plan.hitTest(at);
-        void client.select(id ? [id] : []);
+        // Shift toggles, a plain click replaces, and a click on bare plan clears (F-138, F-140, F-141).
+        // The rules live in selection.ts so the shell and this handler cannot drift apart on them.
+        // F-130: the selection margin is 4 px, expressed in millimetres at the current scale. Without it
+        // a thin wall's footprint is about a pixel wide on screen and cannot be clicked at all.
+        const marginMm = SELECTION_PX / plan.view.scale;
+        const id = plan.hitTest(at, marginMm);
+        void client.select(nextSelection(replica.selection, id, e.shiftKey));
       }
     }
     drag = null;
@@ -387,7 +396,20 @@ export function startApp(el: AppElements): {
   observeSizes(); // after resize(): see the note on `sizes` for why this order matters
   updateStatus();
   requestAnimationFrame(loop);
-  return { replica, binding, plan, review, client, destroy: () => sizes.disconnect() };
+  return {
+    replica,
+    binding,
+    plan,
+    review,
+    client,
+    // React drives the zoom dock, and `planDirty` is a closure variable in here. Without this the dock's
+    // buttons changed plan.view and nothing ever flushed, so zooming by button did nothing at all while
+    // the wheel — which sets planDirty itself — worked fine.
+    redraw: () => {
+      planDirty = true;
+    },
+    destroy: () => sizes.disconnect(),
+  };
 }
 
 /** A file's bytes as base64, in chunks so large images do not overflow the argument list. */

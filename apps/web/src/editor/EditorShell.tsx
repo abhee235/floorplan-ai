@@ -19,6 +19,7 @@ import { isTypingTarget } from "./keys.js";
 import { PropertiesPanel } from "./PropertiesPanel.js";
 import { bindRoomDrawing } from "./room-drawing.js";
 import { StatusBar } from "./StatusBar.js";
+import { deleteCommands } from "./selection.js";
 import { scaleLabel } from "./status.js";
 import { ToolOptionsBar } from "./ToolOptionsBar.js";
 import { ToolRail } from "./ToolRail.js";
@@ -278,6 +279,35 @@ export function EditorShell(): JSX.Element {
         run: async () => {
           await client.redo();
           announcer.say("Redone.");
+        },
+      },
+      {
+        id: "edit.delete",
+        title: "Delete",
+        group: "Edit",
+        shortcut: "Delete",
+        detail: "remove what is selected",
+        enabled: () => replica.selection.length > 0,
+        run: async () => {
+          const ids = [...replica.selection];
+          const dels = deleteCommands(ids);
+          if (dels.length === 0) {
+            // Everything selected was a kind the editor cannot delete — say so rather than appear to
+            // work and change nothing.
+            announcer.say("Nothing selected can be deleted.");
+            return;
+          }
+          // One command per kind, in an order that never names an id another command has just removed.
+          // Each is its own history entry: undoing a mixed delete therefore takes more than one Undo,
+          // which is worth knowing but is better than a half-applied compound.
+          for (const del of dels) {
+            const result = await client.command(del);
+            if (!result.ok) {
+              announcer.alert(`Could not delete: ${result.error?.message ?? "the host refused the command"}`);
+              return;
+            }
+          }
+          announcer.say(`${ids.length} ${ids.length === 1 ? "entity" : "entities"} deleted.`);
         },
       },
       {
@@ -578,6 +608,9 @@ function saveLayout(layout: Layout, meta: LayoutChangedMeta): void {
 function zoom(app: ReturnType<typeof startApp> | null, factor: number): void {
   if (!app) return;
   app.plan.zoomAt(app.plan.view.width / 2, app.plan.view.height / 2, factor);
+  // zoomAt only marks the renderer's own state dirty; the frame loop watches a flag inside startApp,
+  // so without asking for a redraw the view changed and nothing was ever painted.
+  app.redraw();
 }
 
 /** Controls for which Space or Enter means "activate me", not "run a shortcut". */
