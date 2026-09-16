@@ -144,11 +144,13 @@ export class BridgeClient {
       case "changes":
         if (!this.replica.applyChanges(msg)) void this.requestSnapshot();
         return;
+      // Through the setters, not the fields: a bare assignment updates the value without telling any
+      // subscriber, which left every React reader showing stale data indefinitely.
       case "problems":
-        this.replica.problems = msg.problems;
+        this.replica.setProblems(msg.problems);
         return;
       case "selection":
-        this.replica.selection = msg.ids;
+        this.replica.setSelection(msg.ids);
         return;
       case "render.request":
         void this.answerRender(msg);
