@@ -1096,6 +1096,60 @@ describe("editing an item (ADR-017 D3)", () => {
     });
   });
 
+  it("P3-5 shows what the project's copy of the catalog says about a product, and nothing to type", () => {
+    const p = withChair("Task chair");
+    Object.assign(p.catalogRefs[CHAIR] as object, {
+      make: "Acme",
+      model: "TC-1",
+      category: "chair",
+      verification: { status: "verified", confidence: 0.85, sources: [], verifiedAt: null, notes: null },
+      price: { amount: 1234.5, currency: "USD", type: "list" },
+    });
+    const { p: placed, id } = place(p, { kind: "product", productId: CHAIR });
+    const product = describeEntity(placed, id)?.facts.filter((f) => f.group === "Product");
+    expect(product?.map((f) => [f.label, f.value])).toEqual([
+      ["Make", "Acme"],
+      ["Model", "TC-1"],
+      ["Category of product", "Chair"],
+      ["Checked", "Verified, 85% sure"],
+      ["Price", "$1,234.50 list"],
+    ]);
+    expect(product?.every((f) => f.edit === undefined)).toBe(true);
+    // a generic shape is no product
+    const box = place(fixture(), BOX);
+    expect(describeEntity(box.p, box.id)?.facts.some((f) => f.group === "Product")).toBe(false);
+    // an unverified one says what that means
+    // a copy, since a project from the reducer is frozen
+    const doubtful = Project.parse(JSON.parse(JSON.stringify(placed)));
+    Object.assign(doubtful.catalogRefs[CHAIR] as object, {
+      verification: { status: "unverified", confidence: 0, sources: [], verifiedAt: null, notes: null },
+    });
+    expect(rowOf(doubtful, id, "Checked")).toMatchObject({
+      value: "Unverified",
+      hint: "Its size and price may be wrong until it is verified.",
+    });
+  });
+
+  it("P3-5 offers the way back to the size an item has without one of its own", () => {
+    const { p, id } = place(fixture(), BOX);
+    // at its own size there is nothing to go back to
+    expect(rowOf(p, id, "Width").empty).toBeUndefined();
+    const wide = run(p, typed(p, id, "Width", "1200")).project;
+    const width = rowOf(wide, id, "Width");
+    expect(width.empty).toEqual({ shown: "shape size", action: "Use the shape's size" });
+    expect(width.hint).toBe("The back left corner stays where it is. The shape's width is 600 millimetres.");
+    expect(rowOf(wide, id, "Height").hint).toBe("The shape's height is 500 millimetres.");
+    expect(outcomeOf(wide, id, "Depth", "")).toEqual({
+      ok: true,
+      command: { type: "item.resize", payload: { itemId: id, size: null } },
+      said: "back to the shape's size",
+    });
+    const back = run(wide, typed(wide, id, "Height", "")).project;
+    expect(itemOf(back, id).size).toBeNull();
+    expect(rowOf(back, id, "Width")).toMatchObject({ value: "600" });
+    expect(rowOf(back, id, "Width").empty).toBeUndefined();
+  });
+
   it("shows a one-size product's size without letting it be typed, and names it from the catalogue", () => {
     const { p, id } = place(withChair("Task chair"), { kind: "product", productId: CHAIR });
     expect(describeEntity(p, id)?.title).toBe("Task chair");

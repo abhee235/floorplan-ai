@@ -34,6 +34,7 @@ import {
   SKIRTING_DEPTH_RANGE,
   tidyFinish,
 } from "@fpv/ir";
+import { categoryLabel } from "./catalog.js";
 import { describeLength, formatDegrees, formatMm, parseDegrees, parseHexColour, parseMm } from "./status.js";
 import { WALL_KINDS } from "./tools.js";
 import { MAX_LENGTH_MM } from "./wall-tool.js";
@@ -896,6 +897,7 @@ function itemFacts(project: Project, it: Item): Fact[] {
   const oneSize = product?.deformable === false;
   const facts: Fact[] = [
     { label: "Room", value: room ? (room.name ?? "Unnamed room") : "None" },
+    ...productFacts(project, it),
     ...(["x", "y"] as const).map((axis): Fact => {
       const letter = axis.toUpperCase();
       return {
@@ -964,7 +966,32 @@ function itemFacts(project: Project, it: Item): Fact[] {
     { key: "d", label: "Depth", range: LENGTH_RANGE },
     { key: "h", label: "Height", range: HEIGHT_RANGE },
   ] as const;
-  for (const { key, label, range } of dimensions)
+  // The size the item has without one of its own: its product's, or its recipe's. While the item has its
+  // own, each row offers the way back to that one, and says what it is.
+  const natural = derive.itemSize({ ...it, size: null }, derive.snapshotSizeSource(project));
+  const from = it.ref.kind === "product" ? "catalog" : "shape";
+  const back =
+    it.size && natural
+      ? {
+          empty: { shown: `${from} size`, action: `Use the ${from}'s size` },
+          reset: (): EditOutcome => ({
+            ok: true,
+            command: { type: "item.resize", payload: { itemId: it.id, size: null } },
+            said: `back to the ${from}'s size`,
+          }),
+        }
+      : null;
+  for (const { key, label, range } of dimensions) {
+    // item.resize keeps the back left corner by default (F-100), so a desk against a wall stays against it
+    // when it is made deeper.
+    const keeps = key === "h" ? "" : "The back left corner stays where it is.";
+    const own =
+      back && natural ? `The ${from}'s ${label.toLowerCase()} is ${describeLength(natural[key])}.` : "";
+    const hint = [keeps, own].filter(Boolean).join(" ");
+    const typed = lengthEdit(label, size[key], range, (mm) => ({
+      type: "item.resize",
+      payload: { itemId: it.id, size: { ...size, [key]: mm } },
+    }));
     facts.push({
       group: "Size",
       label,
@@ -973,16 +1000,79 @@ function itemFacts(project: Project, it: Item): Fact[] {
       ...(oneSize
         ? { hint: "This product comes in one size." }
         : {
-            // item.resize keeps the back left corner by default (F-100), so a desk against a wall stays
-            // against it when it is made deeper.
-            ...(key === "h" ? {} : { hint: "The back left corner stays where it is." }),
-            edit: lengthEdit(label, size[key], range, (mm) => ({
-              type: "item.resize",
-              payload: { itemId: it.id, size: { ...size, [key]: mm } },
-            })),
+            ...(hint ? { hint } : {}),
+            ...(back ? { empty: back.empty } : {}),
+            edit: back ? orEmpty(typed, back.reset) : typed,
           }),
     });
+  }
   facts.push(...materialFacts(project, it, size));
+  return facts;
+}
+
+/** What the project's snapshot of a product says (spec 02 section 1.1); only the fields this reads. */
+interface SnapshotView {
+  make?: string;
+  model?: string;
+  category?: string;
+  dims?: { w: number; d: number; h: number };
+  verification?: { status?: string; confidence?: number };
+  price?: { amount?: number; currency?: string; type?: string } | null;
+}
+
+/**
+ * How far a product's catalog record can be trusted, in words short enough for the field, with what that
+ * means for a screen reader and the row's description (spec 02 section 6).
+ */
+const TRUST: Readonly<Record<string, { shown: string; hint?: string }>> = {
+  verified: { shown: "Verified", hint: "Its size was found on the maker's or a seller's pages." },
+  manual: { shown: "Entered by hand" },
+  unverified: { shown: "Unverified", hint: "Its size and price may be wrong until it is verified." },
+  rejected: { shown: "Rejected", hint: "The catalog could not confirm this product exists." },
+};
+
+/**
+ * The product an item is (P3-5), as the project's snapshot of the catalog record says: read, never typed,
+ * because the record is the catalog's. A recipe item has none.
+ */
+function productFacts(project: Project, it: Item): Fact[] {
+  if (it.ref.kind !== "product") return [];
+  const snap = project.catalogRefs[it.ref.productId] as SnapshotView | undefined;
+  const group = "Product";
+  if (!snap)
+    return [{ group, label: "Product", value: `${it.ref.productId}, not in this project's catalog copy` }];
+  const facts: Fact[] = [];
+  if (snap.make) facts.push({ group, label: "Make", value: snap.make });
+  if (snap.model) facts.push({ group, label: "Model", value: snap.model });
+  if (snap.category)
+    facts.push({
+      group,
+      label: "Category of product",
+      caption: "Category",
+      value: categoryLabel(snap.category),
+    });
+  const status = snap.verification?.status;
+  if (status) {
+    const confidence = snap.verification?.confidence;
+    const sure =
+      status === "verified" && typeof confidence === "number"
+        ? `, ${Math.round(confidence * 100)}% sure`
+        : "";
+    const trust = TRUST[status] ?? { shown: status };
+    facts.push({
+      group,
+      label: "Checked",
+      value: `${trust.shown}${sure}`,
+      ...(trust.hint ? { hint: trust.hint } : {}),
+    });
+  }
+  const price = snap.price;
+  if (price && typeof price.amount === "number" && price.currency) {
+    const money = new Intl.NumberFormat("en", { style: "currency", currency: price.currency }).format(
+      price.amount,
+    );
+    facts.push({ group, label: "Price", value: price.type ? `${money} ${price.type}` : money });
+  }
   return facts;
 }
 
