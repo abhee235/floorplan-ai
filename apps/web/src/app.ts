@@ -240,10 +240,22 @@ export function startApp(el: AppElements): {
   let handling: {
     wallId: string;
     handle: WallHandle;
-    /** The wall as the host last agreed it was, kept so the drag can be put back. */
+    /** The wall as the host last agreed it was: what every move measures its new shape from. */
     before: Wall;
+    /** The whole project as it was, because the reducer needs something to apply against — and because
+     *  a reshape reaches further than its own wall, so putting it back means putting all of it back. */
+    beforeProject: Project;
     preview: Wall | null;
   } | null = null;
+
+  /** A wall and whatever is joined to its ends: everything a reshape of it can move (W-031). */
+  const touchedByWall = (project: Project, wallId: string): ChangeSet["updated"] => {
+    const w = project.walls.find((x) => x.id === wallId);
+    const ids = new Set([wallId]);
+    if (w?.joins.start) ids.add(w.joins.start.wallId);
+    if (w?.joins.end) ids.add(w.joins.end.wallId);
+    return [...ids].map((id) => ({ type: "wall" as const, id }));
+  };
 
   /** The wall the handles belong to: exactly one wall selected, on the level being drawn, or null. */
   const handleWall = (): Wall | null => {
@@ -336,10 +348,16 @@ export function startApp(el: AppElements): {
         indicatorMarginMm(plan.view.scale, e.pointerType === "touch"),
         1 / plan.view.scale,
       );
-      if (handle) {
-        // `before` is the wall as the host last agreed it was. The drag edits the local copy on every
-        // move, so this is the only way back if the gesture changes nothing or the host refuses it.
-        handling = { wallId: shaped.id, handle, before: shaped, preview: null };
+      if (handle && replica.project) {
+        // Both snapshots are the state the host last agreed to. The drag edits the local copy on every
+        // move, so these are the only way back if the gesture changes nothing or the host refuses it.
+        handling = {
+          wallId: shaped.id,
+          handle,
+          before: shaped,
+          beforeProject: replica.project,
+          preview: null,
+        };
         el.plan.setPointerCapture(e.pointerId);
         return;
       }
@@ -378,9 +396,21 @@ export function startApp(el: AppElements): {
         weldToleranceMm: e.altKey ? 0 : WALL_END_PX / plan.view.scale,
       });
       handling = { ...active, preview: next };
-      // The whole point: edit the real wall now, so the plan and the 3D scene both show the result while
-      // the button is still down. One command goes to the host at the end, not one per pointer move.
-      if (next) replica.replaceWallLocally(next);
+      // Through the REAL reducer, not by swapping the one wall. A reshaped end drags whatever is joined
+      // to it along (W-031), and the neighbour has to move in the same frame or the corner tears open
+      // and only closes when the button comes up. Running wall.modify locally gets that for free; the
+      // swap it replaced knew about one wall and nothing it was attached to.
+      //
+      // Always from the project as it was at the press, so each move replaces the last rather than
+      // compounding with it. One command goes to the host at the end, not one per pointer move.
+      const reshape = next ? handleCommand(active.before, active.handle, next) : null;
+      const local = reshape ? applyLocally(active.beforeProject, [reshape]) : null;
+      replica.applyLocally(local?.project ?? active.beforeProject, {
+        commandType: "local.reshape",
+        added: [],
+        updated: local?.changes.updated ?? touchedByWall(active.beforeProject, active.wallId),
+        removed: [],
+      });
       plan.invalidateOverlay();
       planDirty = true;
       return;
@@ -437,11 +467,17 @@ export function startApp(el: AppElements): {
       // One command for the whole gesture, not one per move: the history should hold "this wall was
       // reshaped", not every intermediate position the pointer passed through.
       const command = done.preview ? handleCommand(done.before, done.handle, done.preview) : null;
-      // Put the wall back the way the host last agreed before asking for the change. The drag has been
-      // editing this copy without the host's knowledge, so leaving the edit standing would keep a shape
-      // on screen that was never accepted if the command is refused. The host's patch lands a moment
-      // later and puts the new shape back for real.
-      replica.replaceWallLocally(done.before);
+      // The whole project back as the host last agreed it, not just the dragged wall: a reshape moves
+      // whatever is joined to the end as well, and restoring one of them would strand the other where
+      // the drag left it. The drag has been editing this copy without the host's knowledge, so leaving
+      // any of it standing would keep a shape on screen that was never accepted if the command is
+      // refused. The host's patch lands a moment later and puts the new shape back for real.
+      replica.applyLocally(done.beforeProject, {
+        commandType: "local.reshape",
+        added: [],
+        updated: touchedByWall(done.beforeProject, done.wallId),
+        removed: [],
+      });
       if (command) void client.command(command);
       plan.invalidateOverlay();
       planDirty = true;

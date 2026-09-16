@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { ChangeSet, SnapshotMsg } from "@fpv/commands";
-import { defaultWall, Project, type Project as ProjectT } from "@fpv/ir";
+import { Project, type Project as ProjectT } from "@fpv/ir";
 import { describe, expect, it } from "vitest";
 import { Replica } from "../src/replica.js";
 
@@ -29,14 +29,25 @@ function firstWall(p: ProjectT) {
   return w;
 }
 
+/** A project with one wall bent, as a local edit would produce. */
+function bent(p: ProjectT, arcExtent: number): ProjectT {
+  const wall = firstWall(p);
+  return { ...p, walls: p.walls.map((w) => (w.id === wall.id ? { ...w, arcExtent } : w)) };
+}
+
 describe("replica", () => {
-  it("replaces a wall locally and reports it as updated", () => {
+  it("takes a locally edited project and reports what changed", () => {
     const { replica, project } = seeded();
     const wall = firstWall(project);
     const seen: ChangeSet[] = [];
     replica.subscribe(({ changes }) => seen.push(changes));
 
-    replica.replaceWallLocally({ ...wall, arcExtent: 90 });
+    replica.applyLocally(bent(project, 90), {
+      commandType: "local.reshape",
+      added: [],
+      updated: [{ type: "wall", id: wall.id }],
+      removed: [],
+    });
 
     expect(replica.project?.walls.find((w) => w.id === wall.id)?.arcExtent).toBe(90);
     expect(seen).toHaveLength(1);
@@ -49,7 +60,12 @@ describe("replica", () => {
     const { replica, project } = seeded();
     const before = replica.seq;
 
-    replica.replaceWallLocally({ ...firstWall(project), arcExtent: 45 });
+    replica.applyLocally(bent(project, 45), {
+      commandType: "local.reshape",
+      added: [],
+      updated: [{ type: "wall", id: firstWall(project).id }],
+      removed: [],
+    });
 
     // The sequence counts the HOST's messages. Moving it here would make the next real patch look like a
     // gap, and the client would throw the session away and ask for a fresh snapshot.
@@ -62,7 +78,12 @@ describe("replica", () => {
     const wall = firstWall(project);
     const held = replica.project;
 
-    replica.replaceWallLocally({ ...wall, arcExtent: 120 });
+    replica.applyLocally(bent(project, 120), {
+      commandType: "local.reshape",
+      added: [],
+      updated: [{ type: "wall", id: wall.id }],
+      removed: [],
+    });
 
     // immer applies the host's patches against whatever object is held; editing the previous one in
     // place would change a structure the next patch still expects to find as it was.
@@ -93,17 +114,5 @@ describe("replica", () => {
     expect(seen).toHaveLength(1);
     expect(seen[0]?.updated).toHaveLength(2);
     expect(replica.seq).toBe(7);
-  });
-
-  it("ignores a wall the project does not have", () => {
-    const { replica, project } = seeded();
-    const seen: ChangeSet[] = [];
-    replica.subscribe(({ changes }) => seen.push(changes));
-
-    const stranger = defaultWall("wall_zzzzzz", firstWall(project).levelId, { x: 0, y: 0 }, { x: 100, y: 0 });
-    replica.replaceWallLocally(stranger);
-
-    expect(replica.project?.walls).toHaveLength(project.walls.length);
-    expect(seen).toHaveLength(0);
   });
 });

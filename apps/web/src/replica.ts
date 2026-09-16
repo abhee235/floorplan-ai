@@ -1,7 +1,7 @@
 // The browser's copy of the project (ADR-005 D2): applies snapshots and patch streams from the host,
 // tracks the history position, and detects when it has fallen out of sync.
 import type { ChangeSet, ChangesMsg, SnapshotMsg } from "@fpv/commands";
-import type { Problem, Project, Wall } from "@fpv/ir";
+import type { Problem, Project } from "@fpv/ir";
 import { applyPatches, enablePatches } from "immer";
 
 enablePatches();
@@ -100,20 +100,6 @@ export class Replica {
     // holds, and editing the previous one would change a structure the next patch expects as it was.
     this.project = project;
     this.notify(changes);
-  }
-
-  /** One wall, replaced locally. A thin way onto applyLocally for edits that touch a single wall. */
-  replaceWallLocally(wall: Wall): void {
-    const project = this.project;
-    if (!project) return;
-    const index = project.walls.findIndex((w) => w.id === wall.id);
-    if (index < 0) return;
-    const walls = [...project.walls];
-    walls[index] = wall;
-    this.applyLocally(
-      { ...project, walls },
-      { commandType: "local.wall", added: [], updated: [{ type: "wall", id: wall.id }], removed: [] },
-    );
   }
 
   private notify(changes: ChangeSet): void {
