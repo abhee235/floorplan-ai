@@ -141,6 +141,27 @@ describe("plan renderer (ADR-003 D6)", () => {
     expect(plan.hitTest({ x: 20000, y: 20000 })).toBeNull();
   });
 
+  it("F-130 a selection margin catches a click just outside a thin wall", () => {
+    // Without this a wall is barely selectable: at a normal zoom its footprint is about one screen pixel
+    // wide, so containsPoint alone asks for a one-pixel-accurate click.
+    const { layers: ctxs } = layers();
+    const plan = new PlanRenderer(ctxs, 800, 600);
+    plan.setProject(fixture());
+
+    // The test above establishes that (4000, 0) is inside wall_000001. Step out along y until the strict
+    // test stops finding it, rather than assuming how far the footprint reaches: thickness is the full
+    // width and which side of the centreline it sits on is the geometry's business, not this test's.
+    let outsideY = 0;
+    while (outsideY < 5000 && plan.hitTest({ x: 4000, y: outsideY }) !== null) outsideY += 10;
+    expect(outsideY).toBeLessThan(5000); // it does end somewhere
+
+    const justOutside = { x: 4000, y: outsideY + 10 };
+    expect(plan.hitTest(justOutside)).toBeNull();
+    expect(plan.hitTest(justOutside, 100)).toBe("wall_000001");
+    // and the margin does not reach forever
+    expect(plan.hitTest({ x: 4000, y: outsideY + 2000 }, 100)).toBeNull();
+  });
+
   it("zoom keeps the point under the cursor fixed; pan shifts the offset", () => {
     const { layers: ctxs } = layers();
     const plan = new PlanRenderer(ctxs, 800, 600);

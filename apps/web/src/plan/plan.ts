@@ -183,18 +183,37 @@ export class PlanRenderer {
     return { x: (px - this.view.offsetX) / this.view.scale, y: (this.view.offsetY - py) / this.view.scale };
   }
 
-  /** Entity under a plan point: items first, then walls, then rooms (smallest). */
-  hitTest(p: Point): string | null {
+  /**
+   * Entity under a plan point: items first, then walls, then rooms (smallest).
+   *
+   * `marginMm` is F-130's selection margin, and without it walls are effectively unselectable. A 100 mm
+   * wall at 1:87 is about one screen pixel of FOOTPRINT, while the canvas strokes it several pixels wide,
+   * so a click lands on the ink and misses the polygon. containsPoint alone therefore asks you to hit a
+   * one-pixel target. The margin is a distance to the footprint's edges, so anything within it counts.
+   */
+  hitTest(p: Point, marginMm = 0): string | null {
     const project = this.project;
     if (!project || !this.levelId) return null;
+    const near = (ring: readonly Point[]): boolean => {
+      if (poly.containsPoint(ring, p)) return true;
+      if (marginMm <= 0) return false;
+      for (let i = 0; i < ring.length; i += 1) {
+        const a = ring[i] as Point;
+        const b = ring[(i + 1) % ring.length] as Point;
+        if (poly.distancePointSegment(p, a, b) <= marginMm) return true;
+      }
+      return false;
+    };
     const sizes = this.sizes ?? derive.snapshotSizeSource(project);
     for (const it of project.items) {
       if (it.levelId !== this.levelId || !it.visible) continue;
       const size = derive.itemSize(it, sizes);
-      if (size && poly.containsPoint(derive.itemFootprint(it, size), p)) return it.id;
+      if (size && near(derive.itemFootprint(it, size))) return it.id;
     }
     const walls = project.walls.filter((w) => w.levelId === this.levelId);
-    for (const [id, fp] of wallFootprints(walls)) if (poly.containsPoint(fp, p)) return id;
+    for (const [id, fp] of wallFootprints(walls)) if (near(fp)) return id;
+    // Rooms keep the strict test: they are large areas, and growing them by a margin would let a click
+    // just outside a room take it in preference to nothing, which is the wrong answer on open plan.
     return derive.containingRoom(project, this.levelId, p)?.id ?? null;
   }
 
