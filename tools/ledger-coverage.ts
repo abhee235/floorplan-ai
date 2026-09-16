@@ -1,14 +1,23 @@
 // Ledger coverage report (ADR-002 D4, spec 08).
-// Reads every id from docs/02-edge-case-ledger.md, the disposition map in tools/ledger/dispositions.json,
-// and scans test files for ledger ids in their text. Prints per-package coverage and writes
+// Reads every id from the edge-case ledger, the disposition map in tools/ledger/dispositions.json, and scans
+// test files for ledger ids in their text.
+//
+// The ledger is private and never lives in this repository. It is read from FPV_LEDGER_FILE, or from
+// ../floorplan-ai-private/02-edge-case-ledger.md beside the checkout; without it the report is skipped, so a
+// public clone still passes `pnpm check`. The dispositions and the ids in test names stay here. Prints per-package coverage and writes
 // docs/eval/ledger-coverage.json. Exits 1 only in strict mode (tools/ledger/current-phase.json "gate": true
 // or --strict) when an adopt/reverse/reject id due in the current phase or earlier has no test.
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const LEDGER = join(ROOT, "docs", "02-edge-case-ledger.md");
+const LEDGER = process.env.FPV_LEDGER_FILE
+  ? resolve(process.env.FPV_LEDGER_FILE)
+  : join(ROOT, "..", "floorplan-ai-private", "02-edge-case-ledger.md");
+/** Private documents that must never be committed here, wherever someone drops a copy. */
+const NEVER_TRACKED = /(^|\/)(01-research-lessons|02-edge-case-ledger)\.md$/;
 const MAP = join(ROOT, "tools", "ledger", "dispositions.json");
 const PHASE_FILE = join(ROOT, "tools", "ledger", "current-phase.json");
 const OUT = join(ROOT, "docs", "eval", "ledger-coverage.json");
@@ -78,6 +87,21 @@ function testedIds(): Map<string, string[]> {
     }
   }
   return found;
+}
+
+// Checked before anything else and whether or not the ledger is present: the rule protects the public
+// history, and a copy committed by accident is exactly the case where the private folder may be missing.
+const tracked = execFileSync("git", ["ls-files"], { cwd: ROOT, encoding: "utf8" })
+  .split("\n")
+  .filter((f) => NEVER_TRACKED.test(f));
+if (tracked.length > 0) {
+  console.error(`ledger: private documents are tracked in this repository: ${tracked.join(", ")}`);
+  console.error("  remove them with `git rm --cached` and keep them in ../floorplan-ai-private");
+  process.exit(1);
+}
+if (!existsSync(LEDGER)) {
+  console.log(`ledger: ${LEDGER} not found, coverage report skipped (the ledger is kept privately)`);
+  process.exit(0);
 }
 
 const args = new Set(process.argv.slice(2));

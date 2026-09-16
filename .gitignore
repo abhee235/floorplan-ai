@@ -15,3 +15,7 @@ docs/eval/transcripts/
 # design canvas working files are kept; the seeded canvas page is rebuilt from them
 .design/*.html
 !.design/*.dc.html
+
+# private research and the edge-case ledger live in ../floorplan-ai-private, never here
+**/01-research-lessons.md
+**/02-edge-case-ledger.md
