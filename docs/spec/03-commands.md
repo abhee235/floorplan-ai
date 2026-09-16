@@ -176,14 +176,14 @@ Effect: sets parentId; elevation set to the parent's surface height when dropRat
 Changes: updated item.
 
 ### item.setProduct
-Payload: `{ itemId, ref }`. Effect: swaps the reference, keeps position and rotation, clears size if the new product is not deformable, re-snapshots. Changes: updated item.
+Payload: `{ itemId, ref }`. Effect: swaps the reference, keeps position and rotation, clears size if the new product is not deformable, drops `materials` for slots the new reference does not have, re-snapshots. Changes: updated item.
 
 ### item.mirror
 Payload: `{ itemIds }`. Effect: toggles mirrored. Changes: updated items.
 
 ### item.setFinish
 Payload: `{ itemIds, finish?: FinishRef | null, materials?: Record<slot, FinishRef | null> }`
-Preconditions: slots exist on the product's materialSlots.
+Preconditions: slots exist on the item: a recipe's slots, a product's `materialSlots`, or, when those are empty, the slots of the recipe its category falls back to (spec 02 section 3.1). A null finish for a slot removes it. The item's `finish` covers every slot without one of its own.
 Changes: updated items.
 
 ### item.duplicate

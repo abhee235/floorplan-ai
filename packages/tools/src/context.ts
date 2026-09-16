@@ -191,7 +191,14 @@ export function sizesFor(project: Project, catalog: CatalogSearch): derive.SizeS
       const s = snapshots.product(id);
       if (s) return s;
       const p = catalog.product(id);
-      return p ? { dims: p.dims, deformable: p.deformable ?? false } : null;
+      return p
+        ? {
+            dims: p.dims,
+            deformable: p.deformable ?? false,
+            category: p.category,
+            assetKey: typeof p.assetKey === "string" ? p.assetKey : null,
+          }
+        : null;
     },
   };
 }

@@ -198,32 +198,117 @@ describe("scene binding (ADR-003 D1, ADR-015 D3)", () => {
     expect(clippingFor(0, 0).far).toBe(400);
   });
 
-  it("S-042 a product without an asset renders as a placeholder box at its size", () => {
-    const b = new SceneBinding();
+  /** Places a product the given catalogue knows, and returns the project. */
+  const placeProduct = (
+    product: Record<string, unknown>,
+    at = { x: 3000, y: 2000 },
+    p: ProjectT = fixture(),
+  ): ProjectT => {
     const withCatalog: Ctx = {
       ...ctx,
-      catalog: { product: (id) => ({ id, dims: { w: 1800, d: 800, h: 750 }, snapshotAt: ctx.now() }) },
+      catalog: { product: (id) => ({ id, snapshotAt: ctx.now(), ...product }) },
     };
     const r = apply(
-      fixture(),
+      p,
       {
         type: "item.place",
         payload: {
           levelId: L,
-          ref: { kind: "product", productId: "acme-desk" },
-          position: { x: 3000, y: 2000 },
+          ref: { kind: "product", productId: product.id as string },
+          position: at,
           rotation: 0,
+          magnetism: false,
         },
       },
       withCatalog,
     );
     if (!r.ok) throw new Error(r.error.message);
-    const p = r.project;
+    return r.project;
+  };
+  const sizeOf = (objects: THREE.Object3D[]) => {
+    const box = new THREE.Box3();
+    for (const o of objects) box.expandByObject(o);
+    return box.getSize(new THREE.Vector3());
+  };
+  const materialOf = (o: THREE.Object3D | undefined) =>
+    (o as THREE.Mesh).material as THREE.MeshStandardMaterial;
+
+  it("S-042 a product whose model is not loaded renders as a white placeholder box at its size", () => {
+    const b = new SceneBinding({
+      assets: {
+        keyFor: (id) => (id === "acme-desk" ? "desk/acme/std" : null),
+        bbox: () => ({ w: 1.6, d: 0.7, h: 0.72 }),
+      },
+    });
+    const p = placeProduct({ id: "acme-desk", category: "desk", dims: { w: 1800, d: 800, h: 750 } });
     b.setProject(p);
-    const mesh = b.objectsOf(p.items[0]?.id as string)[0] as THREE.Mesh;
-    expect((mesh.material as THREE.Material).name).toBe("placeholder");
-    const box = new THREE.Box3().setFromObject(mesh);
-    expect(box.max.x - box.min.x).toBeCloseTo(1.8, 5);
-    expect(box.max.y - box.min.y).toBeCloseTo(0.75, 5);
+    const objects = b.objectsOf(p.items[0]?.id as string);
+    expect(objects).toHaveLength(1);
+    expect(materialOf(objects[0]).name).toBe("placeholder");
+    const size = sizeOf(objects);
+    expect([size.x, size.y, size.z].map((v) => Number(v.toFixed(5)))).toEqual([1.8, 0.75, 0.8]);
+  });
+
+  it("draws a product without a model as its category's recipe, part by part, at its size (spec 02 3.1)", () => {
+    const b = new SceneBinding();
+    const p = placeProduct({ id: "acme-chair", category: "chair", dims: { w: 640, d: 580, h: 1000 } });
+    b.setProject(p);
+    const objects = b.objectsOf(p.items[0]?.id as string);
+    expect(objects.map((o) => (o.userData as { slot: string }).slot)).toEqual(["fabric", "frame"]);
+    expect(objects.map((o) => materialOf(o).name)).toEqual(["chair/fabric", "chair/frame"]);
+    const size = sizeOf(objects);
+    expect([size.x, size.y, size.z].map((v) => Number(v.toFixed(5)))).toEqual([0.64, 1, 0.58]);
+    // a category with no recipe of its own is a box
+    const plant = placeProduct({ id: "acme-plant", category: "plant", dims: { w: 400, d: 400, h: 1200 } });
+    b.setProject(plant);
+    expect(b.objectsOf(plant.items[0]?.id as string).map((o) => materialOf(o).name)).toEqual(["box/body"]);
+  });
+
+  it("P3-5 changing a chair's fabric slot updates the 3D view for that item only", () => {
+    const { scheduler, pump } = manualFrames();
+    const b = new SceneBinding({ scheduler });
+    const chair = (x: number) => ({
+      type: "item.place",
+      payload: {
+        levelId: L,
+        ref: { kind: "recipe", recipe: { kind: "chair", size: { w: 600, d: 600, h: 900 } } },
+        position: { x, y: 2000 },
+        rotation: 0,
+        magnetism: false,
+      },
+    });
+    let p = run(run(fixture(), chair(2000)).project, chair(3000)).project;
+    const [a, other] = p.items.map((i) => i.id) as [string, string];
+    b.setProject(p);
+    pump();
+    const before = { a: b.objectsOf(a), other: b.objectsOf(other) };
+    const sharedFabric = materialOf(before.other[0]);
+    expect(materialOf(before.a[0])).toBe(sharedFabric);
+
+    const r = run(p, {
+      type: "item.setFinish",
+      payload: {
+        itemIds: [a],
+        materials: {
+          fabric: {
+            color: "#AA3333",
+            textureId: null,
+            placement: null,
+            mirrorForLeftSide: false,
+            shininess: null,
+          },
+        },
+      },
+    });
+    p = r.project;
+    b.onChanges(r.changes, p);
+    pump();
+    const [fabric, frame] = b.objectsOf(a);
+    expect(`#${materialOf(fabric).color.getHexString()}`).toBe("#aa3333");
+    expect(materialOf(frame)).toBe(materialOf(before.a[1]));
+    // the other chair was not rebuilt, and still shares the plain fabric
+    expect(b.objectsOf(other)).toEqual(before.other);
+    expect(materialOf(b.objectsOf(other)[0])).toBe(sharedFabric);
+    expect(`#${sharedFabric.color.getHexString()}`).not.toBe("#aa3333");
   });
 });

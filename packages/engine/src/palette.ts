@@ -24,6 +24,18 @@ export const MATERIAL_COLOURS: Readonly<Record<string, number>> = {
   "recipe:ceiling-mic": 0xf0f0f0,
   "recipe:box": 0x8f9aa6,
   "recipe:cylinder": 0x8f9aa6,
+  // recipe parts, as recipeSlotKey names them
+  "table/top": 0x9c7a55,
+  "table/legs": 0x5f6368,
+  "chair/fabric": 0x3f4a5a,
+  "chair/frame": 0x2b2d31,
+  "display/screen": 0x0d0f12,
+  "display/frame": 0x1a1a1a,
+  "video-bar/body": 0x2b2b2b,
+  "ceiling-speaker/body": 0xf0f0f0,
+  "ceiling-mic/body": 0xf0f0f0,
+  "box/body": 0x8f9aa6,
+  "cylinder/body": 0x8f9aa6,
   placeholder: 0xffffff,
   failed: 0xff0000,
   item: 0x8f9aa6,
@@ -85,6 +97,10 @@ const LOOKS: Readonly<Record<string, Partial<MaterialLook>>> = {
   "wall-glass": { roughness: 0.05, opacity: 0.3, reflective: true },
   "wall-glass-frame": { roughness: 0.35, metalness: 0.6, reflective: true },
   "recipe:display": { roughness: 0.35 },
+  "display/frame": { roughness: 0.35 },
+  "display/screen": { roughness: 0.12 },
+  "table/legs": { roughness: 0.4, metalness: 0.5 },
+  "chair/frame": { roughness: 0.45, metalness: 0.4 },
 };
 
 export function materialLook(key: string): MaterialLook {

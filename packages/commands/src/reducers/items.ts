@@ -1,6 +1,7 @@
 // Item reducers (spec 03 section 3; ledger F-008, F-013..F-015, F-041..F-047 via parent links, F-070..F-072,
 // F-100..F-106, F-113..F-115, F-145..F-153, F-164..F-170, F-171..F-176).
 
+import { productMaterialSlots } from "@fpv/catalog";
 import { clearanceOf, freeRunsAlongEdge, placeItem } from "@fpv/geometry";
 import type { Item, Point, Project, Room, Size3 } from "@fpv/ir";
 import { defaultItem, derive, normalizeDeg, normalizeItem, poly } from "@fpv/ir";
@@ -30,6 +31,16 @@ function requireProduct(p: Project, ctx: Ctx, ref: Item["ref"], entityId: string
       "use search_catalog or verify_product first",
     );
   }
+}
+
+/**
+ * The slots an item's `materials` may name: its recipe's, or its product's (its model's, else its
+ * category's recipe's). Null for a product the project holds no snapshot of, which cannot be checked.
+ */
+export function itemMaterialSlots(p: Project, it: Pick<Item, "ref">): readonly string[] | null {
+  if (it.ref.kind === "recipe") return derive.recipeSlots(it.ref.recipe.kind);
+  const snap = p.catalogRefs[it.ref.productId] as { category?: string; materialSlots?: string[] } | undefined;
+  return snap ? productMaterialSlots(snap) : null;
 }
 
 function refreshRoom(p: Project, it: Item): void {
@@ -464,6 +475,10 @@ export function itemSetProduct(
   const it = itemById(p, payload.itemId);
   requireProduct(p, ctx, payload.ref, it.id);
   it.ref = payload.ref;
+  // a finish for a part the new product does not have would be kept but never drawn
+  const slots = itemMaterialSlots(p, it);
+  if (slots)
+    for (const slot of Object.keys(it.materials)) if (!slots.includes(slot)) delete it.materials[slot];
   if (it.ref.kind === "product") {
     const snap = p.catalogRefs[it.ref.productId] as { deformable?: boolean } | undefined;
     if (snap && snap.deformable === false) it.size = null;
@@ -496,11 +511,7 @@ export function itemSetFinish(
     const it = itemById(p, id);
     if (payload.finish !== undefined) it.finish = payload.finish;
     if (payload.materials) {
-      const slots =
-        it.ref.kind === "product"
-          ? ((p.catalogRefs[it.ref.productId] as { materialSlots?: string[] } | undefined)?.materialSlots ??
-            null)
-          : null;
+      const slots = itemMaterialSlots(p, it);
       for (const [slot, finish] of Object.entries(payload.materials)) {
         if (slots && !slots.includes(slot))
           throw precondition("item.material-slot", `slot "${slot}" is not one of ${slots.join(", ")}`, it.id);

@@ -3,7 +3,15 @@
 // Free of the DOM and of the canvas so it can be tested. The shell and the properties panel both read
 // from here rather than each working the selection out for themselves.
 
-import { MATERIAL_COLOURS } from "@fpv/engine";
+import { itemMaterialSlots } from "@fpv/commands";
+import {
+  drawnAs,
+  finishedMaterialKey,
+  MATERIAL_COLOURS,
+  materialColour,
+  noAssets,
+  recipeSlotKey,
+} from "@fpv/engine";
 import type {
   FinishRef,
   Item,
@@ -974,7 +982,63 @@ function itemFacts(project: Project, it: Item): Fact[] {
             })),
           }),
     });
+  facts.push(...materialFacts(project, it, size));
   return facts;
+}
+
+/**
+ * The colour and finish of each part an item is drawn in (P3-5): a chair's fabric and frame, a table's top
+ * and legs. Each part gets a band of its own, named by the part, as a wall's sides do.
+ */
+function materialFacts(project: Project, it: Item, size: { w: number; d: number; h: number }): Fact[] {
+  const slots = itemMaterialSlots(project, it) ?? [];
+  const recipe = drawnAs(it, size, derive.snapshotSizeSource(project), noAssets).recipe;
+  return slots.flatMap((slot): Fact[] => {
+    const group = capital(slot);
+    const current = it.materials[slot] ?? null;
+    const finished = (change: Partial<FinishRef>): EditCommand => ({
+      type: "item.setFinish",
+      payload: {
+        itemIds: [it.id],
+        materials: { [slot]: tidyFinish({ ...(current ?? blankFinish()), ...change }) },
+      },
+    });
+    // what the part shows while it has no colour of its own: the item's colour, else the part's plain one
+    const base = recipe ? recipeSlotKey(recipe.kind, slot) : "item";
+    const effective = hexOf(materialColour(finishedMaterialKey(base, current ?? it.finish)));
+    const colour = current?.color ?? null;
+    const finish = finishNameOf(current?.shininess ?? null);
+    const itemColoured = it.finish?.color != null;
+    return [
+      {
+        group,
+        label: `Colour of ${slot}`,
+        caption: "Colour",
+        value: colour ?? "",
+        colour: { effective },
+        empty: {
+          shown: itemColoured ? "item's" : "default",
+          action: itemColoured ? `Use the item's colour for the ${slot}` : `Use the default ${slot} colour`,
+        },
+        edit: hexEdit(
+          colour,
+          (color) => finished({ color }),
+          itemColoured ? "the item's" : "default",
+          effective,
+        ),
+      },
+      {
+        group,
+        label: `Finish of ${slot}`,
+        caption: "Finish",
+        value: finish,
+        choices: WALL_FINISHES,
+        edit: choiceEdit("Finish", WALL_FINISHES, finish, (value) =>
+          finished({ shininess: FINISH_SHININESS[value as FinishName] ?? null }),
+        ),
+      },
+    ];
+  });
 }
 
 function openingTitle(o: Opening): string {

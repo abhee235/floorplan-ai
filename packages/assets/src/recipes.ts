@@ -1,5 +1,6 @@
 // The built-in manifest: one recipe entry per category fallback (spec 02 section 3.1). Always present,
 // never on disk, so every product resolves to something drawable (ADR-010 D2 tier 1).
+import { derive } from "@fpv/ir";
 import type { AssetEntry, AssetManifest, RecipeKind } from "./schema.js";
 
 const GENERATED = { id: "generated", author: null, sourceUrl: null, attribution: null } as const;
@@ -14,7 +15,7 @@ function recipeEntry(key: string, recipe: RecipeKind, bbox: { w: number; d: numb
     triangles: 0,
     bytes: 0,
     sha256: null,
-    materialSlots: [],
+    materialSlots: [...derive.recipeSlots(recipe)],
     articulations: [],
     presets: {},
     planIcon: null,

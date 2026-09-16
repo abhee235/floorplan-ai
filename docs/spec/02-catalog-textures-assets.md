@@ -190,6 +190,20 @@ entries; `licence.id` never NC, ND, or copyleft; `attribution` required when
 | ceiling-mic | ceiling-mic |
 | everything else | box |
 
+A product without a model of its own is drawn as that recipe, built at the
+product's size, and takes the recipe's material slots, so its parts can be
+finished like any recipe's (P3-5). Recipes are built one part per slot:
+
+| Recipe | Slots |
+|---|---|
+| table | top, legs |
+| chair | fabric, frame |
+| display | screen, frame |
+| box, cylinder, video-bar, ceiling-speaker, ceiling-mic | body |
+
+A product whose model the viewer has not loaded is a white box at its size
+(S-042).
+
 ## 4. Library package
 
 `library.json` at the root of a library zip:

@@ -1,5 +1,6 @@
 import { derive, type Item } from "@fpv/ir";
 import { describe, expect, it } from "vitest";
+import { itemMaterialSlots } from "../src/index.js";
 import { BOX, ctx, fail, fixture, LEVEL, ok } from "./helpers.js";
 
 const item = (p: ReturnType<typeof fixture>, id: string): Item => p.items.find((i) => i.id === id) as Item;
@@ -267,6 +268,56 @@ describe("move, rotate, resize, elevation, parent", () => {
       fail(swapped.project, { type: "item.setFinish", payload: { itemIds: [id], materials: { seat: null } } })
         .error.code,
     ).toBe("item.material-slot");
+  });
+
+  it("P3-5 materials name the parts an item is drawn in, and a product swap drops the parts it no longer has", () => {
+    const { project } = withRoom();
+    const paint = (color: string) => ({
+      color,
+      textureId: null,
+      placement: null,
+      mirrorForLeftSide: false,
+      shininess: null,
+    });
+    const setFinish = (id: string, materials: Record<string, unknown>) => ({
+      type: "item.setFinish",
+      payload: { itemIds: [id], materials },
+    });
+    // a recipe's parts are the recipe's
+    const box = ok(project, {
+      type: "item.place",
+      payload: { levelId: LEVEL, ref: BOX, position: { x: 1000, y: 1000 } },
+    });
+    const boxId = box.project.items[0]?.id as string;
+    expect(itemMaterialSlots(box.project, item(box.project, boxId))).toEqual(["body"]);
+    expect(
+      item(ok(box.project, setFinish(boxId, { body: paint("#445566") })).project, boxId).materials.body
+        ?.color,
+    ).toBe("#445566");
+    expect(fail(box.project, setFinish(boxId, { fabric: paint("#445566") })).error.code).toBe(
+      "item.material-slot",
+    );
+
+    // a product with a model has the model's; one without has its category's recipe's, here none: a box
+    const chair = ok(project, {
+      type: "item.place",
+      payload: {
+        levelId: LEVEL,
+        ref: { kind: "product", productId: "acme-chair" },
+        position: { x: 2000, y: 1000 },
+      },
+    });
+    const chairId = chair.project.items[0]?.id as string;
+    const dressed = ok(
+      chair.project,
+      setFinish(chairId, { fabric: paint("#112233"), legs: paint("#000000") }),
+    );
+    const swapped = ok(dressed.project, {
+      type: "item.setProduct",
+      payload: { itemId: chairId, ref: { kind: "product", productId: "acme-table" } },
+    });
+    expect(itemMaterialSlots(swapped.project, item(swapped.project, chairId))).toEqual(["body"]);
+    expect(item(swapped.project, chairId).materials).toEqual({});
   });
 });
 

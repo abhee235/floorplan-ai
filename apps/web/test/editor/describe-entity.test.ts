@@ -997,6 +997,8 @@ describe("editing an item (ADR-017 D3)", () => {
       "Width",
       "Depth",
       "Height",
+      "Colour of body",
+      "Finish of body",
     ]);
     expect(describeEntity(p, id)?.title).toBe("Box");
     expect(rowOf(p, id, "Room").value).toBe("None");
@@ -1061,6 +1063,37 @@ describe("editing an item (ADR-017 D3)", () => {
     });
     expect(rowOf(p, id, "Height").hint).toBeUndefined();
     expect(outcomeOf(p, id, "Depth", "0")).toMatchObject({ ok: false });
+  });
+
+  it("P3-5 colours and finishes each part an item is drawn in, and clears a part back to its default", () => {
+    const { p, id } = place(fixture(), {
+      kind: "recipe",
+      recipe: { kind: "chair", size: { w: 600, d: 600, h: 900 } },
+    });
+    const groups = describeEntity(p, id)
+      ?.facts.filter((f) => f.label.includes(" of "))
+      .map((f) => [f.group, f.caption]);
+    expect(groups).toEqual([
+      ["Fabric", "Colour"],
+      ["Fabric", "Finish"],
+      ["Frame", "Colour"],
+      ["Frame", "Finish"],
+    ]);
+    expect(rowOf(p, id, "Colour of fabric")).toMatchObject({ value: "", colour: { effective: "#3F4A5A" } });
+    const red = run(p, typed(p, id, "Colour of fabric", "aa3333")).project;
+    expect(itemOf(red, id).materials.fabric?.color).toBe("#AA3333");
+    expect(rowOf(red, id, "Colour of fabric").colour).toEqual({ effective: "#AA3333" });
+    // the frame is untouched, and a finish joins the colour already there
+    expect(itemOf(red, id).materials.frame).toBeUndefined();
+    const glossy = run(red, typed(red, id, "Finish of fabric", "gloss")).project;
+    expect(itemOf(glossy, id).materials.fabric).toMatchObject({ color: "#AA3333", shininess: 0.6 });
+    const matt = run(glossy, typed(glossy, id, "Finish of fabric", "matt")).project;
+    const plain = run(matt, typed(matt, id, "Colour of fabric", "")).project;
+    expect(itemOf(plain, id).materials).toEqual({});
+    expect(outcomeOf(p, id, "Colour of frame", "steel")).toEqual({
+      ok: false,
+      message: "Colour needs a hex value, such as #2B2D31.",
+    });
   });
 
   it("shows a one-size product's size without letting it be typed, and names it from the catalogue", () => {

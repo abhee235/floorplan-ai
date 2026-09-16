@@ -1,5 +1,6 @@
 // Engine output types (ADR-003 D2). Positions are float32 metres in the three.js frame:
 // plan (x, y) with elevation z maps to (x, z, -y) so the frame is right-handed with y up.
+import type { PrimitiveRecipe } from "@fpv/ir";
 
 export type PartKind =
   | "wall-left"
@@ -33,11 +34,17 @@ export interface GeometryPart {
 
 export interface ItemInstance {
   entityId: string;
-  /** Asset key from the registry, or "recipe:<kind>" for generated meshes. */
+  /** Asset key from the registry, or "recipe:<kind>…" for generated meshes. */
   assetKey: string;
+  /**
+   * The recipe to build the mesh from (buildRecipeParts): the item's own, or its product's category
+   * fallback. Null for a model asset from the registry, which the renderer loads by `assetKey`.
+   */
+  recipe: PrimitiveRecipe | null;
   /** Column-major 4x4 matrix, three.js order, metres. */
   matrix: number[];
-  materialOverrides: Record<string, { color: string | null; textureId: string | null }>;
+  /** The material key for each of the recipe's parts, in its slot order, with the item's finishes applied. */
+  materials: { slot: string; materialKey: string }[];
   visible: boolean;
 }
 

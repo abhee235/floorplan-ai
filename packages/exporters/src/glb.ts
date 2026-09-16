@@ -1,13 +1,14 @@
 // glTF binary scene export (ADR-013 D4, PRD P2-5). The engine builds the same geometry the viewer shows; this writes it
 // as one .glb: a root node for the project, a node per level, under it a node per wall (with its openings as child nodes)
 // and per room (with the items in that room as child nodes), every node named by its entity id. Items that share an
-// asset share one mesh. Positions are metres with y up, which is glTF's own frame. Pure and deterministic: the same
+// asset and the same part materials share one mesh. Positions are metres with y up, which is glTF's own frame. Pure and deterministic: the same
 // project, sizes and options give the same bytes, and only asset.extras.exportedAt changes between exports.
 import {
   type AssetRegistry,
   buildGround,
   buildItems,
   buildRecipe,
+  buildRecipeParts,
   buildRooms,
   buildWalls,
   type GeometryPart,
@@ -323,14 +324,27 @@ export function projectToGlb(project: Project, options: GlbOptions): GlbExport {
         skippedItems.push(it.id);
         continue;
       }
-      let mesh = assetMeshes.get(inst.assetKey);
+      // A part with a finish of its own is a different material, so it needs a mesh of its own too.
+      const own = inst.materials.filter((m) => m.materialKey.includes("|"));
+      const meshName =
+        own.length === 0 ? inst.assetKey : `${inst.assetKey} ${own.map((m) => m.materialKey).join(" ")}`;
+      let mesh = assetMeshes.get(meshName);
       if (mesh === undefined) {
-        const part =
-          it.ref.kind === "recipe"
-            ? buildRecipe(it.ref.recipe)
-            : { ...buildRecipe({ kind: "box", size, label: it.ref.productId }), materialKey: "item" };
-        mesh = b.mesh(inst.assetKey, [part]);
-        assetMeshes.set(inst.assetKey, mesh);
+        const recipe = inst.recipe;
+        let parts: GeometryPart[];
+        if (recipe) {
+          parts = buildRecipeParts(recipe).map((part) => ({
+            ...part,
+            materialKey: inst.materials.find((m) => m.slot === part.slot)?.materialKey ?? part.materialKey,
+          }));
+        } else {
+          // a model asset this export cannot embed yet: a box at the asset's size, which the matrix scales
+          const bbox = options.assets?.bbox(inst.assetKey);
+          const at = bbox ? { w: bbox.w * 1000, d: bbox.d * 1000, h: bbox.h * 1000 } : size;
+          parts = [{ ...buildRecipe({ kind: "box", size: at, label: inst.assetKey }), materialKey: "item" }];
+        }
+        mesh = b.mesh(meshName, parts);
+        assetMeshes.set(meshName, mesh);
       }
       itemNodes.set(it.id, {
         name: it.id,

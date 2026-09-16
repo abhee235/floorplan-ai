@@ -4,6 +4,8 @@ import {
   type AssetRegistry,
   buildItems,
   buildRecipe,
+  buildRecipeParts,
+  fallbackRecipe,
   itemMatrix,
   multiply,
   partArea,
@@ -117,5 +119,91 @@ describe("recipes", () => {
     expect(partBounds(spk).max[1]).toBeCloseTo(0.1, 6);
     const round = buildRecipe({ kind: "table", size: { w: 1200, d: 1200, h: 750 }, shape: "round" });
     expect(partBounds(round).max[1]).toBeCloseTo(0.75, 6);
+  });
+});
+
+describe("item parts and their materials (P3-5)", () => {
+  const finish = (color: string | null, shininess: number | null = null) => ({
+    color,
+    textureId: null,
+    placement: null,
+    mirrorForLeftSide: false,
+    shininess,
+  });
+  const chair = {
+    kind: "recipe" as const,
+    recipe: { kind: "chair" as const, size: { w: 600, d: 600, h: 900 } },
+  };
+
+  it("builds a recipe part by part, in its slot order, covering what the one-part mesh covers", () => {
+    for (const recipe of [
+      chair.recipe,
+      { kind: "table" as const, size: { w: 2400, d: 1200, h: 750 }, shape: "round" as const },
+      { kind: "display" as const, diagonalIn: 65, bezelMm: 10 },
+      box.recipe,
+    ]) {
+      const parts = buildRecipeParts(recipe);
+      expect(parts.map((p) => p.slot)).toEqual([...derive.recipeSlots(recipe.kind)]);
+      expect(parts.map((p) => p.materialKey)).toEqual(parts.map((p) => `${recipe.kind}/${p.slot}`));
+      const whole = partBounds(buildRecipe(recipe));
+      const bounds = parts.map(partBounds);
+      for (const axis of [0, 1, 2]) {
+        const low = Math.min(...bounds.map((b) => b.min[axis] as number));
+        const high = Math.max(...bounds.map((b) => b.max[axis] as number));
+        expect(low).toBeCloseTo(whole.min[axis] as number, 6);
+        expect(high).toBeCloseTo(whole.max[axis] as number, 6);
+      }
+      expect(parts.reduce((n, p) => n + partArea(p), 0)).toBeCloseTo(partArea(buildRecipe(recipe)), 6);
+    }
+  });
+
+  it("gives each part its own finish, else the item's, else its plain material", () => {
+    const plain = defaultItem("item_zz0011", L, chair, { x: 0, y: 0 });
+    const [inst] = buildItems([plain], { level, sizes: noSizes });
+    expect(inst?.materials).toEqual([
+      { slot: "fabric", materialKey: "chair/fabric" },
+      { slot: "frame", materialKey: "chair/frame" },
+    ]);
+    const dressed = {
+      ...plain,
+      finish: finish("#222222"),
+      materials: { fabric: finish("#AA3333", 0.25) },
+    };
+    expect(buildItems([dressed], { level, sizes: noSizes })[0]?.materials).toEqual([
+      { slot: "fabric", materialKey: "chair/fabric|#AA3333|0.25" },
+      { slot: "frame", materialKey: "chair/frame|#222222|" },
+    ]);
+  });
+
+  it("draws a product without a model as its category's recipe, scaled onto the product's size", () => {
+    const sizes: derive.SizeSource = {
+      product: (id) =>
+        id === "acme-screen"
+          ? { dims: { w: 1450, d: 70, h: 830 }, deformable: false, category: "display", assetKey: null }
+          : id === "acme-lamp"
+            ? { dims: { w: 300, d: 300, h: 1600 }, deformable: false, category: "lighting", assetKey: null }
+            : null,
+    };
+    const screen = defaultItem(
+      "item_zz0012",
+      L,
+      { kind: "product", productId: "acme-screen" },
+      { x: 0, y: 0 },
+    );
+    const lamp = defaultItem("item_zz0013", L, { kind: "product", productId: "acme-lamp" }, { x: 0, y: 0 });
+    const [s, l] = buildItems([screen, lamp], { level, sizes });
+    expect(s?.recipe?.kind).toBe("display");
+    expect(s?.materials.map((m) => m.slot)).toEqual(["screen", "frame"]);
+    // the display recipe comes out a little off the product's size; the matrix makes it exact
+    if (!s?.recipe) throw new Error("the screen should be drawn as a recipe");
+    const drawn = derive.recipeSize(s.recipe);
+    expect((s?.matrix[0] as number) * drawn.w).toBeCloseTo(1450, 6);
+    expect((s?.matrix[5] as number) * drawn.h).toBeCloseTo(830, 6);
+    expect((s?.matrix[10] as number) * drawn.d).toBeCloseTo(70, 6);
+    expect(l?.recipe).toEqual({ kind: "box", size: { w: 300, d: 300, h: 1600 }, label: "acme-lamp" });
+    expect(fallbackRecipe("ceiling-speaker", { w: 200, d: 200, h: 90 }, "x")).toEqual({
+      kind: "ceiling-speaker",
+      diameter: 200,
+    });
   });
 });

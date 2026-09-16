@@ -3,9 +3,11 @@
 // runs in Node tests.
 import type { ChangeSet } from "@fpv/commands";
 import {
+  type AssetRegistry,
   buildGround,
   buildItems,
   buildRecipe,
+  buildRecipeParts,
   buildRooms,
   buildWalls,
   emptyRebuildSet,
@@ -46,6 +48,8 @@ export function frameScheduler(raf: (cb: () => void) => void): Scheduler {
 export interface BindingOptions {
   scheduler?: Scheduler;
   sizes?: derive.SizeSource;
+  /** Model assets for products; without one a product is drawn as its category's recipe. */
+  assets?: AssetRegistry;
 }
 
 export class SceneBinding {
@@ -73,11 +77,13 @@ export class SceneBinding {
   private groundElevation = 0;
   private disposed = false;
   private sizes: derive.SizeSource | null;
+  private readonly assets: AssetRegistry | undefined;
   flushes = 0;
 
   constructor(options: BindingOptions = {}) {
     this.scheduler = options.scheduler ?? immediateScheduler;
     this.sizes = options.sizes ?? null;
+    this.assets = options.assets;
     // S-001, S-003: ground, then rooms, walls, items, overlay; lights last.
     this.ground.name = "ground";
     this.rooms.name = "rooms";
@@ -169,7 +175,11 @@ export class SceneBinding {
       const itemsOnLevel = p.items.filter((i) => i.levelId === level.id);
       const dirtyItems = full ? itemsOnLevel : itemsOnLevel.filter((i) => dirty.items.has(i.id));
       if (dirtyItems.length > 0) {
-        const instances = buildItems(dirtyItems, { level, sizes });
+        const instances = buildItems(dirtyItems, {
+          level,
+          sizes,
+          ...(this.assets ? { assets: this.assets } : {}),
+        });
         this.replaceItems(dirtyItems, instances, level, sizes);
       }
     }
@@ -225,42 +235,79 @@ export class SceneBinding {
     for (const item of items) {
       const inst = byId.get(item.id);
       const size = derive.itemSize(item, sizes);
-      let mesh: THREE.Mesh | null = null;
+      const meshes: THREE.Mesh[] = [];
       if (inst && size) {
-        const geometry = this.itemGeometry(item, inst.assetKey, size);
-        const materialKey = item.ref.kind === "recipe" ? inst.assetKey : "placeholder";
-        mesh = new THREE.Mesh(geometry, this.materials.get(materialKey));
-        mesh.name = `${item.id}:item`;
-        mesh.userData = { entityId: item.id, part: "item" };
-        mesh.matrix.fromArray(inst.matrix);
-        mesh.matrix.decompose(mesh.position, mesh.quaternion, mesh.scale);
-        mesh.updateMatrixWorld(true);
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        // S-047: rendered only when the item and its level are visible
-        mesh.visible = inst.visible && level.viewable;
-        this.items.add(mesh);
+        // One mesh per part, each with its part's material. Geometry is shared by every item drawn from the
+        // same recipe; the material is shared by every part with the same finish. So a chair given its own
+        // fabric gets a different material on that one mesh, and no other chair is touched.
+        const parts = inst.recipe
+          ? this.recipeGeometries(inst.assetKey, inst.recipe).map(({ slot, geometry }) => ({
+              slot,
+              geometry,
+              materialKey: inst.materials.find((m) => m.slot === slot)?.materialKey ?? "item",
+            }))
+          : [
+              {
+                slot: null,
+                geometry: this.placeholderGeometry(inst.assetKey, size),
+                materialKey: "placeholder",
+              },
+            ];
+        for (const part of parts) {
+          const mesh = new THREE.Mesh(part.geometry, this.materials.get(part.materialKey));
+          mesh.name = part.slot ? `${item.id}:item:${part.slot}` : `${item.id}:item`;
+          mesh.userData = { entityId: item.id, part: "item", ...(part.slot ? { slot: part.slot } : {}) };
+          mesh.matrix.fromArray(inst.matrix);
+          mesh.matrix.decompose(mesh.position, mesh.quaternion, mesh.scale);
+          mesh.updateMatrixWorld(true);
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          // S-047: rendered only when the item and its level are visible
+          mesh.visible = inst.visible && level.viewable;
+          this.items.add(mesh);
+          meshes.push(mesh);
+        }
       }
       this.drop(item.id);
-      if (mesh) this.objects.set(item.id, [mesh]);
+      if (meshes.length > 0) this.objects.set(item.id, meshes);
     }
   }
 
-  /** Recipes build their exact shape; products get a placeholder box at their size until assets load (S-042). */
-  private itemGeometry(
-    item: Item,
+  /** A recipe's parts, built once per recipe and shared by every item drawn from it. */
+  private recipeGeometries(
+    assetKey: string,
+    recipe: NonNullable<ItemInstance["recipe"]>,
+  ): { slot: string; geometry: THREE.BufferGeometry }[] {
+    const slots = derive.recipeSlots(recipe.kind);
+    const cached = slots.map((slot) => ({ slot, geometry: this.geometries.get(`${assetKey}#${slot}`) }));
+    if (cached.every((c) => c.geometry)) return cached as { slot: string; geometry: THREE.BufferGeometry }[];
+    return buildRecipeParts(recipe).map((part) => {
+      const name = `${assetKey}#${part.slot}`;
+      const known = this.geometries.get(name);
+      if (known) return { slot: part.slot, geometry: known };
+      const geometry = toGeometry(part);
+      geometry.name = name;
+      this.geometries.set(name, geometry);
+      return { slot: part.slot, geometry };
+    });
+  }
+
+  /**
+   * S-042: a white box standing in for a model asset this viewer has not loaded. It is built at the asset's
+   * own size where the registry knows it, because the item's matrix scales from that size to the item's.
+   */
+  private placeholderGeometry(
     assetKey: string,
     size: { w: number; d: number; h: number },
   ): THREE.BufferGeometry {
-    let g = this.geometries.get(assetKey);
+    const bbox = this.assets?.bbox(assetKey);
+    const at = bbox ? { w: bbox.w * 1000, d: bbox.d * 1000, h: bbox.h * 1000 } : size;
+    const name = `placeholder:${assetKey}:${at.w}x${at.d}x${at.h}`;
+    let g = this.geometries.get(name);
     if (g) return g;
-    const part =
-      item.ref.kind === "recipe"
-        ? buildRecipe(item.ref.recipe)
-        : buildRecipe({ kind: "box", size, label: item.ref.productId });
-    g = toGeometry(part);
-    g.name = assetKey;
-    this.geometries.set(assetKey, g);
+    g = toGeometry(buildRecipe({ kind: "box", size: at, label: assetKey }));
+    g.name = name;
+    this.geometries.set(name, g);
     return g;
   }
 

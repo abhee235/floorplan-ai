@@ -190,8 +190,32 @@ export function containingRoom(project: Project, levelId: string, p: Point): Roo
 // ---- items ----------------------------------------------------------------
 
 export interface SizeSource {
-  /** Returns dims and deformable flag for a product id, or null when unknown. */
-  product(productId: string): { dims: Size3; deformable: boolean } | null;
+  /**
+   * Returns dims and deformable flag for a product id, or null when unknown. The category and the product's
+   * own asset key, where the source knows them, decide what the product is drawn as (spec 02 section 3.1).
+   */
+  product(
+    productId: string,
+  ): { dims: Size3; deformable: boolean; category?: string; assetKey?: string | null } | null;
+}
+
+/**
+ * The parts a recipe's mesh is built in, by name. An item's `materials` are keyed by these, so a chair's
+ * fabric can be recovered without touching its frame.
+ */
+const RECIPE_SLOTS: Readonly<Record<PrimitiveRecipe["kind"], readonly string[]>> = {
+  box: ["body"],
+  cylinder: ["body"],
+  table: ["top", "legs"],
+  chair: ["fabric", "frame"],
+  display: ["screen", "frame"],
+  "video-bar": ["body"],
+  "ceiling-speaker": ["body"],
+  "ceiling-mic": ["body"],
+};
+
+export function recipeSlots(kind: PrimitiveRecipe["kind"]): readonly string[] {
+  return RECIPE_SLOTS[kind];
 }
 
 /** Sizes for primitive recipes (spec 02 section 3.1 fallbacks). */
@@ -220,9 +244,16 @@ export function recipeSize(recipe: PrimitiveRecipe): Size3 {
 export function snapshotSizeSource(project: Project): SizeSource {
   return {
     product(productId) {
-      const snap = project.catalogRefs[productId] as { dims?: Size3; deformable?: boolean } | undefined;
+      const snap = project.catalogRefs[productId] as
+        | { dims?: Size3; deformable?: boolean; category?: string; assetKey?: string | null }
+        | undefined;
       if (!snap?.dims) return null;
-      return { dims: snap.dims, deformable: snap.deformable ?? false };
+      return {
+        dims: snap.dims,
+        deformable: snap.deformable ?? false,
+        ...(snap.category ? { category: snap.category } : {}),
+        assetKey: snap.assetKey ?? null,
+      };
     },
   };
 }

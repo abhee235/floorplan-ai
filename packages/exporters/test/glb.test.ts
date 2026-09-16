@@ -201,6 +201,41 @@ describe("glTF binary export (PRD P2-5)", () => {
     expect(materials.some((m) => m.name === "wall-side")).toBe(true);
   });
 
+  it("P3-5 exports catalogue chairs in parts, and a chair with its own fabric as its own mesh", () => {
+    const chairs = project.items.filter(
+      (i) => i.ref.kind === "product" && i.ref.productId === "herman-miller-aeron-b",
+    );
+    const first = chairs[0];
+    if (!first) throw new Error("fixture has no chairs");
+    const recovered = {
+      ...project,
+      items: project.items.map((i) =>
+        i.id === first.id
+          ? {
+              ...i,
+              materials: {
+                fabric: {
+                  color: "#AA3333",
+                  textureId: null,
+                  placement: null,
+                  mirrorForLeftSide: false,
+                  shininess: null,
+                },
+              },
+            }
+          : i,
+      ),
+    };
+    const gltf = parseGlb(projectToGlb(recovered, base).bytes).json;
+    const meshOf = (id: string) => gltf.meshes[gltf.nodes.find((n) => n.name === id)?.mesh ?? -1];
+    const materialNames = (id: string) => meshOf(id)?.primitives.map((p) => gltf.materials[p.material]?.name);
+    expect(materialNames(first.id)).toEqual(["chair/fabric|#AA3333|", "chair/frame"]);
+    const others = chairs.slice(1).map((c) => meshOf(c.id));
+    expect(new Set(others).size).toBe(1);
+    expect(others[0]).not.toBe(meshOf(first.id));
+    expect(materialNames((chairs[1] as { id: string }).id)).toEqual(["chair/fabric", "chair/frame"]);
+  });
+
   it("exports glass as a blended, see-through material", () => {
     const wall = project.walls[0];
     if (!wall) throw new Error("fixture has no wall");

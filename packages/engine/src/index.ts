@@ -14,6 +14,7 @@ export {
   type AssetRegistry,
   assetKeyFor,
   buildItems,
+  drawnAs,
   type ItemBuildContext,
   identity,
   itemMatrix,
@@ -37,7 +38,7 @@ export {
   materialRoughness,
   roughnessForShininess,
 } from "./palette.js";
-export { buildRecipe, recipeAssetKey } from "./recipes.js";
+export { buildRecipe, buildRecipeParts, fallbackRecipe, recipeAssetKey, recipeSlotKey } from "./recipes.js";
 export { buildRooms, ceilingElevation, type RoomBuildContext } from "./rooms.js";
 export * from "./types.js";
 export {

@@ -15,6 +15,7 @@ export {
   parseProperties,
   resolveReference,
 } from "./flat.js";
+export { productMaterialSlots, type SlotSource } from "./materials.js";
 export { IDENTITY, normaliseMeshRotation, parseMatrix, snapMatrix } from "./matrix.js";
 export { AV_CORE, AV_CORE_INPUT } from "./rules/av-core.js";
 export {
