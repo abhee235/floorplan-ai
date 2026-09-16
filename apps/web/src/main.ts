@@ -35,7 +35,15 @@ const wallDrawing = bindWallDrawing({
   }),
   active: () => shell.tool().id === "wall",
   send: async (command) => {
-    await client.command(command);
+    // the bridge resolves with a result either way, so a refusal has to be read out of it rather than
+    // caught: without this a rejected command still announced that the walls had been drawn
+    const result = await client.command(command);
+    if (!result.ok)
+      throw new Error(
+        result.error
+          ? `${result.error.message}${result.error.hint ? ` (${result.error.hint})` : ""}`
+          : "the host refused the command",
+      );
   },
   redraw,
   status: (text) => shell.setSnap(text),

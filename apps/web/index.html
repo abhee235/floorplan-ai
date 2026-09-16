@@ -377,6 +377,10 @@
         border-radius: 6px;
         box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
       }
+      /* an author display beats the user agent rule for [hidden], so say it here or the card never hides */
+      .fpv-wall-entry[hidden] {
+        display: none;
+      }
       .fpv-wall-entry-row {
         display: flex;
         align-items: center;

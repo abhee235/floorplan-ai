@@ -130,6 +130,10 @@ export class WallTool {
       snapNote = "";
     }
 
+    // The IR keeps whole millimetres (Mm is an integer), so a fractional point is refused by the command
+    // schema and nothing is drawn. Rounding here also makes the preview and the committed wall the same.
+    point = { x: Math.round(point.x), y: Math.round(point.y) };
+
     const lengthMm = from ? distance(from, point) : 0;
     const angleDeg = from ? angleOf(from, point) : 0;
     return {
@@ -206,7 +210,7 @@ export class WallTool {
    * of fewer than two points has nothing to commit and returns null.
    */
   end(): WallChainCommand | null {
-    const points = this.points.map((p) => ({ x: p.x, y: p.y }));
+    const points = this.points.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y) }));
     const closed = this.closedLoop;
     this.points.length = 0;
     this.closedLoop = false;
@@ -220,7 +224,10 @@ export class WallTool {
         levelId: this.options.levelId,
         points,
         closed,
-        ...(this.options.thickness !== undefined ? { thickness: this.options.thickness } : {}),
+        // a thickness typed into the options bar has to be a whole millimetre of at least one, too
+        ...(this.options.thickness !== undefined
+          ? { thickness: Math.max(1, Math.round(this.options.thickness)) }
+          : {}),
         ...(this.options.kind !== undefined ? { kind: this.options.kind } : {}),
       },
     };

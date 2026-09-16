@@ -187,6 +187,46 @@ describe("angles on a plan, where y points up", () => {
   });
 });
 
+describe("the whole millimetres the IR insists on", () => {
+  // Mm is z.number().int(), so a point carrying a fraction is refused by the command schema and the
+  // walls are silently never drawn. Every point this tool hands out has to be whole.
+  it("lands an aimed point on a whole millimetre", () => {
+    const t = tool();
+    t.place({ x: 10.7, y: -3.2 }, opts());
+    expect(t.points[0]).toEqual({ x: 11, y: -3 });
+    const aimed = t.aim({ x: 1350.6, y: 0.4 }, opts({ magnetism: false }));
+    expect(Number.isInteger(aimed.point.x)).toBe(true);
+    expect(Number.isInteger(aimed.point.y)).toBe(true);
+  });
+
+  it("emits a chain of whole millimetres", () => {
+    const t = tool();
+    t.place({ x: 0.4, y: 0.4 }, opts({ magnetism: false }));
+    t.place({ x: 1350.6, y: 0.4 }, opts({ magnetism: false }));
+    t.place({ x: 1350.6, y: -944.7 }, opts({ magnetism: false }));
+    expect(t.end()?.payload.points).toEqual([
+      { x: 0, y: 0 },
+      { x: 1351, y: 0 },
+      { x: 1351, y: -945 },
+    ]);
+  });
+
+  it("rounds a typed length onto a whole millimetre", () => {
+    const t = tool();
+    t.place({ x: 0, y: 0 }, opts());
+    const typed = t.typedPoint(1350.6, 0);
+    t.place(typed as { x: number; y: number }, opts({ magnetism: false }));
+    expect(t.points[1]).toEqual({ x: 1351, y: 0 });
+  });
+
+  it("keeps the thickness a whole millimetre of at least one", () => {
+    const thin = new WallTool({ levelId: "level_000000", thickness: 0.4 });
+    thin.place({ x: 0, y: 0 }, opts());
+    thin.place({ x: 1000, y: 0 }, opts());
+    expect(thin.end()?.payload.thickness).toBe(1);
+  });
+});
+
 describe("what a screen reader hears while drawing (ADR-017 D5)", () => {
   it("names the wall, its length and its angle", () => {
     const t = tool();
