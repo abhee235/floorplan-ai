@@ -37,6 +37,30 @@ export function parseMm(text: string): number | null {
   return Number.isFinite(mm) ? Math.round(mm) : null;
 }
 
+/**
+ * An angle someone typed, in degrees to a tenth, or null when the text is not one. The degree sign or
+ * "deg" may follow; nothing else. A tenth because nothing on a plan is drawn finer, and a float typed as
+ * "33.3" should not come back as 33.29999.
+ */
+export function parseDegrees(text: string): number | null {
+  const match = /^([+-]?(?:\d+(?:\.\d*)?|\.\d+))(?:°|deg|degrees?)?$/.exec(
+    text.replace(/\s/g, "").toLowerCase(),
+  );
+  if (!match) return null;
+  const deg = Number(match[1]);
+  return Number.isFinite(deg) ? roundTenth(deg) : null;
+}
+
+/** An angle for the eye and for parseDegrees alike: a tenth at most, and no ".0". */
+export function formatDegrees(deg: number): string {
+  return String(roundTenth(deg));
+}
+
+// Halves away from zero, not Math.round's towards +∞: a curve and its mirror image are the same size,
+// so -45.25 and 45.25 have to round alike. `+ 0` turns the -0 a small negative rounds to into 0; it
+// prints the same, but Object.is tells them apart, and so does a deep-equal of a command built from it.
+const roundTenth = (n: number): number => (Math.sign(n) * Math.round(Math.abs(n) * 10)) / 10 + 0;
+
 /** A length for a screen reader: plain digits, which are read as a number rather than spelled out. */
 export function describeLength(mm: number): string {
   return `${Math.round(mm)} millimetres`;

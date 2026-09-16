@@ -10,10 +10,12 @@ import { apply, type Ctx } from "@fpv/commands";
 import { derive, Project, type Project as ProjectT, sequentialIdGenerator, WallKind } from "@fpv/ir";
 import { describe, expect, it } from "vitest";
 import {
+  CURVE_LIMIT,
   describeEntity,
   type EditCommand,
   type EditOutcome,
   type Fact,
+  HEIGHT_RANGE,
   THICKNESS_RANGE,
 } from "../../src/editor/selection.js";
 import { formatMm } from "../../src/editor/status.js";
@@ -59,7 +61,7 @@ function withRoom(): ProjectT {
 }
 
 describe("describing a selected entity", () => {
-  it("describes a wall by its kind, its ends, its length and its thickness", () => {
+  it("describes a wall by its kind, its ends, its curve, its size and its heights", () => {
     const p = fixture();
     const wall = p.walls[0];
     expect(wall).toBeDefined();
@@ -72,14 +74,17 @@ describe("describing a selected entity", () => {
       "Start Y",
       "End X",
       "End Y",
+      "Curve",
       "Length",
       "Thickness",
+      "Height",
+      "Height at end",
     ]);
     // a real length, grouped as a drawing writes it, not a placeholder
     expect(d?.facts.find((f) => f.label === "Length")?.value).toBe(`8${NARROW}000`);
   });
 
-  it("groups a wall's rows as position and size, with its kind ahead of both (ADR-017 D3)", () => {
+  it("groups a wall's rows as position, shape, size and height, with its kind ahead (ADR-017 D3)", () => {
     const p = fixture();
     const d = describeEntity(p, (p.walls[0] as { id: string }).id);
     expect(d?.facts.map((f) => f.group ?? null)).toEqual([
@@ -88,8 +93,11 @@ describe("describing a selected entity", () => {
       "Position",
       "Position",
       "Position",
+      "Shape",
       "Size",
       "Size",
+      "Height",
+      "Height",
     ]);
   });
 
@@ -328,5 +336,163 @@ describe("picking a wall's kind", () => {
       ok: false,
       message: "Kind must be one of Exterior, Interior, Partition, Glass.",
     });
+  });
+});
+
+/** What editing a row asks for, whatever it is: a command, nothing, or a refusal. */
+const outcomeOf = (p: ProjectT, id: string, label: string, text: string): EditOutcome =>
+  (rowOf(p, id, label).edit as (text: string) => EditOutcome)(text);
+
+const modified = (p: ProjectT, changes: Record<string, unknown>): ProjectT =>
+  run(p, { type: "wall.modify", payload: { wallId: W1, changes } }).project;
+
+describe("typing how far a wall curves", () => {
+  it("shows a straight wall as empty, standing for straight", () => {
+    const row = rowOf(fixture(), W1, "Curve");
+    expect(row.value).toBe("");
+    expect(row.unit).toBe("°");
+    expect(row.empty).toEqual({ shown: "straight", action: "Make the wall straight" });
+    // which way the sign bows is not something anyone can guess, so a screen reader is told
+    expect(row.hint).toContain("bows to the left");
+  });
+
+  it("curves a straight wall, and the curve bows to the left for a positive extent", () => {
+    const p = fixture();
+    const outcome = outcomeOf(p, W1, "Curve", "90°");
+    expect(outcome).toEqual({
+      ok: true,
+      command: { type: "wall.modify", payload: { wallId: W1, changes: { arcExtent: 90 } } },
+      said: "90 degrees",
+    });
+    const wall = wallOf(run(p, (outcome as { command: EditCommand }).command).project, W1);
+    // wall 1 runs along +x, so its left is +y, and the concave side's centre is on the right
+    expect(derive.arcParams(wall)?.centre.y).toBeLessThan(0);
+  });
+
+  it("takes a negative and a fractional curve, to a tenth", () => {
+    const p = fixture();
+    expect(typed(p, W1, "Curve", "-45.25").payload).toEqual({ wallId: W1, changes: { arcExtent: -45.3 } });
+    expect(rowOf(modified(p, { arcExtent: -45.3 }), W1, "Curve").value).toBe("-45.3");
+  });
+
+  it("straightens a curved wall when the field is emptied or given 0", () => {
+    const p = modified(fixture(), { arcExtent: 90 });
+    const straighten = { type: "wall.modify", payload: { wallId: W1, changes: { arcExtent: null } } };
+    expect(outcomeOf(p, W1, "Curve", "")).toEqual({ ok: true, command: straighten, said: "straight" });
+    expect(outcomeOf(p, W1, "Curve", "0")).toEqual({ ok: true, command: straighten, said: "straight" });
+    // and a wall already straight asks for nothing
+    expect(outcomeOf(fixture(), W1, "Curve", "")).toMatchObject({ ok: true, command: null });
+  });
+
+  it("sends nothing for the curve already there, however it was typed", () => {
+    const p = modified(fixture(), { arcExtent: 90 });
+    expect(outcomeOf(p, W1, "Curve", "90.0 deg")).toMatchObject({ ok: true, command: null });
+  });
+
+  it("refuses a curve past the schema's limit, and text that is not an angle", () => {
+    const p = fixture();
+    expect(outcomeOf(p, W1, "Curve", String(CURVE_LIMIT + 1))).toEqual({
+      ok: false,
+      message: "Curve must be from -270 to 270 degrees.",
+    });
+    expect(outcomeOf(p, W1, "Curve", `-${CURVE_LIMIT}`)).toMatchObject({ ok: true });
+    expect(outcomeOf(p, W1, "Curve", "quarter")).toEqual({
+      ok: false,
+      message: "Curve needs a number of degrees, such as 90.",
+    });
+  });
+});
+
+describe("typing a wall's height (W-092, W-094)", () => {
+  it("shows a wall that follows the level as empty, standing for the level's height", () => {
+    const row = rowOf(fixture(), W1, "Height");
+    expect(row.value).toBe("");
+    expect(row.empty).toEqual({ shown: `level · 2${NARROW}700 mm`, action: "Follow the level's height" });
+    expect(row.hint).toBe("Empty follows the level, 2700 millimetres.");
+  });
+
+  it("gives the wall a height of its own", () => {
+    const p = fixture();
+    const { project } = run(p, typed(p, W1, "Height", "3 m"));
+    expect(wallOf(project, W1).height).toBe(3000);
+    expect(rowOf(project, W1, "Height").value).toBe(`3${NARROW}000`);
+  });
+
+  it("takes the level's own height as a height of the wall's own, which it then keeps", () => {
+    // typed into the empty field, 2700 is a decision to stop following the level, so it is sent
+    const p = fixture();
+    expect(typed(p, W1, "Height", "2700").payload).toEqual({ wallId: W1, changes: { height: 2700 } });
+  });
+
+  it("follows the level again when emptied", () => {
+    const p = modified(fixture(), { height: 3000 });
+    expect(outcomeOf(p, W1, "Height", " ")).toEqual({
+      ok: true,
+      command: { type: "wall.modify", payload: { wallId: W1, changes: { height: null } } },
+      said: "follows the level, 2700 millimetres",
+    });
+    expect(outcomeOf(fixture(), W1, "Height", "")).toMatchObject({ ok: true, command: null });
+  });
+
+  it("refuses a height past a hundred metres, or none at all", () => {
+    const p = fixture();
+    const refusal = { ok: false, message: `Height must be from 1 to ${HEIGHT_RANGE.max} mm.` };
+    expect(outcomeOf(p, W1, "Height", "0")).toEqual(refusal);
+    expect(outcomeOf(p, W1, "Height", "100.001 m")).toEqual(refusal);
+  });
+
+  it("does not offer to empty a sloping wall's start, and refuses it in words", () => {
+    // emptying it would let the model move the end height into the start and flatten the wall
+    const p = modified(fixture(), { height: 3000, heightAtEnd: 2000 });
+    const row = rowOf(p, W1, "Height");
+    expect(row.empty).toBeUndefined();
+    expect(row.hint).toBe("The height at the start of this sloping wall.");
+    expect(outcomeOf(p, W1, "Height", "")).toEqual({
+      ok: false,
+      message: "A sloping wall needs its own height at the start. Empty the height at end first.",
+    });
+  });
+});
+
+describe("typing the height at a wall's end", () => {
+  it("shows a flat top as an empty end, standing for the start's height", () => {
+    const row = rowOf(fixture(), W1, "Height at end");
+    expect(row.value).toBe("");
+    expect(row.empty).toEqual({ shown: `same · 2${NARROW}700 mm`, action: "Make the top flat" });
+    expect(row.hint).toBe("Empty keeps the top flat, at the start's 2700 millimetres.");
+  });
+
+  it("slopes a wall that has a height of its own", () => {
+    const p = modified(fixture(), { height: 3000 });
+    const { project } = run(p, typed(p, W1, "Height at end", "2000"));
+    const wall = wallOf(project, W1);
+    expect([wall.height, wall.heightAtEnd]).toEqual([3000, 2000]);
+    expect(derive.isTrapezoidal(wall)).toBe(true);
+  });
+
+  it("slopes a wall that follows the level by fixing its start where it shows, not by moving the end there", () => {
+    const p = fixture();
+    const command = typed(p, W1, "Height at end", "2000");
+    expect(command.payload).toEqual({ wallId: W1, changes: { height: 2700, heightAtEnd: 2000 } });
+    const wall = wallOf(run(p, command).project, W1);
+    expect([wall.height, wall.heightAtEnd]).toEqual([2700, 2000]);
+  });
+
+  it("flattens the top when the end is emptied, or given the start's height", () => {
+    const p = modified(fixture(), { height: 3000, heightAtEnd: 2000 });
+    const flatten = { type: "wall.modify", payload: { wallId: W1, changes: { heightAtEnd: null } } };
+    expect(outcomeOf(p, W1, "Height at end", "")).toEqual({
+      ok: true,
+      command: flatten,
+      said: "flat, 3000 millimetres",
+    });
+    expect(outcomeOf(p, W1, "Height at end", "3000")).toMatchObject({ ok: true, command: flatten });
+    const wall = wallOf(run(p, flatten).project, W1);
+    expect([wall.height, wall.heightAtEnd]).toEqual([3000, null]);
+  });
+
+  it("sends nothing for the start's height on a top that is already flat", () => {
+    expect(outcomeOf(fixture(), W1, "Height at end", "2700")).toMatchObject({ ok: true, command: null });
+    expect(outcomeOf(fixture(), W1, "Height at end", "")).toMatchObject({ ok: true, command: null });
   });
 });

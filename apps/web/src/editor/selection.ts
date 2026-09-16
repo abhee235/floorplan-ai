@@ -3,9 +3,9 @@
 // Free of the DOM and of the canvas so it can be tested. The shell and the properties panel both read
 // from here rather than each working the selection out for themselves.
 
-import type { Item, Opening, Project, Room, Wall } from "@fpv/ir";
+import type { Item, Level, Opening, Project, Room, Wall } from "@fpv/ir";
 import { derive } from "@fpv/ir";
-import { describeLength, formatMm, parseMm } from "./status.js";
+import { describeLength, formatDegrees, formatMm, parseDegrees, parseMm } from "./status.js";
 import { WALL_KINDS } from "./tools.js";
 import { MAX_LENGTH_MM } from "./wall-tool.js";
 
@@ -172,8 +172,20 @@ export interface Fact {
   unit?: string;
   /** Present when the value is picked from a list rather than typed. */
   choices?: readonly Choice[];
+  /** Present on a row the model lets be empty, saying what empty stands for. `value` is "" when it is. */
+  empty?: EmptyMeaning;
+  /** Read to a screen reader as the field's description: what the value means beyond its name. */
+  hint?: string;
   /** Present when the panel can change this fact: turns what was typed, or picked, into what to send. */
   edit?: (text: string) => EditOutcome;
+}
+
+/** What an empty field stands for. */
+export interface EmptyMeaning {
+  /** Greyed in the empty field, unit and all, because the unit beside it is hidden while it shows. */
+  shown: string;
+  /** The name of the button that empties a filled field: "Follow the level's height". */
+  action: string;
 }
 
 export interface SelectedEntity {
@@ -192,13 +204,21 @@ export interface SelectedEntity {
  */
 export const THICKNESS_RANGE = { min: 1, max: 10_000 } as const;
 
+/** A typed wall height: a millimetre up to a hundred metres, past any storey anyone draws. */
+export const HEIGHT_RANGE = { min: 1, max: 100_000 } as const;
+
+/** The furthest a wall may curve either way, in degrees; the schema's own limit. */
+export const CURVE_LIMIT = 270;
+
 /** Everything the panel needs about one selected id, or null when the id is not in the project. */
 export function describeEntity(project: Project, id: string): SelectedEntity | null {
   const kind = kindOf(id);
   if (!kind) return null;
   if (kind === "wall") {
     const w = project.walls.find((x) => x.id === id);
-    return w ? { id, kind, title: "Wall", facts: wallFacts(w) } : null;
+    if (!w) return null;
+    const level = derive.levelOf(project, w.levelId) ?? derive.lowestLevel(project);
+    return { id, kind, title: "Wall", facts: wallFacts(w, level) };
   }
   if (kind === "room") {
     const r = project.rooms.find((x) => x.id === id);
@@ -218,7 +238,7 @@ const COORDINATE_RANGE = { min: -MAX_LENGTH_MM, max: MAX_LENGTH_MM } as const;
 /** A typed wall length: a whole millimetre at least, since Mm is an integer, up to that same kilometre. */
 export const LENGTH_RANGE = { min: 1, max: MAX_LENGTH_MM } as const;
 
-function wallFacts(w: Wall): Fact[] {
+function wallFacts(w: Wall, level: Level): Fact[] {
   const arc = derive.isArc(w);
   return [
     {
@@ -229,6 +249,15 @@ function wallFacts(w: Wall): Fact[] {
     },
     ...endFacts(w, "start"),
     ...endFacts(w, "end"),
+    {
+      group: "Shape",
+      label: "Curve",
+      value: w.arcExtent === null ? "" : formatDegrees(w.arcExtent),
+      unit: "°",
+      empty: { shown: "straight", action: "Make the wall straight" },
+      hint: "In degrees. A positive curve bows to the left, going from start to end. Empty is straight.",
+      edit: curveEdit(w),
+    },
     arc
       ? // Along the curve, which is the length anyone means by a curved wall's length. Not typed: a new
         // length could keep the chord and deepen the curve, or keep the curve and move an end, and neither
@@ -252,7 +281,106 @@ function wallFacts(w: Wall): Fact[] {
         wallModify(w.id, { thickness }),
       ),
     },
+    ...heightFacts(w, level),
   ];
+}
+
+/**
+ * How far round a wall bends. Empty and 0 are both straight, which the model keeps as no extent at all:
+ * an extent of exactly 0 puts the arc's centre at infinity (W-050).
+ */
+function curveEdit(w: Wall): (text: string) => EditOutcome {
+  const straight = (): EditOutcome => ({
+    ok: true,
+    command: w.arcExtent === null ? null : wallModify(w.id, { arcExtent: null }),
+    said: "straight",
+  });
+  return (text) => {
+    if (text.trim() === "") return straight();
+    const deg = parseDegrees(text);
+    if (deg === null) return { ok: false, message: "Curve needs a number of degrees, such as 90." };
+    if (Math.abs(deg) > CURVE_LIMIT)
+      return { ok: false, message: `Curve must be from -${CURVE_LIMIT} to ${CURVE_LIMIT} degrees.` };
+    if (deg === 0) return straight();
+    // Compared as shown, so a stored 33.29999 and a typed 33.3 are the same curve.
+    const same = w.arcExtent !== null && formatDegrees(w.arcExtent) === formatDegrees(deg);
+    return { ok: true, command: same ? null : wallModify(w.id, { arcExtent: deg }), said: `${deg} degrees` };
+  };
+}
+
+/**
+ * The height at each end. An empty start follows the level (W-092), and an empty end is a flat top at the
+ * start's height, which is how the model keeps a flat top (W-094) — there is no separate flat-or-sloping
+ * switch because the model has nowhere to keep one: a sloping wall whose ends are the same height is
+ * stored as a flat one.
+ */
+function heightFacts(w: Wall, level: Level): Fact[] {
+  const start = derive.wallHeight(w, level);
+  const sloping = w.heightAtEnd !== null;
+  const followsLevel = `follows the level, ${describeLength(level.height)}`;
+  return [
+    {
+      group: "Height",
+      label: "Height",
+      value: w.height === null ? "" : formatMm(w.height),
+      unit: "mm",
+      // Not offered on a sloping wall: the model keeps an end height only beside a start height of the
+      // wall's own, and moves a lone end height into the start (normalizeWall), so emptying the start would
+      // turn the slope into a flat top at the end's height.
+      ...(sloping
+        ? {}
+        : { empty: { shown: `level · ${formatMm(level.height)} mm`, action: "Follow the level's height" } }),
+      hint: sloping ? "The height at the start of this sloping wall." : `Empty ${followsLevel}.`,
+      edit: orEmpty(
+        lengthEdit("Height", w.height, HEIGHT_RANGE, (height) => wallModify(w.id, { height })),
+        () =>
+          sloping
+            ? {
+                ok: false,
+                message: "A sloping wall needs its own height at the start. Empty the height at end first.",
+              }
+            : {
+                ok: true,
+                command: w.height === null ? null : wallModify(w.id, { height: null }),
+                said: followsLevel,
+              },
+      ),
+    },
+    {
+      group: "Height",
+      label: "Height at end",
+      value: w.heightAtEnd === null ? "" : formatMm(w.heightAtEnd),
+      unit: "mm",
+      empty: { shown: `same · ${formatMm(start)} mm`, action: "Make the top flat" },
+      hint: `Empty keeps the top flat, at the start's ${describeLength(start)}.`,
+      edit: orEmpty(
+        lengthEdit("Height at end", w.heightAtEnd, HEIGHT_RANGE, (mm) => {
+          // The start's own height is a flat top, which the model keeps as no end height at all.
+          if (mm === start) return sloping ? wallModify(w.id, { heightAtEnd: null }) : null;
+          // A wall following the level has no start height to slope from, and the model would move a lone
+          // end height into the start. So the start is fixed at the height it shows now, and only the end
+          // moves — which is what was asked for.
+          return wallModify(
+            w.id,
+            w.height === null ? { height: start, heightAtEnd: mm } : { heightAtEnd: mm },
+          );
+        }),
+        () => ({
+          ok: true,
+          command: sloping ? wallModify(w.id, { heightAtEnd: null }) : null,
+          said: `flat, ${describeLength(start)}`,
+        }),
+      ),
+    },
+  ];
+}
+
+/** An edit that means something of its own when the field is emptied. */
+function orEmpty(
+  edit: (text: string) => EditOutcome,
+  whenEmpty: () => EditOutcome,
+): (text: string) => EditOutcome {
+  return (text) => (text.trim() === "" ? whenEmpty() : edit(text));
 }
 
 /**
@@ -303,13 +431,14 @@ function wallModify(wallId: string, changes: Record<string, unknown>): EditComma
  * limits are written in plain digits: a grouped "10 000" is read by some screen readers as four numbers.
  *
  * `command` may answer with a sentence instead of a command, for a value that is a fine number but not a
- * possible one — an end typed onto the other end.
+ * possible one — an end typed onto the other end — or with null, for one that changes nothing although it
+ * differs from `current`. `current` is null on a row whose model value is empty.
  */
 function lengthEdit(
   name: string,
-  current: number,
+  current: number | null,
   range: { min: number; max: number },
-  command: (mm: number) => EditCommand | string,
+  command: (mm: number) => EditCommand | string | null,
 ): (text: string) => EditOutcome {
   return (text) => {
     const mm = parseMm(text);

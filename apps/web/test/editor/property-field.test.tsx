@@ -6,6 +6,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, onTestFinished } from "vitest";
+import { TooltipProvider } from "../../src/components/ui/tooltip.js";
 import { Announcer, type LiveRegion } from "../../src/editor/announce.js";
 import { PropertyField } from "../../src/editor/PropertyField.js";
 import type { EditCommand, EditOutcome } from "../../src/editor/selection.js";
@@ -271,5 +272,119 @@ describe("how a property row is labelled", () => {
     });
     const list = screen.getByRole("combobox", { name: "Kind" });
     expect(list.textContent).toContain("Interior");
+  });
+});
+
+describe("a property field that may be empty", () => {
+  /** Empty follows the level; a number is the wall's own. */
+  const heightEdit =
+    (current: string) =>
+    (text: string): EditOutcome => {
+      if (text.trim() === "")
+        return {
+          ok: true,
+          command: current === "" ? null : { type: "wall.modify", payload: { height: null } },
+          said: "follows the level",
+        };
+      const n = Number(text);
+      if (!Number.isInteger(n)) return { ok: false, message: "Type a whole number." };
+      return { ok: true, command: { type: "wall.modify", payload: { height: n } }, said: `${n} millimetres` };
+    };
+
+  function setupEmpty(start: string) {
+    const polite: LiveRegion = { textContent: "" };
+    const editor = {
+      announcer: new Announcer({ polite, assertive: { textContent: "" } }),
+    } as Partial<Editor> as Editor;
+    const sent: EditCommand[] = [];
+    const ui = (value: string) => (
+      <EditorContext.Provider value={editor}>
+        <TooltipProvider>
+          <PropertyField
+            id="wall-height"
+            label="Height"
+            value={value}
+            unit="mm"
+            empty={{ shown: "level · 2 700 mm", action: "Follow the level's height" }}
+            hint="Empty follows the level, 2700 millimetres."
+            edit={heightEdit(value)}
+            send={send}
+          />
+        </TooltipProvider>
+      </EditorContext.Provider>
+    );
+    const view = render(ui(start));
+    async function send(command: EditCommand): Promise<void> {
+      sent.push(command);
+      const height = command.payload.height;
+      view.rerender(ui(height === null ? "" : String(height)));
+    }
+    const input = screen.getByRole("textbox") as HTMLInputElement;
+    const unitShown = () =>
+      [...view.container.querySelectorAll('[aria-hidden="true"]')].some((el) => el.textContent === "mm");
+    return { input, sent, polite, view, unitShown, user: userEvent.setup() };
+  }
+
+  it("shows what empty stands for, greyed in the field, and drops the unit beside it", () => {
+    const { input, unitShown } = setupEmpty("");
+    expect(input.value).toBe("");
+    expect(input.placeholder).toBe("level · 2 700 mm");
+    expect(unitShown()).toBe(false);
+  });
+
+  it("brings the unit back as soon as something is typed", async () => {
+    const { input, unitShown, user } = setupEmpty("");
+    await user.click(input);
+    await user.keyboard("3");
+    expect(unitShown()).toBe(true);
+  });
+
+  it("describes itself to a screen reader, and adds the refusal after the description", async () => {
+    const { input, user } = setupEmpty("");
+    const described = () =>
+      (input.getAttribute("aria-describedby") ?? "")
+        .split(" ")
+        .map((id) => document.getElementById(id)?.textContent);
+    expect(described()).toEqual(["Empty follows the level, 2700 millimetres."]);
+    await user.click(input);
+    await user.keyboard("x{Enter}");
+    expect(described()).toEqual(["Empty follows the level, 2700 millimetres.", "Type a whole number."]);
+  });
+
+  it("offers no reset while the field is already empty", () => {
+    setupEmpty("");
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("empties a filled field from its reset button, then hands the focus to the field", async () => {
+    const { input, sent, polite, user } = setupEmpty("3000");
+    const reset = screen.getByRole("button", { name: "Follow the level's height (Height)" });
+    await user.click(reset);
+    expect(sent).toEqual([{ type: "wall.modify", payload: { height: null } }]);
+    expect(input.value).toBe("");
+    expect(polite.textContent).toBe("Height follows the level.");
+    // the button went with the value, so the focus did not go with the button
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(document.activeElement).toBe(input);
+  });
+
+  it("empties a filled field when its text is deleted and the field is left", async () => {
+    const { input, sent, user } = setupEmpty("3000");
+    await user.click(input);
+    await user.keyboard("{Backspace}");
+    await user.tab();
+    expect(sent).toEqual([{ type: "wall.modify", payload: { height: null } }]);
+    expect(input.value).toBe("");
+  });
+
+  it("says it was kept empty when left with nonsense", async () => {
+    const { input, user } = setupEmpty("");
+    await user.click(input);
+    await user.keyboard("x");
+    await user.tab();
+    expect(input.value).toBe("");
+    expect(document.getElementById("wall-height-error")?.textContent).toBe(
+      "Type a whole number. Kept it empty.",
+    );
   });
 });

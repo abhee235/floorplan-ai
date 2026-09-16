@@ -4,8 +4,10 @@ import {
   CommandRegistry,
   countsText,
   describeLength,
+  formatDegrees,
   formatMm,
   paletteSections,
+  parseDegrees,
   parseMm,
   pointerText,
   problemSummary,
@@ -51,6 +53,24 @@ describe("lengths in words and figures", () => {
   it("refuses what is not a length rather than guessing", () => {
     for (const text of ["", " ", "abc", "12 ft", "1,200", "1.2.3", "mm", "1e3", "Infinity", "12-3"])
       expect(parseMm(text), text).toBeNull();
+  });
+
+  it("reads a typed angle to a tenth, with or without its sign", () => {
+    expect(parseDegrees("90")).toBe(90);
+    expect(parseDegrees("90°")).toBe(90);
+    expect(parseDegrees(" -45.25 deg ")).toBe(-45.3);
+    expect(parseDegrees("33.3 degrees")).toBe(33.3);
+    expect(Object.is(parseDegrees("-0.04"), 0)).toBe(true);
+    for (const text of ["", "°", "ninety", "90 mm", "1,5", "9e1"])
+      expect(parseDegrees(text), text).toBeNull();
+  });
+
+  it("writes an angle to a tenth, without a trailing .0, in a form it reads back", () => {
+    expect(formatDegrees(90)).toBe("90");
+    expect(formatDegrees(-45.26)).toBe("-45.3");
+    expect(formatDegrees(33.29999)).toBe("33.3");
+    expect(formatDegrees(-0.01)).toBe("0");
+    expect(parseDegrees(formatDegrees(-12.34))).toBe(-12.3);
   });
 
   it("states where the pointer is, and says nothing when it is off the plan", () => {

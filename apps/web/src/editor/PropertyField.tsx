@@ -5,16 +5,19 @@
 // is picked. What the value MEANS is not decided here: the row's `edit` comes from selection.ts, and this
 // only runs the conversation around it — the draft, the refusal, and the round trip to the host.
 
+import { RotateCcw } from "lucide-react";
 import type { JSX, KeyboardEvent, ReactNode } from "react";
 import { useLayoutEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { Choice, EditCommand, EditOutcome } from "./selection.js";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import type { Choice, EditCommand, EditOutcome, EmptyMeaning } from "./selection.js";
 import { useEditor } from "./useEditor.js";
 
 /** How a unit is read aloud; the printed unit is hidden from a screen reader in favour of this. */
-const UNIT_NAMES: Record<string, string> = { mm: "millimetres" };
+const UNIT_NAMES: Record<string, string> = { mm: "millimetres", "°": "degrees" };
 
 export interface PropertyFieldProps {
   id: string;
@@ -27,6 +30,10 @@ export interface PropertyFieldProps {
   unit?: string | undefined;
   align?: "left" | "right";
   choices?: readonly Choice[] | undefined;
+  /** What an empty field stands for, on a row that may be emptied. */
+  empty?: EmptyMeaning | undefined;
+  /** Read to a screen reader as the field's description. */
+  hint?: string | undefined;
   edit?: ((text: string) => EditOutcome) | undefined;
   /** Resolves once the host has taken the command, and throws with its reason when it refuses. */
   send?: ((command: EditCommand) => Promise<void>) | undefined;
@@ -47,6 +54,8 @@ function TextField({
   unit,
   align = "right",
   choices,
+  empty,
+  hint,
   edit,
   send,
 }: PropertyFieldProps): JSX.Element {
@@ -72,6 +81,10 @@ function TextField({
   const editable = edit !== undefined && send !== undefined;
   // A list shown read-only still reads as its label, not as the value the model stores.
   const shown = choices?.find((c) => c.value === value)?.label ?? value;
+  // An empty field that stands for something shows that instead, greyed, with its own unit: the unit
+  // beside the field would otherwise follow "straight" as "straight °".
+  const showingEmpty = empty !== undefined && (draft ?? shown) === "";
+  const resettable = editable && empty !== undefined && value !== "";
 
   const setDraft = (next: string | null): void => {
     latest.current = next;
@@ -97,7 +110,8 @@ function TextField({
       // Gone from the field, so the value goes back rather than leaving text that means nothing behind a
       // red border — but the reason stays in view, with what was kept.
       setDraft(null);
-      report.refuse(outcome.message, `${outcome.message} Kept ${value}${unit ? ` ${unit}` : ""}.`);
+      const kept = value === "" ? "it empty" : `${value}${unit ? ` ${unit}` : ""}`;
+      report.refuse(outcome.message, `${outcome.message} Kept ${kept}.`);
       return;
     }
     report.clear();
@@ -107,6 +121,21 @@ function TextField({
     // does not flick back to the old number on the way.
     setDraft(null);
     if (how === "enter") reselect.current = true;
+  };
+
+  /** The reset button: empties the field through the same edit that typing nothing would make. */
+  const clear = async (): Promise<void> => {
+    if (!edit) return;
+    const outcome = edit("");
+    if (!outcome.ok) {
+      report.refuse(outcome.message);
+      return;
+    }
+    setDraft(null);
+    report.clear();
+    if (outcome.command) await report.deliver(outcome.command, outcome.said);
+    // The button goes once the field is empty, and focus would go with it to the page.
+    input.current?.focus();
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
@@ -131,7 +160,28 @@ function TextField({
   };
 
   return (
-    <Row id={id} label={label} caption={caption} unit={unit} error={report.error}>
+    <Row id={id} label={label} caption={caption} unit={unit} hint={hint} error={report.error}>
+      {resettable ? (
+        // Inside the field's left edge, which a right-aligned value leaves empty. Beside the field it took
+        // the width the label needed, and "Height at end" broke onto two lines. First in the DOM, so the
+        // focus order runs left to right as the eye does.
+        <span className="absolute inset-y-0 left-0.5 z-10 flex items-center">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label={`${empty.action} (${label})`}
+                className="text-muted-foreground"
+                onClick={() => void clear()}
+              >
+                <RotateCcw aria-hidden />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="left">{empty.action}</TooltipContent>
+          </Tooltip>
+        </span>
+      ) : null}
       <Input
         ref={input}
         id={id}
@@ -143,8 +193,9 @@ function TextField({
         inputMode={editable && unit ? "decimal" : undefined}
         autoComplete="off"
         spellCheck={false}
+        placeholder={empty?.shown}
         aria-invalid={report.error ? true : undefined}
-        aria-describedby={report.error ? errorId(id) : undefined}
+        aria-describedby={describedBy(id, hint, report.error)}
         onChange={(e) => {
           setDraft(e.target.value);
           if (report.error) report.clear();
@@ -167,8 +218,9 @@ function TextField({
           // Left alignment is for text being typed into a visible box. Without the box, a left-aligned
           // value floats in the middle of the row, away from the column every other value ends on.
           align === "right" || !editable ? "text-right tabular-nums" : "",
-          prefix ? "pl-7" : "",
-          unit ? "pr-10" : "",
+          prefix || resettable ? "pl-7" : "",
+          // Room for the unit, and no more: "mm" wants a gap before it, a degree sign sits against its number.
+          unit && !showingEmpty ? (unit.length > 1 ? "pr-10" : "pr-5") : "",
           editable ? "" : "border-transparent bg-transparent shadow-none dark:bg-transparent",
         ]
           .filter(Boolean)
@@ -182,7 +234,7 @@ function TextField({
           {prefix}
         </span>
       ) : null}
-      {unit ? (
+      {unit && !showingEmpty ? (
         <span
           aria-hidden
           className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-muted-foreground"
@@ -201,6 +253,7 @@ function ChoiceField({
   caption,
   value,
   choices,
+  hint,
   edit,
   send,
 }: PropertyFieldProps & {
@@ -222,13 +275,13 @@ function ChoiceField({
   };
 
   return (
-    <Row id={id} label={label} caption={caption} error={report.error}>
+    <Row id={id} label={label} caption={caption} hint={hint} error={report.error}>
       <Select value={value} onValueChange={(next) => void pick(next)}>
         <SelectTrigger
           id={id}
           size="sm"
           aria-invalid={report.error ? true : undefined}
-          aria-describedby={report.error ? errorId(id) : undefined}
+          aria-describedby={describedBy(id, hint, report.error)}
           className="w-full data-[size=sm]:h-7"
         >
           <SelectValue />
@@ -246,6 +299,13 @@ function ChoiceField({
 }
 
 const errorId = (id: string): string => `${id}-error`;
+const hintId = (id: string): string => `${id}-hint`;
+
+/** The hint first, then the refusal: the reason something was refused reads best after what it is. */
+function describedBy(id: string, hint: string | undefined, error: string | null): string | undefined {
+  const ids = [hint ? hintId(id) : null, error ? errorId(id) : null].filter(Boolean);
+  return ids.length > 0 ? ids.join(" ") : undefined;
+}
 
 /** The label, the control, and the reason under them when there is one. */
 function Row({
@@ -253,6 +313,7 @@ function Row({
   label,
   caption,
   unit,
+  hint,
   error,
   children,
 }: {
@@ -260,6 +321,7 @@ function Row({
   label: string;
   caption?: string | undefined;
   unit?: string | undefined;
+  hint?: string | undefined;
   error: string | null;
   children: ReactNode;
 }): JSX.Element {
@@ -278,6 +340,11 @@ function Row({
         </Label>
         <div className="relative w-[150px] shrink-0">{children}</div>
       </div>
+      {hint ? (
+        <span id={hintId(id)} className="sr-only">
+          {hint}
+        </span>
+      ) : null}
       {error ? (
         // Left-aligned across the row, not under the field alone: right-aligned, a two-line reason left its
         // last word stranded, and the message opens with the field's name, so it reads from the label.
