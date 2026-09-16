@@ -231,6 +231,11 @@ export function startApp(el: AppElements): {
 
   // ---- replica -> binding + plan ----
   let firstSnapshot = true;
+  // Whether the camera has ever framed actual geometry. A new project's first snapshot is empty, so
+  // fitCamera() returns at its own isEmpty() guard and — because it only ran behind `firstSnapshot` —
+  // was never called again. The camera stayed at its constructor position while walls were built well
+  // outside the frustum, so drawing on the plan appeared to do nothing at all in 3D.
+  let framedSomething = false;
   replica.subscribe(({ changes, project }) => {
     if (changes.commandType === "snapshot") {
       binding.setProject(project);
@@ -243,9 +248,20 @@ export function startApp(el: AppElements): {
           fitCamera();
         });
       }
+      framedSomething = !binding.bounds.isEmpty();
     } else {
       binding.onChanges(changes, project);
       plan.onChanges(changes, project);
+      // The first geometry to arrive in an empty project gets framed once. Only once: re-framing on every
+      // change would fight the orbit controls every time a wall is drawn.
+      if (!framedSomething) {
+        requestAnimationFrame(() => {
+          binding.flush();
+          if (binding.bounds.isEmpty()) return;
+          framedSomething = true;
+          fitCamera();
+        });
+      }
     }
     planDirty = true;
     updateStatus();

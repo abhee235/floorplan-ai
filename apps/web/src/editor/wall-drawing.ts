@@ -58,13 +58,24 @@ export function bindWallDrawing(deps: WallDrawingDeps): WallDrawing {
   });
 
   // ---- the floating length and angle card (the design's keyboard entry) ----
+  //
+  // The classes are Tailwind utilities written as literals, not hand-rolled `fpv-` names. The old ones
+  // were styled by CSS in index.html that the React port deleted, which left this card rendering as bare
+  // text on the canvas — Preflight strips an input's border and background, so the fields looked like
+  // paragraphs. Tailwind's scanner reads .ts files, so literals here do generate.
+  //
+  // `absolute` is part of the fix rather than decoration: the card positions itself with style.left/top,
+  // which meant nothing once the old CSS (and its `position: absolute`) went, so it sat at the top-left of
+  // the plan instead of beside the cursor.
   const card = document.createElement("div");
-  card.className = "fpv-wall-entry";
+  card.className =
+    "fpv-wall-entry absolute z-10 flex flex-col gap-1 rounded-md border bg-card/95 p-2 shadow-md " +
+    "text-xs text-foreground";
   card.hidden = true;
   const lengthInput = numberField("Length", "mm");
   const angleInput = numberField("Angle", "°");
   const relativeNote = document.createElement("p");
-  relativeNote.className = "fpv-wall-entry-note";
+  relativeNote.className = "text-[11px] text-muted-foreground";
   relativeNote.textContent = "relative to the last wall";
   card.append(lengthInput.row, angleInput.row, relativeNote);
   element.append(card);
@@ -324,15 +335,20 @@ function toScreenPoint(view: PlanView, p: Point): { x: number; y: number } {
 
 function numberField(name: string, unit: string): { row: HTMLElement; input: HTMLInputElement } {
   const row = document.createElement("label");
-  row.className = "fpv-wall-entry-row";
+  row.className = "flex items-center gap-1.5";
   const caption = document.createElement("span");
+  caption.className = "w-12 text-muted-foreground";
   caption.textContent = name;
   const input = document.createElement("input");
   input.type = "number";
-  input.className = "fpv-number";
+  // The border and background are stated because Preflight removes both from an input; without them the
+  // field is indistinguishable from the label beside it.
+  input.className =
+    "h-6 w-20 rounded border border-input bg-background px-1.5 text-right tabular-nums " +
+    "outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
   input.setAttribute("aria-label", `${name} in ${unit === "°" ? "degrees" : unit}`);
   const suffix = document.createElement("span");
-  suffix.className = "fpv-wall-entry-unit";
+  suffix.className = "w-4 text-muted-foreground";
   suffix.textContent = unit;
   row.append(caption, input, suffix);
   return { row, input };
