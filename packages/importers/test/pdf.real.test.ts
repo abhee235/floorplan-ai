@@ -13,9 +13,7 @@ const expected = JSON.parse(readFileSync(`${DIR}nist-tn1838-first-floor.expected
   mmPerUnitTolerancePct: number;
   wallsAtLeast: number;
 };
-const content = JSON.parse(
-  readFileSync(`${DIR}nist-tn1838-first-floor.page.json`, "utf8"),
-) as PdfPageContent;
+const content = JSON.parse(readFileSync(`${DIR}nist-tn1838-first-floor.page.json`, "utf8")) as PdfPageContent;
 
 describe("vector PDF reader on a real drawing (PRD P2-7)", () => {
   const { draft, report } = pdfPageToDraft(content, { file: "nist-tn1838-first-floor.page.json" });
