@@ -12,6 +12,7 @@ import {
   SKIRTING_DEPTH,
   SKIRTING_DEPTH_RANGE,
   tidyFinish,
+  WallPattern,
 } from "@fpv/ir";
 import { z } from "zod";
 import { sizesFor } from "../context.js";
@@ -106,7 +107,7 @@ export const createWalls = defineTool({
 export const modifyWall = defineTool({
   name: "modify_wall",
   description:
-    "Change one wall: move its start or end (joined neighbours follow), or set thickness, height, heightAtEnd (sloped top), arcExtent (degrees, positive bulges left) or kind. Returns the wall and every wall that changed with it.",
+    "Change one wall: move its start or end (joined neighbours follow), or set thickness, height, heightAtEnd (sloped top), arcExtent (degrees, positive bulges left), kind, or pattern (how the plan fills it: solid, hatch, cross-hatch or outline). Returns the wall and every wall that changed with it.",
   tier: "primitive",
   mutating: true,
   input: z.object({
@@ -118,6 +119,7 @@ export const modifyWall = defineTool({
     heightAtEnd: z.number().int().positive().nullable().optional(),
     arcExtent: z.number().min(-270).max(270).nullable().optional(),
     kind: z.enum(["exterior", "interior", "partition", "glass"]).optional(),
+    pattern: WallPattern.optional(),
   }),
   output: z.object({ wall: WallViewS, affected: z.array(WallViewS) }),
   run(args, call) {

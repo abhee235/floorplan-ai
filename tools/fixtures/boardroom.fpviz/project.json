@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "meta": {
     "name": "Boardroom task card",
     "createdAt": "2026-09-15T12:00:00.000Z",
@@ -37,6 +37,7 @@
       "heightAtEnd": null,
       "arcExtent": null,
       "kind": "interior",
+      "pattern": "solid",
       "joins": {
         "start": {
           "wallId": "wall_000004",
@@ -74,6 +75,7 @@
       "heightAtEnd": null,
       "arcExtent": null,
       "kind": "interior",
+      "pattern": "solid",
       "joins": {
         "start": {
           "wallId": "wall_000001",
@@ -111,6 +113,7 @@
       "heightAtEnd": null,
       "arcExtent": null,
       "kind": "interior",
+      "pattern": "solid",
       "joins": {
         "start": {
           "wallId": "wall_000002",
@@ -148,6 +151,7 @@
       "heightAtEnd": null,
       "arcExtent": null,
       "kind": "interior",
+      "pattern": "solid",
       "joins": {
         "start": {
           "wallId": "wall_000003",

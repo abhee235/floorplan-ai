@@ -274,6 +274,29 @@ describe("how a property row is labelled", () => {
     const list = screen.getByRole("combobox", { name: "Kind" });
     expect(list.textContent).toContain("Interior");
   });
+
+  it("draws a pattern's picture beside its name, out of the accessibility tree (W-121)", () => {
+    show({
+      id: "w-pattern",
+      label: "Plan pattern",
+      value: "cross-hatch",
+      choices: [
+        { value: "solid", label: "Solid", swatch: "solid" },
+        { value: "cross-hatch", label: "Cross-hatched", swatch: "cross-hatch" },
+      ],
+      edit: (value) => ({ ok: true, command: null, said: value }),
+      send: async () => {},
+    });
+    const list = screen.getByRole("combobox", { name: "Plan pattern" });
+    expect(list.textContent).toBe("Cross-hatched");
+    const picture = list.querySelector("svg[aria-hidden='true']");
+    // two sets of diagonals, clipped by an id a url() reference can name
+    expect(picture?.querySelectorAll("line")).toHaveLength(14);
+    expect(picture?.querySelector("clipPath")?.id).toMatch(/^pattern-[\w-]+$/);
+    expect(picture?.querySelector("g")?.getAttribute("clip-path")).toBe(
+      `url(#${picture?.querySelector("clipPath")?.id})`,
+    );
+  });
 });
 
 describe("a property field that may be empty", () => {

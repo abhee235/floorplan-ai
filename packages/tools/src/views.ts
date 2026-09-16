@@ -20,6 +20,8 @@ export const WallViewS = z.object({
   thickness: z.number(),
   height: z.number(),
   kind: z.string(),
+  /** Present only when the plan fills the wall other than solid. */
+  pattern: z.string().optional(),
   arcExtent: z.number().nullable(),
   compass: z.object({ left: CompassS, right: CompassS }),
   joins: z.object({ start: z.string().nullable(), end: z.string().nullable() }),
@@ -122,6 +124,7 @@ export function wallView(p: Project, w: Wall): WallView {
     thickness: w.thickness,
     height: level ? derive.wallHeight(w, level) : (w.height ?? 0),
     kind: w.kind,
+    ...(w.pattern === "solid" ? {} : { pattern: w.pattern }),
     arcExtent: w.arcExtent,
     compass: {
       left: derive.wallCompassSide(w, "left", p.meta.north),

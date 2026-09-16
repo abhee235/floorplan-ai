@@ -79,6 +79,11 @@ export function expand(
   const rows = (ref: Ref, removed: boolean) => {
     switch (ref.type) {
       case "wall":
+        // How the plan fills the wall is the plan's alone: redraw it, build nothing (W-121, S-011).
+        if (ref.aspect === "plan" && !removed) {
+          into.layers.add("structure");
+          break;
+        }
         touchWall(ref.id);
         if (removed) into.layers.add("structure");
         break;

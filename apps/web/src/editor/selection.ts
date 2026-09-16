@@ -4,7 +4,17 @@
 // from here rather than each working the selection out for themselves.
 
 import { MATERIAL_COLOURS } from "@fpv/engine";
-import type { FinishRef, Item, Level, Opening, PrimitiveRecipe, Project, Room, Wall } from "@fpv/ir";
+import type {
+  FinishRef,
+  Item,
+  Level,
+  Opening,
+  PrimitiveRecipe,
+  Project,
+  Room,
+  Wall,
+  WallPattern,
+} from "@fpv/ir";
 import {
   blankFinish,
   derive,
@@ -160,6 +170,8 @@ export type EditOutcome =
 export interface Choice {
   value: string;
   label: string;
+  /** A plan pattern to draw beside the label, for a list of them. */
+  swatch?: WallPattern;
 }
 
 /** One row of the properties panel. */
@@ -266,6 +278,13 @@ function wallFacts(w: Wall, level: Level, north: number): Fact[] {
       choices: WALL_KINDS,
       edit: choiceEdit("Kind", WALL_KINDS, w.kind, (kind) => wallModify(w.id, { kind })),
     },
+    {
+      label: "Plan pattern",
+      value: w.pattern,
+      choices: WALL_PATTERNS,
+      hint: "How the plan fills this wall. Drawings use it to tell new, existing and temporary walls apart.",
+      edit: choiceEdit("Plan pattern", WALL_PATTERNS, w.pattern, (pattern) => wallModify(w.id, { pattern })),
+    },
     ...endFacts(w, "start"),
     ...endFacts(w, "end"),
     {
@@ -305,6 +324,14 @@ function wallFacts(w: Wall, level: Level, north: number): Fact[] {
     ...sideFacts(w, "right", level, north),
   ];
 }
+
+/** How the plan fills a wall's cut (W-121), as a person picks it, each with a picture of itself. */
+export const WALL_PATTERNS: readonly Choice[] = [
+  { value: "solid", label: "Solid", swatch: "solid" },
+  { value: "hatch", label: "Hatched", swatch: "hatch" },
+  { value: "cross-hatch", label: "Cross-hatched", swatch: "cross-hatch" },
+  { value: "outline", label: "Outline", swatch: "outline" },
+];
 
 /** How glossy a side is, as a person picks it. The model keeps a number; these are the three it offers. */
 export const WALL_FINISHES: readonly Choice[] = [

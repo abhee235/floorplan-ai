@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addSkirtingColour,
+  addWallPattern,
   deserialize,
   type Migration,
   MigrationError,
@@ -189,5 +190,23 @@ describe("migrations", () => {
     expect(Project.parse(out.raw).walls[0]?.skirting.left?.color).toBeNull();
     // a document with no walls is left for the schema check to refuse
     expect(addSkirtingColour({ schemaVersion: 1, meta: {} })).toEqual({ schemaVersion: 1, meta: {} });
+  });
+
+  it("P-047 version 2 to 3 draws every wall solid, as before, keeping the file's field order", () => {
+    const v3 = JSON.parse(FIXTURE_TEXT) as RawDocument & { walls: Record<string, unknown>[] };
+    const walls = v3.walls.map(({ pattern: _, ...w }) => w);
+    const v2 = { ...v3, schemaVersion: 2, walls };
+    const out = migrate(v2);
+    expect(out.migrated).toBe(true);
+    expect(out.raw.schemaVersion).toBe(SCHEMA_VERSION);
+    const migrated = out.raw.walls as Record<string, unknown>[];
+    expect(migrated.map((w) => w.pattern)).toEqual(walls.map(() => "solid"));
+    const keys = Object.keys(migrated[0] as object);
+    expect(keys[keys.indexOf("kind") + 1]).toBe("pattern");
+    expect(Project.parse(out.raw).walls.every((w) => w.pattern === "solid")).toBe(true);
+    // a wall that already names one keeps it, and a document without walls is left alone
+    const named = addWallPattern({ schemaVersion: 2, walls: [{ ...walls[0], pattern: "hatch" }] });
+    expect((named.walls as { pattern: string }[])[0]?.pattern).toBe("hatch");
+    expect(addWallPattern({ schemaVersion: 2, meta: {} })).toEqual({ schemaVersion: 2, meta: {} });
   });
 });

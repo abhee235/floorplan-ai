@@ -26,6 +26,7 @@ import {
   Skirting,
   WallId,
   WallKind,
+  WallPattern,
   ZoneId,
 } from "@fpv/ir";
 import { z } from "zod";
@@ -93,6 +94,7 @@ export const WallModify = z.object({
       heightAtEnd: MmPositive.nullable(),
       arcExtent: z.number().finite().min(-270).max(270).nullable(),
       kind: WallKind,
+      pattern: WallPattern,
       finishes: z.object({
         left: FinishRef.nullable(),
         right: FinishRef.nullable(),

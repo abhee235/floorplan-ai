@@ -68,6 +68,11 @@ export const Level = z.object({
 });
 
 export const WallKind = z.enum(["exterior", "interior", "partition", "glass"]);
+/**
+ * How the plan fills a wall's cut: solid, hatched with one set of diagonals or two, or only its outline, as
+ * drawings tell new, existing and temporary walls apart. The plan alone reads it; nothing in 3D does (W-121).
+ */
+export const WallPattern = z.enum(["solid", "hatch", "cross-hatch", "outline"]);
 export const WallEnd = z.enum(["start", "end"]);
 export const Join = z.object({ wallId: WallId, end: WallEnd });
 /** A baseboard. `color` null takes the colour of the side it runs along (W-112). */
@@ -83,6 +88,7 @@ export const Wall = z.object({
   heightAtEnd: MmPositive.nullable(),
   arcExtent: z.number().finite().min(-270).max(270).nullable(),
   kind: WallKind,
+  pattern: WallPattern,
   joins: z.object({ start: Join.nullable(), end: Join.nullable() }),
   finishes: z.object({ left: FinishRef.nullable(), right: FinishRef.nullable(), top: FinishRef.nullable() }),
   skirting: z.object({ left: Skirting.nullable(), right: Skirting.nullable() }),
@@ -249,7 +255,7 @@ export const Meta = z.object({
 export const ProductSnapshot = z.object({ id: ProductId, snapshotAt: Timestamp }).passthrough();
 export const TextureSnapshot = z.object({ id: TextureId }).passthrough();
 
-export const SCHEMA_VERSION = 2 as const;
+export const SCHEMA_VERSION = 3 as const;
 
 export const Project = z.object({
   schemaVersion: z.literal(SCHEMA_VERSION),
@@ -272,6 +278,7 @@ export type Level = z.infer<typeof Level>;
 export type Wall = z.infer<typeof Wall>;
 export type Join = z.infer<typeof Join>;
 export type Opening = z.infer<typeof Opening>;
+export type WallPattern = z.infer<typeof WallPattern>;
 export type Room = z.infer<typeof Room>;
 export type Item = z.infer<typeof Item>;
 export type Zone = z.infer<typeof Zone>;

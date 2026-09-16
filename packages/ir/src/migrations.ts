@@ -67,4 +67,34 @@ export function addSkirtingColour(raw: RawDocument): RawDocument {
   };
 }
 
+/**
+ * Version 2 to 3: a wall carries the pattern the plan fills it with. Every wall a version 2 file has is
+ * given "solid", which is how the plan drew every wall before; one that already names a pattern keeps it.
+ * As above, anything that is not a wall object is left for the schema check.
+ */
+export function addWallPattern(raw: RawDocument): RawDocument {
+  if (!Array.isArray(raw.walls)) return raw;
+  return {
+    ...raw,
+    walls: raw.walls.map((wall: unknown) =>
+      wall && typeof wall === "object" && !("pattern" in wall)
+        ? withKeyAfter(wall, "kind", "pattern", "solid")
+        : wall,
+    ),
+  };
+}
+
+/** `object` with `key` set to `value`, placed after `after` when that is present, so a migrated file lists
+ *  its fields in the order a saved one does. */
+function withKeyAfter(object: object, after: string, key: string, value: unknown): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(object)) {
+    out[k] = v;
+    if (k === after) out[key] = value;
+  }
+  if (!(key in out)) out[key] = value;
+  return out;
+}
+
 MIGRATIONS.set(1, addSkirtingColour);
+MIGRATIONS.set(2, addWallPattern);

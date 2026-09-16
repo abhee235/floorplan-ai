@@ -19,7 +19,7 @@ payload lengths are integer millimetres and angles degrees. `ctx` provides
 Command = { type: CommandType, payload: object }
 Result  = { ok: true, project, changes: ChangeSet, inverse: Patch[], forward: Patch[], warnings: string[] }
         | { ok: false, error: { code, message, entityId: string | null, hint: string | null } }
-ChangeSet = { added: Ref[], updated: Ref[], removed: Ref[] }   // Ref = { type, id }
+ChangeSet = { added: Ref[], updated: Ref[], removed: Ref[] }   // Ref = { type, id, aspect?: "plan" }
 ```
 
 Error codes are the validation codes of spec 01 section 5 plus the command
@@ -52,7 +52,7 @@ Changes: added walls; updated any pre-existing wall joined at the ends.
 Payload: `{ wallId, changes: Partial<Wall minus joins> }`
 Preconditions: thickness > 0; start != end after change.
 Effect: applies changes. If start or end moves, joined neighbours' coincident endpoints move with it (propagation as in wall.move). heightAtEnd equal to height stored as null; arcExtent 0 stored as null. `finishes` and `skirting` replace the whole object, so a change to one side sends the other side as it is.
-Changes: updated wall, joined neighbours, openings on the wall.
+Changes: updated wall, joined neighbours, openings on the wall. A change to `pattern` alone lists only the wall, with `aspect: "plan"`: only the plan draws it, so nothing else depends on it (W-121, S-011). Where one change set holds both, the unnarrowed ref wins, in a transaction's merged set as in a single command.
 
 ### wall.move
 Payload: `{ wallIds: WallId[], dx: Mm, dy: Mm }`

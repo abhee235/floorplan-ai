@@ -48,7 +48,12 @@ function merge(list: ChangeSet[], label: string): ChangeSet {
       removed.delete(key(r));
       added.set(key(r), r);
     }
-    for (const r of c.updated) if (!added.has(key(r)) && !removed.has(key(r))) updated.set(key(r), r);
+    for (const r of c.updated) {
+      if (added.has(key(r)) || removed.has(key(r))) continue;
+      // a change to the whole entity outranks one to its plan drawing alone, in whichever order they came
+      const before = updated.get(key(r));
+      updated.set(key(r), before && !before.aspect ? before : r);
+    }
     for (const r of c.removed) {
       if (added.has(key(r))) added.delete(key(r));
       else removed.set(key(r), r);

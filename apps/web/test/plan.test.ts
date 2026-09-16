@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { apply, type Ctx } from "@fpv/commands";
 import type { Layer } from "@fpv/engine";
-import { Project, type Project as ProjectT, sequentialIdGenerator } from "@fpv/ir";
+import { Project, type Project as ProjectT, sequentialIdGenerator, type WallPattern } from "@fpv/ir";
 import { describe, expect, it } from "vitest";
 import { type Ctx2D, PlanRenderer } from "../src/index.js";
 
@@ -15,16 +15,26 @@ const BOX = {
   recipe: { kind: "box" as const, size: { w: 600, d: 400, h: 500 }, label: "b" },
 };
 
-/** Records drawing calls; enough to assert what each layer drew. */
-function recorder(): Ctx2D & { calls: string[]; transforms: number[][]; texts: string[] } {
+/** Records drawing calls; enough to assert what each layer drew. Fills and strokes also log their style. */
+function recorder(): Ctx2D & {
+  calls: string[];
+  transforms: number[][];
+  texts: string[];
+  painted: string[];
+  moves: { at: number; x: number; y: number }[];
+} {
   const calls: string[] = [];
+  const moves: { at: number; x: number; y: number }[] = [];
   const transforms: number[][] = [];
   const texts: string[] = [];
+  const painted: string[] = [];
   const rec = (name: string) => () => calls.push(name);
-  return {
+  const self = {
     calls,
     transforms,
     texts,
+    painted,
+    moves,
     save: rec("save"),
     restore: rec("restore"),
     setTransform: (...m: number[]) => {
@@ -33,12 +43,22 @@ function recorder(): Ctx2D & { calls: string[]; transforms: number[][]; texts: s
     },
     clearRect: rec("clearRect"),
     beginPath: rec("beginPath"),
-    moveTo: rec("moveTo"),
+    moveTo: (x: number, y: number) => {
+      moves.push({ at: calls.length, x, y });
+      calls.push("moveTo");
+    },
     lineTo: rec("lineTo"),
     arc: rec("arc"),
     closePath: rec("closePath"),
-    fill: rec("fill"),
-    stroke: rec("stroke"),
+    fill: () => {
+      calls.push("fill");
+      painted.push(`fill ${self.fillStyle}`);
+    },
+    clip: rec("clip"),
+    stroke: () => {
+      calls.push("stroke");
+      painted.push(`stroke ${self.strokeStyle}`);
+    },
     fillText: (t: string) => {
       texts.push(t);
       calls.push("fillText");
@@ -51,6 +71,7 @@ function recorder(): Ctx2D & { calls: string[]; transforms: number[][]; texts: s
     textAlign: "",
     textBaseline: "",
   };
+  return self;
 }
 
 function run(p: ProjectT, command: unknown): ProjectT {
@@ -167,6 +188,80 @@ describe("plan renderer (ADR-003 D6)", () => {
     const after = count(boarded);
     expect(after.fills).toBe(before.fills + 1);
     expect(after.strokes).toBe(before.strokes + 1);
+  });
+
+  describe("wall patterns (W-121)", () => {
+    // zooms about the middle of the east wall, wall_000002, so that wall stays on screen
+    const draw = (patterns: Record<string, WallPattern>, zoom = 1, about = { x: 8000, y: 1500 }) => {
+      const { layers: ctxs, rec } = layers();
+      const plan = new PlanRenderer(ctxs, 800, 600);
+      const p = fixture();
+      const walls = p.walls.map((w) => ({
+        ...w,
+        pattern: w.id in patterns ? (patterns[w.id] as WallPattern) : w.pattern,
+      }));
+      plan.setProject({ ...p, walls });
+      plan.fit(40);
+      const at = plan.toScreen(about);
+      plan.zoomAt(at.x, at.y, zoom);
+      plan.flush();
+      return { structure: rec.structure, scale: plan.view.scale };
+    };
+    const count = (list: string[], value: string) => list.filter((x) => x === value).length;
+
+    it("fills each wall's cut solid, hatched, cross-hatched or outlined", () => {
+      const plain = draw({});
+      expect(count(plain.structure.painted, "fill #3a3a3a")).toBe(1);
+      expect(plain.structure.calls).not.toContain("clip");
+      const { structure } = draw({
+        wall_000002: "hatch",
+        wall_000003: "cross-hatch",
+        wall_000004: "outline",
+      });
+      // walls 1, 5 and 6 are still one solid union; the other three are drawn on the paper colour
+      expect(count(structure.painted, "fill #3a3a3a")).toBe(1);
+      expect(count(structure.painted, "fill #fbfaf7")).toBe(3);
+      // hatching is clipped to the cut, twice; every patterned wall is edged, and the hatched two also lined
+      expect(count(structure.calls, "clip")).toBe(2);
+      expect(count(structure.painted, "stroke #3a3a3a")).toBe(5);
+    });
+
+    it("keeps hatch lines five screen pixels apart at any zoom, one set for a hatch and two for a cross-hatch", () => {
+      for (const zoom of [1, 4]) {
+        const { structure, scale } = draw({ wall_000002: "hatch" }, zoom);
+        const clip = structure.calls.indexOf("clip");
+        expect(clip).toBeGreaterThan(-1);
+        const end = structure.calls.indexOf("stroke", clip);
+        const lines = structure.moves.filter((m) => m.at > clip && m.at < end);
+        expect(lines.length).toBeGreaterThan(3);
+        const offsets = lines.map((m) => m.y - m.x);
+        for (let i = 1; i < offsets.length; i += 1)
+          expect(((offsets[i] as number) - (offsets[i - 1] as number)) * scale).toBeCloseTo(
+            5 * Math.SQRT2,
+            6,
+          );
+      }
+      const hatched = draw({ wall_000002: "hatch" });
+      const crossed = draw({ wall_000002: "cross-hatch" });
+      const between = (r: typeof hatched.structure) => {
+        const clip = r.calls.indexOf("clip");
+        return r.moves.filter((m) => m.at > clip && m.at < r.calls.indexOf("stroke", clip)).length;
+      };
+      expect(between(crossed.structure)).toBeGreaterThan(between(hatched.structure));
+    });
+
+    it("draws a wall with no pattern, from a host older than the field, solid", () => {
+      const { structure } = draw({ wall_000002: undefined as unknown as WallPattern });
+      expect(count(structure.painted, "fill #fbfaf7")).toBe(0);
+      expect(structure.calls).not.toContain("clip");
+    });
+
+    it("hatches nothing it cannot show", () => {
+      // zoomed far into the middle of the room, the east wall is off screen
+      const { structure } = draw({ wall_000002: "hatch" }, 2000, { x: 3000, y: 2500 });
+      expect(structure.calls).not.toContain("clip");
+      expect(count(structure.painted, "fill #fbfaf7")).toBe(1);
+    });
   });
 
   it("hit tests items before walls before rooms in plan millimetres", () => {

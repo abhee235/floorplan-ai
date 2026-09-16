@@ -4,7 +4,7 @@
 import type { ChangeSet } from "@fpv/commands";
 import { emptyRebuildSet, expand, type Layer, type RebuildSet, skirtingOutlines } from "@fpv/engine";
 import { type PolyWithHoles, unionRings, wallFootprints } from "@fpv/geometry";
-import type { Item, Opening, Point, Project, Room, Wall } from "@fpv/ir";
+import type { Item, Opening, Point, Project, Room, Wall, WallPattern } from "@fpv/ir";
 import { derive, poly } from "@fpv/ir";
 
 /** The subset of CanvasRenderingContext2D the plan uses. */
@@ -19,6 +19,7 @@ export interface Ctx2D {
   arc(x: number, y: number, r: number, a0: number, a1: number, ccw?: boolean): void;
   closePath(): void;
   fill(rule?: "nonzero" | "evenodd"): void;
+  clip(rule?: "nonzero" | "evenodd"): void;
   stroke(): void;
   fillText(text: string, x: number, y: number): void;
   fillStyle: string;
@@ -47,6 +48,8 @@ export interface PlanView {
 export type PlanLayers = Record<Layer, Ctx2D>;
 
 const COLOURS = {
+  // the plan's own background, so a hatched or outlined wall hides the grid and the room edges under it
+  paper: "#fbfaf7",
   grid: "#e6e3dd",
   gridMajor: "#d3cfc7",
   wall: "#3a3a3a",
@@ -62,6 +65,11 @@ const COLOURS = {
   selection: "#1e88e5",
   text: "#333333",
 };
+
+/** Hatch lines are this many screen pixels apart and this wide; an outlined cut is edged this wide. */
+const HATCH_GAP_PX = 5;
+const HATCH_LINE_PX = 1;
+const OUTLINE_PX = 1.5;
 
 export class PlanRenderer {
   private dirty: RebuildSet = emptyRebuildSet();
@@ -308,20 +316,24 @@ export class PlanRenderer {
       ctx.stroke();
       this.label(ctx, r);
     }
-    // walls as a fused union per kind
+    // walls as a fused union per kind and pattern: walls of one kind drawn alike merge at their corners, and
+    // a change of either shows as a seam, as it does on a drawing
     const walls = project.walls.filter((w) => w.levelId === levelId);
     const fps = wallFootprints(walls);
-    const kinds = new Map<string, Point[][]>();
+    const groups = new Map<string, { ink: string; pattern: WallPattern; rings: Point[][] }>();
     for (const w of walls) {
       const fp = fps.get(w.id);
-      if (fp && fp.length >= 3)
-        (kinds.get(w.kind) ?? (kinds.set(w.kind, []).get(w.kind) as Point[][])).push(fp);
+      if (!fp || fp.length < 3) continue;
+      const key = `${w.kind}|${w.pattern}`;
+      const group = groups.get(key) ?? {
+        ink: w.kind === "glass" ? COLOURS.wallGlass : COLOURS.wall,
+        pattern: w.pattern,
+        rings: [],
+      };
+      group.rings.push(fp);
+      groups.set(key, group);
     }
-    for (const [kind, rings] of kinds) {
-      this.multi(ctx, unionRings(rings));
-      ctx.fillStyle = kind === "glass" ? COLOURS.wallGlass : COLOURS.wall;
-      ctx.fill("evenodd");
-    }
+    for (const { ink, pattern, rings } of groups.values()) this.wallCut(ctx, unionRings(rings), ink, pattern);
     // Baseboards, from the outlines the 3D faces are built from. A baseboard is a centimetre or two deep, a
     // fraction of a pixel at most plan scales, so each is stroked a pixel wide as well as filled: it shows as
     // a line along the face at a distance and as a strip close up.
@@ -365,6 +377,71 @@ export class PlanRenderer {
       } else if (o.swing) {
         this.swing(ctx, o, w);
       }
+    }
+  }
+
+  /**
+   * One fused group of wall cuts in its pattern (W-121). Hatching is spaced in screen pixels, as it is on
+   * paper at any scale, and anchored to the plan so it stays put while the view pans. Only the part of the
+   * group on screen is hatched, so a deep zoom does not draw thousands of lines nobody sees.
+   */
+  private wallCut(ctx: Ctx2D, shape: PolyWithHoles[], ink: string, pattern: WallPattern): void {
+    this.multi(ctx, shape);
+    const lined = pattern === "hatch" || pattern === "cross-hatch";
+    // Anything else is solid, including no pattern at all: a project from a host older than the pattern
+    // field draws as it always did.
+    if (!lined && pattern !== "outline") {
+      ctx.fillStyle = ink;
+      ctx.fill("evenodd");
+      return;
+    }
+    ctx.fillStyle = COLOURS.paper;
+    ctx.fill("evenodd");
+    if (lined) {
+      const box = this.visible(shape);
+      if (box) {
+        ctx.save();
+        ctx.clip("evenodd");
+        ctx.beginPath();
+        this.hatch(ctx, box, 1);
+        if (pattern === "cross-hatch") this.hatch(ctx, box, -1);
+        ctx.strokeStyle = ink;
+        ctx.lineWidth = HATCH_LINE_PX / this.view.scale;
+        ctx.setLineDash([]);
+        ctx.stroke();
+        ctx.restore();
+      }
+      // the clip used the path up
+      this.multi(ctx, shape);
+    }
+    ctx.strokeStyle = ink;
+    ctx.lineWidth = OUTLINE_PX / this.view.scale;
+    ctx.setLineDash([]);
+    ctx.stroke();
+  }
+
+  /** The part of a shape's bounds on screen, in plan millimetres, or null when none of it is. */
+  private visible(shape: PolyWithHoles[]): poly.Rect | null {
+    const b = poly.bounds(shape.flatMap((p) => p.outer));
+    const tl = this.toPlan(0, 0);
+    const br = this.toPlan(this.view.width, this.view.height);
+    const minX = Math.max(b.minX, tl.x);
+    const maxX = Math.min(b.maxX, br.x);
+    const minY = Math.max(b.minY, br.y);
+    const maxY = Math.min(b.maxY, tl.y);
+    return minX < maxX && minY < maxY ? { minX, minY, maxX, maxY } : null;
+  }
+
+  /** Diagonal lines across a box, rising to the right for `slope` 1 and falling for -1, added to the path. */
+  private hatch(ctx: Ctx2D, box: poly.Rect, slope: 1 | -1): void {
+    // Each line is y = slope * x + c. Lines HATCH_GAP_PX apart on screen are that far apart times √2 in c.
+    const step = (HATCH_GAP_PX / this.view.scale) * Math.SQRT2;
+    const ends = [box.minX, box.maxX].flatMap((x) => [box.minY - slope * x, box.maxY - slope * x]);
+    const first = Math.floor(Math.min(...ends) / step) * step;
+    const last = Math.max(...ends);
+    for (let c = first; c <= last; c += step) {
+      ctx.moveTo(box.minX, slope * box.minX + c);
+      ctx.lineTo(box.maxX, slope * box.maxX + c);
     }
   }
 

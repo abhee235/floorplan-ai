@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { PatternSwatch } from "./PatternSwatch.js";
 import type { Choice, EditCommand, EditOutcome, EmptyMeaning } from "./selection.js";
 import { parseHexColour } from "./status.js";
 import { useEditor } from "./useEditor.js";
@@ -369,6 +370,7 @@ function ChoiceField({
         <SelectContent>
           {choices.map((choice) => (
             <SelectItem key={choice.value} value={choice.value}>
+              {choice.swatch ? <PatternSwatch pattern={choice.swatch} /> : null}
               {choice.label}
             </SelectItem>
           ))}

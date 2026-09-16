@@ -58,6 +58,7 @@ export function defaultWall(
     heightAtEnd: null,
     arcExtent: null,
     kind,
+    pattern: "solid",
     joins: { start: null, end: null },
     finishes: { left: null, right: null, top: null },
     skirting: { left: null, right: null },

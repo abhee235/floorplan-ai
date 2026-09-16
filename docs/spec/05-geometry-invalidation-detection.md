@@ -234,6 +234,7 @@ command type).
 | wall added or removed | the wall; walls joined at either end; openings on the wall; detected rooms bounded by it marked stale; layers structure; bounds |
 | wall geometry changed (endpoints, thickness, height, heightAtEnd, arcExtent, joins) | as above |
 | wall finish or skirting changed | the wall; layer structure |
+| wall pattern changed, and nothing else (ref `aspect: "plan"`) | layer structure only (W-121, S-011) |
 | opening added, removed, moved, resized, kind or product changed | its wall; layer structure |
 | room polygon or holes changed | the room; rooms on the level whose polygon intersects the old or new polygon; ground when the level is lowest; layer structure |
 | room finish, name, label, visibility changed | the room; layer structure |

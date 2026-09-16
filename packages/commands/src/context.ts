@@ -8,6 +8,11 @@ export type EntityType = "level" | "wall" | "opening" | "room" | "item" | "zone"
 export interface Ref {
   type: EntityType;
   id: string;
+  /**
+   * Set when only how the entity is drawn on the plan changed, so nothing built from it in 3D needs
+   * rebuilding: a wall's pattern (W-121, S-011). Absent for every other change.
+   */
+  aspect?: "plan";
 }
 
 export interface ChangeSet {
@@ -41,9 +46,12 @@ export class Changes implements ChangeSet {
   add(type: EntityType, id: string): void {
     if (!this.has(this.added, type, id)) this.added.push({ type, id });
   }
-  update(type: EntityType, id: string): void {
+  /** Records an update; `aspect` narrows it to the plan, and any unnarrowed update of the same entity wins. */
+  update(type: EntityType, id: string, aspect?: "plan"): void {
     if (this.has(this.added, type, id) || this.has(this.removed, type, id)) return;
-    if (!this.has(this.updated, type, id)) this.updated.push({ type, id });
+    const i = this.updated.findIndex((r) => r.type === type && r.id === id);
+    if (i < 0) this.updated.push(aspect ? { type, id, aspect } : { type, id });
+    else if (!aspect) this.updated[i] = { type, id };
   }
   remove(type: EntityType, id: string): void {
     const i = this.added.findIndex((r) => r.type === type && r.id === id);

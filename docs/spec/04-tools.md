@@ -26,7 +26,7 @@ Unknown argument keys never fail a call; they produce the warning
 Common result fragments:
 
 ```ts
-WallView    = { id, levelId, start, end, lengthMm, angleDeg, thickness, height, kind, compass: { left, right }, joins, openingIds }
+WallView    = { id, levelId, start, end, lengthMm, angleDeg, thickness, height, kind, pattern?, compass: { left, right }, joins, openingIds, faces? }   // pattern only when not "solid"
 OpeningView = { id, wallId, kind, atMm, position, width, height, sill, hinge: compass | null, productId }
 RoomView    = { id, levelId, name, purpose, capacity, areaM2, perimeterMm, bounds, walls: { wallId, compass, fromMm, toMm }[], openingIds, itemIds, ceilingHeight, source, stale }
 ItemView    = { id, levelId, productId | recipe, name, category, position, rotation, elevation, size, footprint: Point[], bounds3, roomId, parentId, mount, verified }
@@ -75,7 +75,7 @@ Input: `{ levelId: string, points: Point[], closed: boolean, thickness?: number,
 Output: `{ walls: WallView[] }`
 
 ### modify_wall
-Input: `{ wallId: string, start?: Point, end?: Point, thickness?, height?, heightAtEnd?, arcExtent?, kind? }`
+Input: `{ wallId: string, start?: Point, end?: Point, thickness?, height?, heightAtEnd?, arcExtent?, kind?, pattern?: "solid" | "hatch" | "cross-hatch" | "outline" }`
 Output: `{ wall: WallView, affected: WallView[] }`
 
 ### finish_wall (phase 3)

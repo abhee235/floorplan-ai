@@ -98,6 +98,7 @@ is that order and is re-sorted on load. There is always at least one level.
 
 ```ts
 export const WallKind = z.enum(["exterior", "interior", "partition", "glass"]);
+export const WallPattern = z.enum(["solid", "hatch", "cross-hatch", "outline"]);
 export const Join = z.object({ wallId: WallId, end: z.enum(["start", "end"]) });
 
 export const Wall = z.object({
@@ -110,6 +111,7 @@ export const Wall = z.object({
   heightAtEnd: MmPositive.nullable(),  // null: same as height; sloped top when different
   arcExtent: z.number().finite().min(-270).max(270).nullable(),   // degrees; null or 0: straight; sign per ADR-014 D4
   kind: WallKind,
+  pattern: WallPattern,                // how the plan fills the cut; nothing in 3D reads it (W-121; schema 3)
   joins: z.object({ start: Join.nullable(), end: Join.nullable() }),
   finishes: z.object({ left: FinishRef.nullable(), right: FinishRef.nullable(), top: FinishRef.nullable() }),
   skirting: z.object({ left: Skirting.nullable(), right: Skirting.nullable() }),  // Skirting = { thickness: MmPositive, height: MmPositive, color: Rgb.nullable() }; null colour takes the side's (schema 2)
@@ -404,6 +406,8 @@ projectBounds(project): Rect
   a fixture pair each.
 - Schema 2 (2026-09-17): baseboards gained `color`; version 1 files get `color: null` on every
   baseboard they have, which draws them exactly as before.
+- Schema 3 (2026-09-17): walls gained `pattern`; version 2 files get `"solid"` on every wall, which is
+  how the plan drew every wall before.
 
 ## 9. Ledger coverage for this spec
 

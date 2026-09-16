@@ -33,6 +33,7 @@ function recorder(): Ctx2D & { calls: string[] } {
     arc: rec("arc"),
     closePath: rec("closePath"),
     fill: rec("fill"),
+    clip: rec("clip"),
     stroke: rec("stroke"),
     fillText: (t: string) => {
       calls.push(`text:${t}`);

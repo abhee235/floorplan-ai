@@ -15,6 +15,7 @@ import {
   RoomPurpose,
   sequentialIdGenerator,
   WallKind,
+  WallPattern,
 } from "@fpv/ir";
 import { describe, expect, it } from "vitest";
 import {
@@ -30,6 +31,7 @@ import {
   SKIRTING_DEPTH,
   SKIRTING_DEPTH_RANGE,
   THICKNESS_RANGE,
+  WALL_PATTERNS,
 } from "../../src/editor/selection.js";
 import { formatMm } from "../../src/editor/status.js";
 import { WALL_KINDS } from "../../src/editor/tools.js";
@@ -83,6 +85,7 @@ describe("describing a selected entity", () => {
     expect(d?.title).toBe("Wall");
     expect(d?.facts.map((f) => f.label)).toEqual([
       "Kind",
+      "Plan pattern",
       "Start X",
       "Start Y",
       "End X",
@@ -103,10 +106,11 @@ describe("describing a selected entity", () => {
     expect(d?.facts.find((f) => f.label === "Length")?.value).toBe(`8${NARROW}000`);
   });
 
-  it("groups a wall's rows as position, shape, size and height, with its kind ahead (ADR-017 D3)", () => {
+  it("groups a wall's rows as position, shape, size and height, with its kind and pattern ahead (ADR-017 D3)", () => {
     const p = fixture();
     const d = describeEntity(p, (p.walls[0] as { id: string }).id);
     expect(d?.facts.map((f) => f.group ?? null)).toEqual([
+      null,
       null,
       "Position",
       "Position",
@@ -130,7 +134,7 @@ describe("describing a selected entity", () => {
     const p = fixture();
     const d = describeEntity(p, (p.walls[0] as { id: string }).id);
     const printed = d?.facts.map((f) => [f.caption ?? f.label, f.prefix ?? null]);
-    expect(printed?.slice(1, 5)).toEqual([
+    expect(printed?.slice(2, 6)).toEqual([
       ["Start", "X"],
       ["", "Y"],
       ["End", "X"],
@@ -372,6 +376,26 @@ describe("picking a wall's kind", () => {
       ok: false,
       message: "Kind must be one of Exterior, Interior, Partition, Glass.",
     });
+  });
+});
+
+describe("picking how the plan fills a wall (W-121)", () => {
+  it("offers every pattern the model has, each with a picture of itself, and starts solid", () => {
+    const p = fixture();
+    const row = rowOf(p, W1, "Plan pattern");
+    expect(row).toMatchObject({ value: "solid", choices: WALL_PATTERNS });
+    expect(WALL_PATTERNS.map((c) => c.value)).toEqual([...WallPattern.options]);
+    for (const c of WALL_PATTERNS) expect(c.swatch).toBe(c.value);
+  });
+
+  it("sends the pick as a change to the plan alone", () => {
+    const p = fixture();
+    const { project, updated } = run(p, typed(p, W1, "Plan pattern", "cross-hatch"));
+    expect(wallOf(project, W1).pattern).toBe("cross-hatch");
+    expect(updated).toEqual([{ type: "wall", id: W1, aspect: "plan" }]);
+    expect(outcomeOf(project, W1, "Plan pattern", "cross-hatch")).toMatchObject({ ok: true, command: null });
+    expect(outcomeOf(p, W1, "Plan pattern", "outline")).toMatchObject({ said: "Outline" });
+    expect(outcomeOf(p, W1, "Plan pattern", "dotted")).toMatchObject({ ok: false });
   });
 });
 
