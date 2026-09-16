@@ -63,6 +63,8 @@ export function startApp(el: AppElements): {
   client: BridgeClient;
   /** Ask for the plan to be drawn again on the next frame. */
   redraw: () => void;
+  /** Show a command's effect without sending it; null puts the host's project back. */
+  preview: (command: { type: string; payload: unknown } | null) => void;
   /** Paint the drag ghost; the shell composes this into its single overlay painter. */
   drawSelectionDrag: (ctx: Ctx2D, view: PlanView) => void;
   /** Release what startApp attached to the document: the size observer and the window listener. */
@@ -232,6 +234,40 @@ export function startApp(el: AppElements): {
         if (!updated.some((u) => u.type === ref.type && u.id === ref.id)) updated.push(ref);
     }
     return { project, changes: { commandType: "local.move", added: [], updated, removed: [] } };
+  };
+
+  /**
+   * What a command would do, shown without the host: a number dragged in the properties panel. Every call
+   * applies its command to the project as it was when the preview began, so the drag never compounds;
+   * null puts that project back, which is also what happens just before the real command is sent, so the
+   * host's patch lands on the state it was made against.
+   */
+  let previewBase: Project | null = null;
+  let previewTouched: ChangeSet["updated"] = [];
+  const preview = (command: { type: string; payload: unknown } | null): void => {
+    if (!command) {
+      if (!previewBase) return;
+      replica.applyLocally(previewBase, {
+        commandType: "local.preview",
+        added: [],
+        updated: previewTouched,
+        removed: [],
+      });
+      previewBase = null;
+      previewTouched = [];
+      planDirty = true;
+      return;
+    }
+    const base = previewBase ?? replica.project;
+    if (!base) return;
+    previewBase = base;
+    const local = applyLocally(base, [command]);
+    if (!local) return;
+    for (const ref of local.changes.updated)
+      if (!previewTouched.some((u) => u.type === ref.type && u.id === ref.id)) previewTouched.push(ref);
+    // everything a previous preview touched is redrawn too, so nothing it moved is left behind
+    replica.applyLocally(local.project, { ...local.changes, updated: previewTouched });
+    planDirty = true;
   };
 
   /** Screen pixels between two pointer positions, in plan millimetres. y flips: plan y is up. */
@@ -760,6 +796,7 @@ export function startApp(el: AppElements): {
     plan,
     review,
     client,
+    preview,
     // React drives the zoom dock, and `planDirty` is a closure variable in here. Without this the dock's
     // buttons changed plan.view and nothing ever flushed, so zooming by button did nothing at all while
     // the wheel — which sets planDirty itself — worked fine.

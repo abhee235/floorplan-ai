@@ -684,6 +684,7 @@ export function EditorShell(): JSX.Element {
                     level={level}
                     send={(command) => sendOrThrow(app.client, command)}
                     textures={textures}
+                    preview={app.preview}
                   />
                 </TabsContent>
                 <TabsContent value="catalog" forceMount className="min-h-0 data-[state=inactive]:hidden">

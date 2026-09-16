@@ -8,7 +8,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, describe, expect, it, onTestFinished } from "vitest";
 import { TooltipProvider } from "../../src/components/ui/tooltip.js";
 import { Announcer, type LiveRegion } from "../../src/editor/announce.js";
-import { PropertyField } from "../../src/editor/PropertyField.js";
+import { NUMBER_HELP, PropertyField } from "../../src/editor/PropertyField.js";
 import type { EditCommand, EditOutcome } from "../../src/editor/selection.js";
 import { type Editor, EditorContext } from "../../src/editor/useEditor.js";
 
@@ -168,8 +168,12 @@ describe("a property field (ADR-017 D3)", () => {
     expect(sent).toEqual([]);
     expect(input.value).toBe("abc");
     expect(input.getAttribute("aria-invalid")).toBe("true");
-    const described = document.getElementById(input.getAttribute("aria-describedby") ?? "");
-    expect(described?.textContent).toBe("Type a whole number.");
+    // the reason is the last thing described, after how the number can be stepped
+    const ids = (input.getAttribute("aria-describedby") ?? "").split(" ");
+    expect(ids.map((i) => document.getElementById(i)?.textContent)).toEqual([
+      NUMBER_HELP,
+      "Type a whole number.",
+    ]);
     expect(assertive.textContent).toBe("Thickness not changed. Type a whole number.");
     // typing again clears the mark, since the text it was about is gone
     await user.keyboard("{Backspace}");
@@ -183,8 +187,8 @@ describe("a property field (ADR-017 D3)", () => {
     await user.tab();
     expect(sent).toEqual([]);
     expect(input.value).toBe("100");
-    const described = document.getElementById(input.getAttribute("aria-describedby") ?? "");
-    expect(described?.textContent).toBe("Type a whole number. Kept 100 mm.");
+    const last = (input.getAttribute("aria-describedby") ?? "").split(" ").at(-1) ?? "";
+    expect(document.getElementById(last)?.textContent).toBe("Type a whole number. Kept 100 mm.");
   });
 
   it("shows the host's refusal and puts the value back", async () => {
@@ -380,10 +384,14 @@ describe("a property field that may be empty", () => {
       (input.getAttribute("aria-describedby") ?? "")
         .split(" ")
         .map((id) => document.getElementById(id)?.textContent);
-    expect(described()).toEqual(["Empty follows the level, 2700 millimetres."]);
+    expect(described()).toEqual(["Empty follows the level, 2700 millimetres.", NUMBER_HELP]);
     await user.click(input);
     await user.keyboard("x{Enter}");
-    expect(described()).toEqual(["Empty follows the level, 2700 millimetres.", "Type a whole number."]);
+    expect(described()).toEqual([
+      "Empty follows the level, 2700 millimetres.",
+      NUMBER_HELP,
+      "Type a whole number.",
+    ]);
   });
 
   it("offers no reset while the field is already empty", () => {

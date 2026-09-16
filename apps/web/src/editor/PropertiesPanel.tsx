@@ -26,11 +26,14 @@ export function PropertiesPanel({
   level,
   send,
   textures = [],
+  preview,
 }: {
   replica: Replica;
   level: string | null;
   /** The catalog's textures, for the material rows (P3-5). */
   textures?: readonly TextureChoice[];
+  /** Shows a dragged number's command without sending it; null puts the host's project back. */
+  preview?: (command: EditCommand | null) => void;
   /** Sends an edit to the host; throws with the host's reason when it is refused. */
   send: (command: EditCommand) => Promise<void>;
 }): JSX.Element {
@@ -93,6 +96,7 @@ export function PropertiesPanel({
                     {...(fact.align ? { align: fact.align } : {})}
                     edit={fact.edit}
                     send={send}
+                    preview={preview}
                   />
                 ));
                 if (!band.title) return <Fragment key={`rows-${index}`}>{rows}</Fragment>;

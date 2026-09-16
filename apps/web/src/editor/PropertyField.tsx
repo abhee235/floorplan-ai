@@ -6,7 +6,7 @@
 // only runs the conversation around it — the draft, the refusal, and the round trip to the host.
 
 import { RotateCcw } from "lucide-react";
-import type { JSX, KeyboardEvent, ReactNode } from "react";
+import type { JSX, KeyboardEvent, ReactNode, PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { PatternSwatch } from "./PatternSwatch.js";
+import { beginScrub, paceOf, scrubKindOf, scrubStart, scrubText } from "./scrub.js";
 import type { Choice, EditCommand, EditOutcome, EmptyMeaning } from "./selection.js";
 import { parseHexColour } from "./status.js";
 import { useEditor } from "./useEditor.js";
@@ -44,7 +45,16 @@ export interface PropertyFieldProps {
   edit?: ((text: string) => EditOutcome) | undefined;
   /** Resolves once the host has taken the command, and throws with its reason when it refuses. */
   send?: ((command: EditCommand) => Promise<void>) | undefined;
+  /**
+   * Shows what a command would do without sending it, while a number is being dragged; null puts back
+   * what the host last agreed.
+   */
+  preview?: ((command: EditCommand | null) => void) | undefined;
 }
+
+/** What every draggable number field adds to its own description. */
+export const NUMBER_HELP =
+  "Up and Down arrows change the number, ten at a time with Shift. Dragging the row's name sideways does too.";
 
 export function PropertyField(props: PropertyFieldProps): JSX.Element {
   const { choices, toggle, edit, send } = props;
@@ -104,6 +114,7 @@ function TextField({
   colour,
   edit,
   send,
+  preview,
 }: PropertyFieldProps): JSX.Element {
   const report = useReport(label, send);
   const input = useRef<HTMLInputElement>(null);
@@ -126,6 +137,8 @@ function TextField({
   });
 
   const editable = edit !== undefined && send !== undefined;
+  // A number with a unit can be dragged and stepped; a colour, a name or a unit-less count cannot.
+  const scrub = editable && !colour ? scrubKindOf(unit) : null;
   // A list shown read-only still reads as its label, not as the value the model stores.
   const shown = choices?.find((c) => c.value === value)?.label ?? value;
   // An empty field that stands for something shows that instead, greyed, with its own unit: the unit
@@ -201,8 +214,60 @@ function TextField({
     return () => el.removeEventListener("change", settle);
   }, []);
 
+  /**
+   * A drag on the row's name or axis letter (see scrub.ts). The edit is the one this render was given:
+   * each preview re-renders the row from the previewed project, and an edit made from that would measure
+   * its change from the preview rather than from what the host holds.
+   */
+  const startScrub = (e: ReactPointerEvent<HTMLElement>): void => {
+    if (!scrub || !edit) return;
+    const from = scrubStart(latest.current ?? value, empty?.shown);
+    if (from === null) return;
+    const editAtStart = edit;
+    let at = from;
+    let good: { text: string; command: EditCommand; said: string } | null = null;
+    beginScrub(e.nativeEvent, e.currentTarget, {
+      start: () => {
+        report.clear();
+        input.current?.focus();
+      },
+      move: (dx, mods) => {
+        at += dx * scrub.perPx * paceOf(mods);
+        const text = scrubText(scrub, at);
+        setDraft(text);
+        const outcome = editAtStart(text);
+        // out of range, or back where it began: show the last good value, or nothing changed
+        if (!outcome.ok) return;
+        good = outcome.command ? { text, command: outcome.command, said: outcome.said } : null;
+        preview?.(outcome.command);
+      },
+      end: (commit) => {
+        preview?.(null);
+        const chosen = good;
+        if (!commit || !chosen) {
+          setDraft(null);
+          return;
+        }
+        setDraft(chosen.text);
+        void report.deliver(chosen.command, chosen.said).then(() => {
+          if (latest.current === chosen.text) setDraft(null);
+        });
+      },
+    });
+  };
+
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
     if (!editable) return;
+    if (scrub && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      // One step at a time, committed as it goes, as a design tool steps a number.
+      const from = scrubStart(latest.current ?? value, empty?.shown);
+      if (from === null) return;
+      e.preventDefault();
+      const next = from + (e.key === "ArrowUp" ? 1 : -1) * scrub.step * (e.shiftKey ? 10 : 1);
+      setDraft(scrubText(scrub, next));
+      void commit("enter");
+      return;
+    }
     if (e.key === "Enter") {
       e.preventDefault();
       void commit("enter");
@@ -223,7 +288,15 @@ function TextField({
   };
 
   return (
-    <Row id={id} label={label} caption={caption} unit={unit} hint={hint} error={report.error}>
+    <Row
+      id={id}
+      label={label}
+      caption={caption}
+      unit={unit}
+      hint={hint}
+      error={report.error}
+      onScrub={scrub ? startScrub : undefined}
+    >
       {leading > 0 ? (
         // Beside the field these took the width the label needed, and "Height at end" broke onto two lines.
         // First in the DOM, so the focus order runs left to right as the eye does.
@@ -274,7 +347,7 @@ function TextField({
         placeholder={empty?.shown}
         aria-label={nameOf(label, unit)}
         aria-invalid={report.error ? true : undefined}
-        aria-describedby={describedBy(id, hint, report.error)}
+        aria-describedby={describedBy(id, hint, report.error, scrub ? stepsId(id) : null)}
         onChange={(e) => {
           setDraft(e.target.value);
           if (report.error) report.clear();
@@ -309,7 +382,11 @@ function TextField({
       {prefix ? (
         <span
           aria-hidden
-          className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-muted-foreground"
+          onPointerDown={scrub ? startScrub : undefined}
+          className={[
+            "absolute inset-y-0 left-1 flex items-center px-2 text-muted-foreground select-none",
+            scrub ? "cursor-ew-resize hover:text-foreground" : "pointer-events-none",
+          ].join(" ")}
         >
           {prefix}
         </span>
@@ -391,6 +468,7 @@ function ChoiceField({
 
 const errorId = (id: string): string => `${id}-error`;
 const hintId = (id: string): string => `${id}-hint`;
+const stepsId = (id: string): string => `${id}-steps`;
 
 /**
  * A control's accessible name: the row's whole label and its unit in words, "Start Y, in millimetres". What
@@ -402,8 +480,13 @@ function nameOf(label: string, unit: string | undefined): string {
 }
 
 /** The hint first, then the refusal: the reason something was refused reads best after what it is. */
-function describedBy(id: string, hint: string | undefined, error: string | null): string | undefined {
-  const ids = [hint ? hintId(id) : null, error ? errorId(id) : null].filter(Boolean);
+function describedBy(
+  id: string,
+  hint: string | undefined,
+  error: string | null,
+  shared: string | null = null,
+): string | undefined {
+  const ids = [hint ? hintId(id) : null, shared, error ? errorId(id) : null].filter(Boolean);
   return ids.length > 0 ? ids.join(" ") : undefined;
 }
 
@@ -416,6 +499,7 @@ function Row({
   hint,
   error,
   children,
+  onScrub,
 }: {
   id: string;
   label: string;
@@ -424,6 +508,8 @@ function Row({
   hint?: string | undefined;
   error: string | null;
   children: ReactNode;
+  /** Makes the printed name a handle to drag the number with. */
+  onScrub?: ((e: ReactPointerEvent<HTMLElement>) => void) | undefined;
 }): JSX.Element {
   const printed = caption ?? label;
   return (
@@ -432,7 +518,15 @@ function Row({
         {/* Printed only. The whole name travels on the control as aria-label (see nameOf): the rest of it
             used to sit here in a visually hidden span, and because that span is absolutely positioned,
             Chrome padded it with a space and named the field "Finish , left side". */}
-        <Label htmlFor={id} className="text-muted-foreground">
+        <Label
+          htmlFor={id}
+          onPointerDown={onScrub}
+          className={
+            onScrub
+              ? "cursor-ew-resize text-muted-foreground select-none hover:text-foreground"
+              : "text-muted-foreground"
+          }
+        >
           {printed}
         </Label>
         <div className="relative w-[150px] shrink-0">{children}</div>
@@ -442,6 +536,11 @@ function Row({
         // is not also read aloud in passing by a screen reader walking the panel line by line.
         <span id={hintId(id)} hidden>
           {hint}
+        </span>
+      ) : null}
+      {onScrub ? (
+        <span id={stepsId(id)} hidden>
+          {NUMBER_HELP}
         </span>
       ) : null}
       {error ? (
