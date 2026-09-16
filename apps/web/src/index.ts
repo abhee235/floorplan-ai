@@ -29,6 +29,14 @@ export {
   type TargetLike,
 } from "./editor/keys.js";
 export {
+  FIRST_SIDE_MM,
+  MIN_CORNERS,
+  type RoomCreateCommand,
+  type RoomDetectCommand,
+  RoomTool,
+  type RoomToolOptions,
+} from "./editor/room-tool.js";
+export {
   type CountsLike,
   countsText,
   describeLength,
