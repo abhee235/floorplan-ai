@@ -2,11 +2,12 @@
 // the binding, the plan renderer and the bridge client are testable without it.
 import type { Layer } from "@fpv/engine";
 import { SELECTION_PX } from "@fpv/geometry";
+import { derive } from "@fpv/ir";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { BridgeClient, bridgeUrl } from "./bridge/client.js";
 import { moveCommands, nextSelection } from "./editor/selection.js";
-import { type Ctx2D, PlanRenderer } from "./plan/plan.js";
+import { type Ctx2D, outlineOf, PlanRenderer, type PlanView } from "./plan/plan.js";
 import { DraftReview } from "./plan/review.js";
 import { Replica } from "./replica.js";
 import { mountReviewPanel } from "./review-panel.js";
@@ -36,6 +37,8 @@ export function startApp(el: AppElements): {
   client: BridgeClient;
   /** Ask for the plan to be drawn again on the next frame. */
   redraw: () => void;
+  /** Paint the drag ghost; the shell composes this into its single overlay painter. */
+  drawSelectionDrag: (ctx: Ctx2D, view: PlanView) => void;
   /** Release what startApp attached to the document: the size observer and the window listener. */
   destroy: () => void;
 } {
@@ -157,8 +160,23 @@ export function startApp(el: AppElements): {
 
   // pan, zoom, and dragging a selection on the plan
   let drag: { x: number; y: number } | null = null;
-  /** A press that began on something already selected: that drags the selection instead of panning. */
-  let moving: { fromX: number; fromY: number; ids: string[] } | null = null;
+  /**
+   * A press that began on something already selected: that drags the selection instead of panning.
+   *
+   * `dx`/`dy` are the live offset in plan millimetres, updated on every move so the ghost can follow the
+   * pointer. Without them the drag was invisible until the button came up, which made a working move
+   * feel like nothing was happening.
+   */
+  let moving: { fromX: number; fromY: number; ids: string[]; dx: number; dy: number } | null = null;
+
+  /** Screen pixels between two pointer positions, in plan millimetres. y flips: plan y is up. */
+  const deltaMm = (fromX: number, fromY: number, toX: number, toY: number) => {
+    const dpr = Math.min(2, window.devicePixelRatio);
+    return {
+      dx: ((toX - fromX) * dpr) / plan.view.scale,
+      dy: -((toY - fromY) * dpr) / plan.view.scale,
+    };
+  };
 
   const planPointOf = (e: { clientX: number; clientY: number }) => {
     const rect = el.plan.getBoundingClientRect();
@@ -172,12 +190,20 @@ export function startApp(el: AppElements): {
     // happened to land on a wall would drag it.
     const hit = plan.hitTest(planPointOf(e), SELECTION_PX / plan.view.scale);
     if (hit && replica.selection.includes(hit))
-      moving = { fromX: e.clientX, fromY: e.clientY, ids: [...replica.selection] };
+      moving = { fromX: e.clientX, fromY: e.clientY, ids: [...replica.selection], dx: 0, dy: 0 };
     drag = { x: e.clientX, y: e.clientY };
     el.plan.setPointerCapture(e.pointerId);
   });
   el.plan.addEventListener("pointermove", (e) => {
-    if (moving) return; // dragging a selection, so the view must hold still
+    if (moving) {
+      // The view holds still while a selection is dragged, but the ghost has to follow the pointer:
+      // repaint the overlay on every move, or the drag stays invisible until the button comes up.
+      const { dx, dy } = deltaMm(moving.fromX, moving.fromY, e.clientX, e.clientY);
+      moving = { ...moving, dx, dy };
+      plan.invalidateOverlay();
+      planDirty = true;
+      return;
+    }
     if (!drag) return;
     const dpr = Math.min(2, window.devicePixelRatio);
     plan.panBy((e.clientX - drag.x) * dpr, (e.clientY - drag.y) * dpr);
@@ -194,13 +220,12 @@ export function startApp(el: AppElements): {
       // Under the 3 px threshold this was a click, not a drag: fall through to selection next time
       // rather than committing a move of nothing.
       if (Math.hypot(dxPx, dyPx) >= 3 && replica.project) {
-        const dpr = Math.min(2, window.devicePixelRatio);
-        // Screen pixels to plan millimetres. y is negated because the plan's y axis points up while the
-        // screen's points down (see toScreen).
-        const dx = (dxPx * dpr) / plan.view.scale;
-        const dy = -(dyPx * dpr) / plan.view.scale;
+        const { dx, dy } = deltaMm(moved.fromX, moved.fromY, e.clientX, e.clientY);
         for (const command of moveCommands(replica.project, moved.ids, dx, dy)) void client.command(command);
       }
+      // The ghost goes as the real geometry arrives; leaving it up would briefly show both.
+      plan.invalidateOverlay();
+      planDirty = true;
       return;
     }
     if (drag && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 3) {
@@ -441,6 +466,41 @@ export function startApp(el: AppElements): {
     // the wheel — which sets planDirty itself — worked fine.
     redraw: () => {
       planDirty = true;
+    },
+    /**
+     * The selection being dragged, drawn where it would land. Joins the shell's overlay composition
+     * rather than registering its own painter, because setOverlayExtra takes a single function.
+     *
+     * A ghost rather than the real geometry: moving the structure layer live would mean recomputing
+     * every wall join on each pointer move, which fights the mitring for no gain — the committed move
+     * lands a frame later anyway.
+     */
+    drawSelectionDrag: (ctx: Ctx2D, view: PlanView) => {
+      const project = replica.project;
+      const level = plan.level;
+      if (!moving || !project || !level) return;
+      // Read once: `moving` is a mutable closure variable, so the narrowing above does not survive into
+      // the callback below.
+      const { ids, dx, dy } = moving;
+      if (dx === 0 && dy === 0) return;
+      const sizes = derive.snapshotSizeSource(project);
+      ctx.strokeStyle = "#1e88e5";
+      ctx.lineWidth = 2 / view.scale;
+      ctx.setLineDash([6 / view.scale, 4 / view.scale]);
+      for (const id of ids) {
+        const outline = outlineOf(project, id, level, sizes);
+        if (!outline || outline.length === 0) continue;
+        ctx.beginPath();
+        outline.forEach((p, i) => {
+          const x = p.x + dx;
+          const y = p.y + dy;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.closePath();
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
     },
     destroy: () => sizes.disconnect(),
   };

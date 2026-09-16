@@ -255,6 +255,7 @@ export function EditorShell(): JSX.Element {
       review.draw(ctx, view2);
       wallDrawing.draw(ctx, view2);
       roomDrawing.draw(ctx, view2);
+      app.drawSelectionDrag(ctx, view2);
       const north = replica.project?.meta.north;
       if (north !== undefined) drawCompass(ctx, view2, north);
     });

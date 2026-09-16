@@ -423,7 +423,17 @@ export class PlanRenderer {
   }
 }
 
-function outlineOf(project: Project, id: string, levelId: string, sizes: derive.SizeSource): Point[] | null {
+/**
+ * The outline of one entity in plan millimetres: a wall's footprint, a room's polygon, an item's
+ * footprint. Exported because the drag preview draws the same shapes translated, and recomputing them
+ * separately would let the ghost and the selection outline disagree about what is selected.
+ */
+export function outlineOf(
+  project: Project,
+  id: string,
+  levelId: string,
+  sizes: derive.SizeSource,
+): Point[] | null {
   const w = project.walls.find((x) => x.id === id);
   if (w)
     return w.levelId === levelId
