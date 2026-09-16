@@ -70,6 +70,31 @@ describe("replica", () => {
     expect(held?.walls.find((w) => w.id === wall.id)?.arcExtent).toBe(wall.arcExtent);
   });
 
+  it("passes a whole project and its change set straight through", () => {
+    const { replica, project } = seeded();
+    const seen: ChangeSet[] = [];
+    replica.subscribe(({ changes }) => seen.push(changes));
+
+    const moved = { ...project, walls: project.walls.map((w) => ({ ...w, levelId: w.levelId })) };
+    // A move drags joined neighbours along, so the change set names entities the caller never asked
+    // about. It has to arrive at the renderers exactly as the reducer produced it, or a corner tears.
+    const changes: ChangeSet = {
+      commandType: "local.move",
+      added: [],
+      updated: [
+        { type: "wall", id: "wall_000001" },
+        { type: "wall", id: "wall_000002" },
+      ],
+      removed: [],
+    };
+    replica.applyLocally(moved, changes);
+
+    expect(replica.project).toBe(moved);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.updated).toHaveLength(2);
+    expect(replica.seq).toBe(7);
+  });
+
   it("ignores a wall the project does not have", () => {
     const { replica, project } = seeded();
     const seen: ChangeSet[] = [];

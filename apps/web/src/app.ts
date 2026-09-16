@@ -1,13 +1,14 @@
 // Browser shell: renderer, controls, plan canvases, bridge connection. Everything DOM-bound lives here;
 // the binding, the plan renderer and the bridge client are testable without it.
+import { apply, type ChangeSet } from "@fpv/commands";
 import type { Layer } from "@fpv/engine";
 import { SELECTION_PX, wallFootprintUnjoined } from "@fpv/geometry";
-import type { Wall } from "@fpv/ir";
-import { derive } from "@fpv/ir";
+import type { Project, Wall } from "@fpv/ir";
+import { derive, sequentialIdGenerator } from "@fpv/ir";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { BridgeClient, bridgeUrl } from "./bridge/client.js";
-import { moveCommands, nextSelection } from "./editor/selection.js";
+import { kindOf, moveCommands, nextSelection } from "./editor/selection.js";
 import {
   handleAnchors,
   handleAt,
@@ -185,7 +186,39 @@ export function startApp(el: AppElements): {
    * pointer. Without them the drag was invisible until the button came up, which made a working move
    * feel like nothing was happening.
    */
-  let moving: { fromX: number; fromY: number; ids: string[]; dx: number; dy: number } | null = null;
+  let moving: {
+    fromX: number;
+    fromY: number;
+    ids: string[];
+    dx: number;
+    dy: number;
+    /** The project as the host last agreed it was, so every move measures from one fixed starting point
+     *  and the gesture can be put back if the host refuses it. */
+    before: Project;
+  } | null = null;
+
+  /**
+   * Run commands against a project without involving the host.
+   *
+   * The real reducer, not a copy of what it does: a wall move drags its joined neighbours along (W-031),
+   * a room move rewrites every point, and re-implementing any of that here would drift from the version
+   * that finally runs. Whatever comes back is exactly what the host will produce from the same commands.
+   *
+   * The id generator is never reached — moving nothing creates nothing — but `apply` requires one.
+   */
+  const localCtx = { ids: sequentialIdGenerator(1), now: () => new Date().toISOString() };
+  const applyLocally = (from: Project, commands: readonly { type: string; payload: unknown }[]) => {
+    let project = from;
+    const updated: ChangeSet["updated"] = [];
+    for (const command of commands) {
+      const result = apply(project, command, localCtx);
+      if (!result.ok) return null; // a move the host would refuse: show nothing rather than a lie
+      project = result.project;
+      for (const ref of result.changes.updated)
+        if (!updated.some((u) => u.type === ref.type && u.id === ref.id)) updated.push(ref);
+    }
+    return { project, changes: { commandType: "local.move", added: [], updated, removed: [] } };
+  };
 
   /** Screen pixels between two pointer positions, in plan millimetres. y flips: plan y is up. */
   const deltaMm = (fromX: number, fromY: number, toX: number, toY: number) => {
@@ -315,8 +348,15 @@ export function startApp(el: AppElements): {
     // pans. Requiring it to be selected first is what keeps panning usable: otherwise every press that
     // happened to land on a wall would drag it.
     const hit = plan.hitTest(planPointOf(e), SELECTION_PX / plan.view.scale);
-    if (hit && replica.selection.includes(hit))
-      moving = { fromX: e.clientX, fromY: e.clientY, ids: [...replica.selection], dx: 0, dy: 0 };
+    if (hit && replica.selection.includes(hit) && replica.project)
+      moving = {
+        fromX: e.clientX,
+        fromY: e.clientY,
+        ids: [...replica.selection],
+        dx: 0,
+        dy: 0,
+        before: replica.project,
+      };
     drag = { x: e.clientX, y: e.clientY };
     el.plan.setPointerCapture(e.pointerId);
   });
@@ -338,10 +378,14 @@ export function startApp(el: AppElements): {
       return;
     }
     if (moving) {
-      // The view holds still while a selection is dragged, but the ghost has to follow the pointer:
-      // repaint the overlay on every move, or the drag stays invisible until the button comes up.
-      const { dx, dy } = deltaMm(moving.fromX, moving.fromY, e.clientX, e.clientY);
-      moving = { ...moving, dx, dy };
+      // The view holds still while a selection is dragged; the entities themselves follow the pointer.
+      // Measured from the project as it was at the press, never from the copy this drag has already
+      // edited, or each move would compound into the last and the selection would run away.
+      const active = moving;
+      const { dx, dy } = deltaMm(active.fromX, active.fromY, e.clientX, e.clientY);
+      moving = { ...active, dx, dy };
+      const local = applyLocally(active.before, moveCommands(active.before, active.ids, dx, dy));
+      if (local) replica.applyLocally(local.project, local.changes);
       plan.invalidateOverlay();
       planDirty = true;
       return;
@@ -403,11 +447,18 @@ export function startApp(el: AppElements): {
       const dyPx = e.clientY - moved.fromY;
       // Under the 3 px threshold this was a click, not a drag: fall through to selection next time
       // rather than committing a move of nothing.
-      if (Math.hypot(dxPx, dyPx) >= 3 && replica.project) {
-        const { dx, dy } = deltaMm(moved.fromX, moved.fromY, e.clientX, e.clientY);
-        for (const command of moveCommands(replica.project, moved.ids, dx, dy)) void client.command(command);
-      }
-      // The ghost goes as the real geometry arrives; leaving it up would briefly show both.
+      const { dx, dy } = deltaMm(moved.fromX, moved.fromY, e.clientX, e.clientY);
+      const commands = Math.hypot(dxPx, dyPx) >= 3 ? moveCommands(moved.before, moved.ids, dx, dy) : [];
+      // Put everything back as the host last agreed before asking for the change. The drag has been
+      // editing this copy without the host's knowledge, so leaving it standing would keep positions on
+      // screen that were never accepted if a command is refused. The host's patch follows a moment later.
+      replica.applyLocally(moved.before, {
+        commandType: "local.move",
+        added: [],
+        updated: moved.ids.map((id) => ({ type: kindOf(id) ?? "wall", id })),
+        removed: [],
+      });
+      for (const command of commands) void client.command(command);
       plan.invalidateOverlay();
       planDirty = true;
       return;
@@ -670,34 +721,15 @@ export function startApp(el: AppElements): {
       // the top of it would only be in the way.
       if (handling) return;
 
-      if (!moving) {
-        // Nothing is being dragged, so show what CAN be: the handles on the one selected wall.
-        const shaped = handleWall();
-        if (shaped) drawWallHandles(ctx, view, shaped);
-        return;
-      }
-      // Read once: `moving` is a mutable closure variable, so the narrowing above does not survive into
-      // the callback below.
-      const { ids, dx, dy } = moving;
-      if (dx === 0 && dy === 0) return;
-      const sizes = derive.snapshotSizeSource(project);
-      ctx.strokeStyle = HANDLE_COLOUR;
-      ctx.lineWidth = 2 / view.scale;
-      ctx.setLineDash([6 / view.scale, 4 / view.scale]);
-      for (const id of ids) {
-        const outline = outlineOf(project, id, level, sizes);
-        if (!outline || outline.length === 0) continue;
-        ctx.beginPath();
-        outline.forEach((p, i) => {
-          const x = p.x + dx;
-          const y = p.y + dy;
-          if (i === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
-        });
-        ctx.closePath();
-        ctx.stroke();
-      }
-      ctx.setLineDash([]);
+      // A selection drag draws nothing here any more either. It used to paint each selected entity's
+      // outline translated by the drag, because the entities themselves could not move until the host
+      // agreed; now the drag runs the real reducer against the local copy on every move, so they do
+      // move, and a dashed copy sitting on top of them would only be in the way.
+      if (moving) return;
+
+      // Nothing is being dragged, so show what CAN be: the handles on the one selected wall.
+      const shaped = handleWall();
+      if (shaped) drawWallHandles(ctx, view, shaped);
     },
     destroy: () => sizes.disconnect(),
   };

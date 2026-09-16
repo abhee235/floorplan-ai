@@ -76,37 +76,44 @@ export class Replica {
   }
 
   /**
-   * Replace one wall locally, ahead of the host agreeing to it.
+   * Take a whole project locally, ahead of the host agreeing to it.
    *
    * A drag has to show its result while it is happening, not once the button comes up. Commands cross a
    * bridge, so waiting for the host to answer every pointer move would be both slow and a history full of
-   * intermediate positions. Instead the drag edits this copy directly and sends ONE command at the end;
-   * the host's patch then lands on top and the two agree again.
+   * intermediate positions. Instead the drag runs the real reducer against this copy and sends ONE
+   * command at the end; the host's patch then lands on top and the two agree again.
+   *
+   * The change set comes from the caller because it comes from that reducer: it already knows exactly
+   * what moved, including entities the caller never named — a wall move drags its joined neighbours
+   * along (W-031), and the renderers have to be told about those too or a corner tears open mid-drag.
    *
    * `seq` is deliberately untouched. It counts the host's messages, and `applyChanges` refuses anything
    * that is not exactly the next one — so moving it here would make the very next real patch look like a
    * gap and throw away the session with a resync.
    *
-   * The caller keeps the wall this replaces, because nothing here can put it back: if the host refuses
-   * the command, restoring the original is the caller's job.
+   * The caller keeps whatever this replaces, because nothing here can put it back: if the host refuses
+   * the command, restoring the previous project is the caller's job.
    */
+  applyLocally(project: Project, changes: ChangeSet): void {
+    if (!this.project) return;
+    // Assigned, never mutated in place: immer applies the host's patches against whatever object this
+    // holds, and editing the previous one would change a structure the next patch expects as it was.
+    this.project = project;
+    this.notify(changes);
+  }
+
+  /** One wall, replaced locally. A thin way onto applyLocally for edits that touch a single wall. */
   replaceWallLocally(wall: Wall): void {
     const project = this.project;
     if (!project) return;
     const index = project.walls.findIndex((w) => w.id === wall.id);
     if (index < 0) return;
-    // A new array and a new project: immer's patches are applied to whatever object this holds, and
-    // mutating the old one in place would edit a structure the host's next patch still expects to find
-    // unchanged.
     const walls = [...project.walls];
     walls[index] = wall;
-    this.project = { ...project, walls };
-    this.notify({
-      commandType: "local.wall",
-      added: [],
-      updated: [{ type: "wall", id: wall.id }],
-      removed: [],
-    });
+    this.applyLocally(
+      { ...project, walls },
+      { commandType: "local.wall", added: [], updated: [{ type: "wall", id: wall.id }], removed: [] },
+    );
   }
 
   private notify(changes: ChangeSet): void {
