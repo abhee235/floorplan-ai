@@ -57,7 +57,8 @@ have hand-written schemas in the same style. A tool is defined exactly once.
 | Session | `project` | `op: "open" \| "save" \| "new" \| "info"`, `path?` |
 | Export | `export` | `format: "csv" \| "xlsx" \| "glb" \| "pdf" \| "dxf"`, `scope?`, `path` |
 
-`import_plan` (ADR-011) joins in phase 2. Tools needing an unconfigured
+`import_plan` (ADR-011) joins in phase 2, and `finish_wall` (face colour, finish and baseboard, faces
+named by compass) in phase 3. Tools needing an unconfigured
 service (`verify_product` without a search provider, `render` without a
 viewer) are still listed but return a clear "unavailable because" error, so
 the model does not hallucinate them and the workflow prompt can say why.

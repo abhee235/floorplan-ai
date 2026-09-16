@@ -2,6 +2,7 @@
 export const PACKAGE = "ir" as const;
 export * from "./defaults.js";
 export * as derive from "./derive.js";
+export * from "./finishes.js";
 export * from "./ids.js";
 export * from "./migrations.js";
 export * from "./normalize.js";

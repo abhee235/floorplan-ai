@@ -78,6 +78,11 @@ Output: `{ walls: WallView[] }`
 Input: `{ wallId: string, start?: Point, end?: Point, thickness?, height?, heightAtEnd?, arcExtent?, kind? }`
 Output: `{ wall: WallView, affected: WallView[] }`
 
+### finish_wall (phase 3)
+Description: "Paint a wall face and set its baseboard. face is the compass direction the face looks toward (get_scene lists them under compass) or 'both'. colour is hex (#RRGGBB or #RGB) or null for the default; finish is matt, satin or gloss. baseboardHeight in mm, null removes the baseboard; baseboardDepth in mm (default 12); baseboardColour is hex or null to follow the face. Only the fields you give change."
+Input: `{ wallId: string, face: "north" | "south" | "east" | "west" | "both", colour?: Hex | null, finish?: "matt" | "satin" | "gloss", baseboardHeight?: number | null, baseboardDepth?: number, baseboardColour?: Hex | null }`
+Output: `{ wall: WallView }`. One `wall.modify`, so one history entry. Faces are named by compass because a model cannot see which side of a wall is its left (ADR-006 D3). Errors: `wall.face` naming the faces the wall has; `args.invalid` for a baseboard taller than the wall (W-100), a depth outside 1 to 200, or depth or colour for a face with no baseboard. `WallView` gains `faces` (facing, colour, finish, baseboard) only for walls where a face carries something.
+
 ### delete
 Description: "Delete any entities by id. Deleting a wall deletes its openings and detaches neighbours; deleting an item deletes items stacked on it."
 Input: `{ ids: string[] }`

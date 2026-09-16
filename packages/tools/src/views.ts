@@ -1,7 +1,7 @@
 // Result fragments shared by tools (spec 04 section 1). Views carry the derived numbers a model would
 // otherwise compute: lengths, compass sides, areas, footprints, free wall segments.
 import type { Item, Opening, Point, PrimitiveRecipe, Project, Room, Wall } from "@fpv/ir";
-import { derive, poly } from "@fpv/ir";
+import { derive, finishNameOf, poly } from "@fpv/ir";
 import { z } from "zod";
 import type { CatalogSearch } from "./context.js";
 
@@ -24,6 +24,19 @@ export const WallViewS = z.object({
   compass: z.object({ left: CompassS, right: CompassS }),
   joins: z.object({ start: z.string().nullable(), end: z.string().nullable() }),
   openingIds: z.array(z.string()),
+  /** Present only when a face has a colour, a finish or a baseboard, so plain walls stay short. */
+  faces: z
+    .array(
+      z.object({
+        facing: CompassS,
+        colour: z.string().nullable(),
+        finish: z.enum(["matt", "satin", "gloss"]),
+        baseboard: z
+          .object({ height: z.number(), depth: z.number(), colour: z.string().nullable() })
+          .nullable(),
+      }),
+    )
+    .optional(),
 });
 export type WallView = z.infer<typeof WallViewS>;
 
@@ -116,6 +129,25 @@ export function wallView(p: Project, w: Wall): WallView {
     },
     joins: { start: w.joins.start?.wallId ?? null, end: w.joins.end?.wallId ?? null },
     openingIds: p.openings.filter((o) => o.wallId === w.id).map((o) => o.id),
+    ...facesOf(p, w),
+  };
+}
+
+/** A wall's faces by compass, for walls where a face carries anything; nothing otherwise. */
+function facesOf(p: Project, w: Wall): { faces?: NonNullable<WallView["faces"]> } {
+  const sides = (["left", "right"] as const).filter((s) => w.finishes[s] || w.skirting[s]);
+  if (sides.length === 0) return {};
+  return {
+    faces: sides.map((s) => {
+      const f = w.finishes[s];
+      const b = w.skirting[s];
+      return {
+        facing: derive.wallCompassSide(w, s, p.meta.north),
+        colour: f?.color ?? null,
+        finish: finishNameOf(f?.shininess ?? null),
+        baseboard: b ? { height: b.height, depth: b.thickness, colour: b.color } : null,
+      };
+    }),
   };
 }
 

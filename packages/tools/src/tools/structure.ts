@@ -2,7 +2,17 @@
 // atomic transaction and echoes the resolved geometry.
 import type { ApplyResult, Ref } from "@fpv/commands";
 import type { Opening, Project, Room, Wall } from "@fpv/ir";
-import { derive, idType } from "@fpv/ir";
+import {
+  blankFinish,
+  derive,
+  FINISH_NAMES,
+  FINISH_SHININESS,
+  idType,
+  parseHexColour,
+  SKIRTING_DEPTH,
+  SKIRTING_DEPTH_RANGE,
+  tidyFinish,
+} from "@fpv/ir";
 import { z } from "zod";
 import { sizesFor } from "../context.js";
 import { invalidArg, ToolError } from "../envelope.js";
@@ -119,6 +129,109 @@ export const modifyWall = defineTool({
       .filter((x: Ref) => x.type === "wall" && x.id !== wallId)
       .map((x: Ref) => wallView(p, wallOrThrow(p, x.id)));
     return { wall: wallView(p, wallOrThrow(p, wallId)), affected };
+  },
+});
+
+const HexS = z
+  .string()
+  .refine((v) => parseHexColour(v) !== null, "a colour is hex, e.g. #E8E6E1 or #FFF")
+  .describe("hex colour, e.g. #E8E6E1");
+const hex = (value: string): string => parseHexColour(value) as string;
+
+/**
+ * Paint a wall face and give it a baseboard (ADR-006 D3: compass words, not left and right). A model cannot
+ * see which side of a wall is its left, but describe_room and get_scene say which way each face looks, so
+ * the face is named the same way here. Only the fields given change; everything goes in one command.
+ */
+export const finishWall = defineTool({
+  name: "finish_wall",
+  description:
+    "Paint a wall face and set its baseboard. face is the compass direction the face looks toward (get_scene lists them under compass) or 'both'. colour is hex (#RRGGBB or #RGB) or null for the default; finish is matt, satin or gloss. baseboardHeight in mm, null removes the baseboard; baseboardDepth in mm (default 12); baseboardColour is hex or null to follow the face. Only the fields you give change.",
+  tier: "primitive",
+  mutating: true,
+  input: z.object({
+    wallId: z.string(),
+    face: z.enum(["north", "south", "east", "west", "both"]),
+    colour: HexS.nullable().optional(),
+    finish: z.enum(FINISH_NAMES as [string, ...string[]]).optional(),
+    baseboardHeight: z.number().int().positive().nullable().optional().describe("mm, e.g. 100"),
+    baseboardDepth: z.number().int().positive().optional().describe("mm, e.g. 12"),
+    baseboardColour: HexS.nullable().optional(),
+  }),
+  output: z.object({ wall: WallViewS }),
+  run(args, call) {
+    const { wallId, face, ...fields } = args;
+    if (Object.values(fields).every((v) => v === undefined))
+      throw invalidArg(
+        "face",
+        "give at least one of colour, finish, baseboardHeight, baseboardDepth, baseboardColour",
+      );
+    const p = call.ctx.store.project;
+    const w = wallOrThrow(p, wallId);
+    const facing = {
+      left: derive.wallCompassSide(w, "left", p.meta.north),
+      right: derive.wallCompassSide(w, "right", p.meta.north),
+    };
+    const sides = (["left", "right"] as const).filter((s) => face === "both" || facing[s] === face);
+    if (sides.length === 0)
+      throw new ToolError(
+        "wall.face",
+        `wall ${wallId} has no face looking ${face}`,
+        wallId,
+        `its faces look ${facing.left} and ${facing.right}; use one of those or both`,
+      );
+    const level = derive.levelOf(p, w.levelId) ?? derive.lowestLevel(p);
+    const tallest = Math.round(derive.wallMaxHeight(w, level));
+    if (fields.baseboardHeight != null && fields.baseboardHeight > tallest)
+      throw invalidArg(
+        "baseboardHeight",
+        `at most the wall's height, ${tallest} mm; got ${fields.baseboardHeight}`,
+      );
+    const depth = fields.baseboardDepth;
+    if (depth !== undefined && (depth < SKIRTING_DEPTH_RANGE.min || depth > SKIRTING_DEPTH_RANGE.max))
+      throw invalidArg(
+        "baseboardDepth",
+        `from ${SKIRTING_DEPTH_RANGE.min} to ${SKIRTING_DEPTH_RANGE.max} mm; got ${depth}`,
+      );
+
+    const finishes = { ...w.finishes };
+    const skirting = { ...w.skirting };
+    for (const s of sides) {
+      if (fields.colour !== undefined || fields.finish !== undefined) {
+        const f = { ...(w.finishes[s] ?? blankFinish()) };
+        if (fields.colour !== undefined) f.color = fields.colour === null ? null : hex(fields.colour);
+        if (fields.finish !== undefined)
+          f.shininess = FINISH_SHININESS[fields.finish as keyof typeof FINISH_SHININESS];
+        finishes[s] = tidyFinish(f);
+      }
+      const board = w.skirting[s];
+      if (fields.baseboardHeight === null) {
+        skirting[s] = null;
+        continue;
+      }
+      if (!board && fields.baseboardHeight === undefined) {
+        if (depth !== undefined || fields.baseboardColour !== undefined)
+          throw invalidArg(
+            "baseboardHeight",
+            `the ${facing[s]} face has no baseboard; give its height to add one`,
+          );
+        continue;
+      }
+      skirting[s] = {
+        height: fields.baseboardHeight ?? (board?.height as number),
+        thickness: depth ?? board?.thickness ?? SKIRTING_DEPTH,
+        color:
+          fields.baseboardColour === undefined
+            ? (board?.color ?? null)
+            : fields.baseboardColour === null
+              ? null
+              : hex(fields.baseboardColour),
+      };
+    }
+    run(call, { type: "wall.modify", payload: { wallId, changes: { finishes, skirting } } });
+    const after = call.ctx.store.project;
+    // the view lists the faces by compass, colour, finish and baseboard: what the model reads back
+    return { wall: wallView(after, wallOrThrow(after, wallId)) };
   },
 });
 

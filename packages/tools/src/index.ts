@@ -15,11 +15,13 @@ import {
   createRoom,
   createWalls,
   deleteTool,
+  finishWall,
   modifyRoom,
   modifyWall,
 } from "./tools/structure.js";
 
-/** The 23 tools of the first release (ADR-006 D2) in spec order, then import_plan (phase 2). */
+/** The 23 tools of the first release (ADR-006 D2) in spec order, then import_plan (phase 2) and
+ *  finish_wall (phase 3). */
 export const TOOLS = [
   getScene,
   describeRoom,
@@ -45,6 +47,7 @@ export const TOOLS = [
   project,
   exportTool,
   importPlan,
+  finishWall,
 ] as const;
 
 export function createRegistry(ctx: ToolContext): Registry {

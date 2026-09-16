@@ -5,7 +5,16 @@
 
 import { MATERIAL_COLOURS } from "@fpv/engine";
 import type { FinishRef, Item, Level, Opening, Project, Room, Wall } from "@fpv/ir";
-import { derive } from "@fpv/ir";
+import {
+  blankFinish,
+  derive,
+  FINISH_SHININESS,
+  type FinishName,
+  finishNameOf,
+  SKIRTING_DEPTH,
+  SKIRTING_DEPTH_RANGE,
+  tidyFinish,
+} from "@fpv/ir";
 import { describeLength, formatDegrees, formatMm, parseDegrees, parseHexColour, parseMm } from "./status.js";
 import { WALL_KINDS } from "./tools.js";
 import { MAX_LENGTH_MM } from "./wall-tool.js";
@@ -297,27 +306,7 @@ export const WALL_FINISHES: readonly Choice[] = [
   { value: "gloss", label: "Gloss" },
 ];
 
-/** Matt is no shininess at all, so a side left matt carries nothing and stays the default material. */
-const SHININESS: Record<string, number | null> = { matt: null, satin: 0.25, gloss: 0.6 };
-
-/** The offered finish nearest a stored shininess, so a value set by an agent still shows as one of three. */
-function finishOf(shininess: number | null): string {
-  if (shininess === null || shininess < 0.125) return "matt";
-  return shininess < 0.425 ? "satin" : "gloss";
-}
-
 const hexOf = (rgb: number): string => `#${rgb.toString(16).padStart(6, "0").toUpperCase()}`;
-
-/** A finish that says nothing is stored as no finish, so a reset side reads exactly like an untouched one. */
-function tidyFinish(f: FinishRef): FinishRef | null {
-  const blank =
-    f.color === null &&
-    f.textureId === null &&
-    f.placement === null &&
-    f.shininess === null &&
-    !f.mirrorForLeftSide;
-  return blank ? null : f;
-}
 
 /**
  * The colour and finish of one side (W-106). Left and right are as walked from start to end, which nobody
@@ -331,17 +320,11 @@ function sideFacts(w: Wall, side: "left" | "right", level: Level, north: number)
   const group = `${side === "left" ? "Left" : "Right"} side, facing ${derive.wallCompassSide(w, side, north)}`;
   const current = w.finishes[side];
   const finished = (change: Partial<FinishRef>): EditCommand => {
-    const base: FinishRef = current ?? {
-      color: null,
-      textureId: null,
-      placement: null,
-      mirrorForLeftSide: false,
-      shininess: null,
-    };
+    const base: FinishRef = current ?? blankFinish();
     return wallModify(w.id, { finishes: { ...w.finishes, [side]: tidyFinish({ ...base, ...change }) } });
   };
   const colour = current?.color ?? null;
-  const finish = finishOf(current?.shininess ?? null);
+  const finish = finishNameOf(current?.shininess ?? null);
   return [
     {
       group,
@@ -366,21 +349,15 @@ function sideFacts(w: Wall, side: "left" | "right", level: Level, north: number)
       value: finish,
       choices: WALL_FINISHES,
       edit: choiceEdit("Finish", WALL_FINISHES, finish, (value) =>
-        finished({ shininess: SHININESS[value] ?? null }),
+        finished({ shininess: FINISH_SHININESS[value as FinishName] ?? null }),
       ),
     },
     ...skirtingFacts(w, side, level),
   ];
 }
 
-/**
- * How deep a new baseboard is when only its height was typed: a common painted skirting board. The depth
- * row appears once there is a baseboard, for anyone who wants another.
- */
-export const SKIRTING_DEPTH = 12;
-
-/** A baseboard deeper than this is a plinth or a typing slip, not a skirting board. */
-export const SKIRTING_DEPTH_RANGE = { min: 1, max: 200 } as const;
+// The baseboard defaults are the model's, shared with the agent's finish_wall tool.
+export { SKIRTING_DEPTH, SKIRTING_DEPTH_RANGE };
 
 /**
  * The baseboard of one side (ADR-014 D8). Its height stands for the whole thing: empty is no baseboard, as

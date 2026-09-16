@@ -25,10 +25,10 @@ function textOf(result: { content: unknown[] }): ToolResult {
 }
 
 describe("MCP adapter over an in-memory transport (ADR-005 D1, D7)", () => {
-  it("lists the 24 tools with descriptions and JSON schemas, plus the workflow prompt", async () => {
+  it("lists the 25 tools with descriptions and JSON schemas, plus the workflow prompt", async () => {
     const { client } = await connect();
     const tools = await client.listTools();
-    expect(tools.tools).toHaveLength(24);
+    expect(tools.tools).toHaveLength(25);
     const scene = tools.tools.find((t) => t.name === "get_scene");
     expect(scene?.description).toContain("summary");
     expect((scene?.inputSchema as { properties: Record<string, unknown> }).properties).toHaveProperty(
