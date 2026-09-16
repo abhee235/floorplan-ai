@@ -1,89 +1,101 @@
-/* The editor's stylesheet (ADR-018 D2). Tailwind v4 is CSS-first: there is no tailwind.config.js, and
-   the plugin reads this file.
+/* The editor's stylesheet (ADR-018 D2). Tailwind v4 is CSS-first: there is no tailwind.config.js, and the
+   plugin reads this file.
 
-   The token values below are the shadcn "stone" base colours, taken verbatim from the registry
-   (ui.shadcn.com/r/colors/stone.json, cssVarsV4). Stone is the warm neutral, chosen to sit with the warm
-   paper palette ADR-017 D6 established rather than fight it.
+   The neutral ramp is shadcn's "zinc", taken verbatim from the registry (ui.shadcn.com/r/colors/zinc.json,
+   cssVarsV4). Zinc is the cool grey; the earlier warm "stone" fought the blue.
 
-   `shadcn/tailwind.css` carries the Radix state variants (data-open, data-checked and the rest) and the
-   accordion keyframes the generated components rely on; it does not carry the colour mapping, so the
-   `@theme inline` block below maps each token onto a Tailwind colour utility. */
+   The blue is ours, not shadcn's. Every shadcn base colour is a NEUTRAL ramp, and its --primary is derived
+   from that neutral, which is why the default primary is near black. A saturated primary has to be written
+   by hand. These values were converted from sRGB through OKLab rather than eyeballed, and the hue sits
+   beside the #1E88E5 the plan canvas already draws selection with (oklch 61.8% 0.167 250.9), so the chrome
+   and the drawing finally agree on what "selected" looks like.
+
+   Density: this is a drafting tool, not a web page. The base is 12px, controls are 22 to 24px, the grid is
+   8px and the radius is 3px. Before this file set a base size, Preflight left it at the browser default of
+   16px, which is what made the chrome read like an article. */
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "@fontsource-variable/inter";
 
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --radius: 0.625rem;
+  /* 8px: clearly rounded. Sharp corners read as unfinished rather than precise. */
+  --radius: 0.5rem;
+
+  /* ---- blue, hand written (see above) ---- */
+  --primary: oklch(67% 0.183 249.2);
+  --primary-foreground: oklch(100% 0 0);
+  --ring: oklch(67% 0.183 249.2);
+  --accent: oklch(96.1% 0.019 243);
+  --accent-foreground: oklch(56.3% 0.156 249.9);
+  --sidebar-primary: oklch(67% 0.183 249.2);
+  --sidebar-primary-foreground: oklch(100% 0 0);
+  --sidebar-accent: oklch(96.1% 0.019 243);
+  --sidebar-accent-foreground: oklch(56.3% 0.156 249.9);
+
+  /* ---- zinc, verbatim ---- */
   --background: oklch(1 0 0);
-  --foreground: oklch(0.147 0.004 49.25);
+  --foreground: oklch(0.141 0.005 285.823);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.147 0.004 49.25);
+  --card-foreground: oklch(0.141 0.005 285.823);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.147 0.004 49.25);
-  --primary: oklch(0.216 0.006 56.043);
-  --primary-foreground: oklch(0.985 0.001 106.423);
-  --secondary: oklch(0.97 0.001 106.424);
-  --secondary-foreground: oklch(0.216 0.006 56.043);
-  --muted: oklch(0.97 0.001 106.424);
-  --muted-foreground: oklch(0.553 0.013 58.071);
-  --accent: oklch(0.97 0.001 106.424);
-  --accent-foreground: oklch(0.216 0.006 56.043);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.923 0.003 48.717);
-  --input: oklch(0.923 0.003 48.717);
-  --ring: oklch(0.709 0.01 56.259);
-  --chart-1: oklch(0.869 0.005 56.366);
-  --chart-2: oklch(0.553 0.013 58.071);
-  --chart-3: oklch(0.444 0.011 73.639);
-  --chart-4: oklch(0.374 0.01 67.558);
-  --chart-5: oklch(0.268 0.007 34.298);
-  --sidebar: oklch(0.985 0.001 106.423);
-  --sidebar-foreground: oklch(0.147 0.004 49.25);
-  --sidebar-primary: oklch(0.216 0.006 56.043);
-  --sidebar-primary-foreground: oklch(0.985 0.001 106.423);
-  --sidebar-accent: oklch(0.97 0.001 106.424);
-  --sidebar-accent-foreground: oklch(0.216 0.006 56.043);
-  --sidebar-border: oklch(0.923 0.003 48.717);
-  --sidebar-ring: oklch(0.709 0.01 56.259);
+  --popover-foreground: oklch(0.141 0.005 285.823);
+  --secondary: oklch(0.967 0.001 286.375);
+  --secondary-foreground: oklch(0.21 0.006 285.885);
+  --muted: oklch(0.967 0.001 286.375);
+  --muted-foreground: oklch(0.552 0.016 285.938);
+  --destructive: oklch(57.8% 0.206 29);
+  --border: oklch(0.92 0.004 286.32);
+  --input: oklch(0.92 0.004 286.32);
+  --chart-1: oklch(67% 0.183 249.2);
+  --chart-2: oklch(0.552 0.016 285.938);
+  --chart-3: oklch(0.442 0.017 285.786);
+  --chart-4: oklch(0.37 0.013 285.805);
+  --chart-5: oklch(0.274 0.006 286.033);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.141 0.005 285.823);
+  --sidebar-border: oklch(0.92 0.004 286.32);
+  --sidebar-ring: oklch(67% 0.183 249.2);
 }
 
 .dark {
-  --background: oklch(0.147 0.004 49.25);
-  --foreground: oklch(0.985 0.001 106.423);
-  --card: oklch(0.216 0.006 56.043);
-  --card-foreground: oklch(0.985 0.001 106.423);
-  --popover: oklch(0.216 0.006 56.043);
-  --popover-foreground: oklch(0.985 0.001 106.423);
-  --primary: oklch(0.923 0.003 48.717);
-  --primary-foreground: oklch(0.216 0.006 56.043);
-  --secondary: oklch(0.268 0.007 34.298);
-  --secondary-foreground: oklch(0.985 0.001 106.423);
-  --muted: oklch(0.268 0.007 34.298);
-  --muted-foreground: oklch(0.709 0.01 56.259);
-  --accent: oklch(0.268 0.007 34.298);
-  --accent-foreground: oklch(0.985 0.001 106.423);
+  --primary: oklch(67% 0.183 249.2);
+  --primary-foreground: oklch(100% 0 0);
+  --ring: oklch(61.2% 0.168 249.5);
+  --accent: oklch(0.274 0.006 286.033);
+  --accent-foreground: oklch(0.985 0 0);
+  --background: oklch(0.141 0.005 285.823);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.21 0.006 285.885);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.21 0.006 285.885);
+  --popover-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.274 0.006 286.033);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.274 0.006 286.033);
+  --muted-foreground: oklch(0.705 0.015 286.067);
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.553 0.013 58.071);
-  --chart-1: oklch(0.869 0.005 56.366);
-  --chart-2: oklch(0.553 0.013 58.071);
-  --chart-3: oklch(0.444 0.011 73.639);
-  --chart-4: oklch(0.374 0.01 67.558);
-  --chart-5: oklch(0.268 0.007 34.298);
-  --sidebar: oklch(0.216 0.006 56.043);
-  --sidebar-foreground: oklch(0.985 0.001 106.423);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0.001 106.423);
-  --sidebar-accent: oklch(0.268 0.007 34.298);
-  --sidebar-accent-foreground: oklch(0.985 0.001 106.423);
+  --chart-1: oklch(67% 0.183 249.2);
+  --chart-2: oklch(0.552 0.016 285.938);
+  --chart-3: oklch(0.442 0.017 285.786);
+  --chart-4: oklch(0.37 0.013 285.805);
+  --chart-5: oklch(0.274 0.006 286.033);
+  --sidebar: oklch(0.21 0.006 285.885);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(67% 0.183 249.2);
+  --sidebar-primary-foreground: oklch(100% 0 0);
+  --sidebar-accent: oklch(0.274 0.006 286.033);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.553 0.013 58.071);
+  --sidebar-ring: oklch(61.2% 0.168 249.5);
 }
 
 @theme inline {
+  --font-sans: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -115,10 +127,10 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-sm: calc(var(--radius) - 1px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 1px);
+  --radius-xl: calc(var(--radius) + 3px);
 }
 
 @layer base {
@@ -127,5 +139,28 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* 14px, the same as the registry's own text-sm, so the components sit at their intended size instead
+       of being fought down one class at a time.
+
+       It sits on BODY rather than on html deliberately. Tailwind v4 measures spacing in rem, so setting
+       the ROOT font size rescales every h-9 and w-11 with it; an earlier 12px root quietly shrank the
+       whole chrome to three quarters of its intended size. The root stays at the browser default. */
+    font-size: 14px;
+    font-family: var(--font-sans);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11"; /* Inter's clearer digits and letterforms */
+    -webkit-font-smoothing: antialiased;
   }
+  /* numbers in a drafting tool line up in columns */
+  input[type="number"],
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* The registry's own sizes are the standard desktop scale already: text-sm is 14px, controls are 36px,
+   checkboxes 16px. An earlier pass shrank all of that to a Figma-like density and the chrome became hard
+   to read, so there is deliberately no density layer here now. Labels are the one exception: the registry
+   makes them semibold, which is heavy for a panel where every row carries one. */
+[data-slot="label"] {
+  font-weight: 400;
 }

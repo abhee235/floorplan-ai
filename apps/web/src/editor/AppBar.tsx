@@ -5,6 +5,7 @@
 import type { JSX } from "react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { Replica } from "../replica.js";
 import type { ViewMode } from "./useEditor.js";
@@ -24,6 +25,9 @@ const VIEWS: [ViewMode, string][] = [
   ["3d", "3D"],
 ];
 
+/** The registry's small size, which is the standard 32px control. */
+const CONTROL = "h-8 px-3 font-normal";
+
 export function AppBar({ replica, level, onLevel, onImport }: AppBarProps): JSX.Element {
   const editor = useEditor();
   const project = useProject(replica);
@@ -31,13 +35,13 @@ export function AppBar({ replica, level, onLevel, onImport }: AppBarProps): JSX.
   const run = (id: string) => void editor.commands.run(id);
 
   return (
-    <header className="flex h-9 items-center gap-2.5 border-b bg-card px-3">
-      <strong className="text-sm">{project?.meta.name ?? "floorplan-viz"}</strong>
-      <span className="text-muted-foreground">·</span>
+    <header className="flex h-11 items-center gap-2 border-b bg-card px-3">
+      <strong className="truncate font-semibold">{project?.meta.name ?? "floorplan-viz"}</strong>
 
-      <span className="text-muted-foreground">Level</span>
+      <Separator orientation="vertical" className="mx-1 h-5" />
+
       <Select value={level ?? ""} onValueChange={onLevel}>
-        <SelectTrigger size="sm" aria-label="Level" className="h-6 py-0">
+        <SelectTrigger size="sm" aria-label="Level" className="w-[104px] gap-1">
           <SelectValue placeholder="—" />
         </SelectTrigger>
         <SelectContent>
@@ -49,11 +53,11 @@ export function AppBar({ replica, level, onLevel, onImport }: AppBarProps): JSX.
         </SelectContent>
       </Select>
 
-      <div className="flex gap-1" role="group" aria-label="History">
-        <Button variant="outline" size="xs" onClick={() => run("edit.undo")}>
+      <div className="flex gap-0.5" role="group" aria-label="History">
+        <Button variant="ghost" className={CONTROL} onClick={() => run("edit.undo")}>
           Undo
         </Button>
-        <Button variant="outline" size="xs" onClick={() => run("edit.redo")}>
+        <Button variant="ghost" className={CONTROL} onClick={() => run("edit.redo")}>
           Redo
         </Button>
       </div>
@@ -67,20 +71,26 @@ export function AppBar({ replica, level, onLevel, onImport }: AppBarProps): JSX.
           if (v) editor.setView(v as ViewMode);
         }}
         variant="outline"
-        size="sm"
         aria-label="What is on screen"
+        className="h-8"
       >
         {VIEWS.map(([mode, label]) => (
-          <ToggleGroupItem key={mode} value={mode} className="h-6 px-2 text-xs">
+          <ToggleGroupItem
+            key={mode}
+            value={mode}
+            className="h-8 px-3 aria-checked:bg-accent aria-checked:text-accent-foreground"
+          >
             {label}
           </ToggleGroupItem>
         ))}
       </ToggleGroup>
 
-      <Button variant="outline" size="xs" onClick={onImport}>
+      <Separator orientation="vertical" className="mx-1 h-5" />
+
+      <Button variant="outline" className={CONTROL} onClick={onImport}>
         Import plan…
       </Button>
-      <Button size="xs" onClick={() => run("file.export")}>
+      <Button className={CONTROL} onClick={() => run("file.export")}>
         Export
       </Button>
     </header>

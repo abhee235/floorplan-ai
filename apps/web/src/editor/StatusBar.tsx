@@ -6,7 +6,9 @@
 // activity line straight into `activityRef`, and if that span lived inside a branch that flipped when the
 // project arrived, React would reconcile it away and the app would go on writing into a node no longer on
 // screen. The counts move into a child so the hooks stay unconditional.
+
 import type { JSX, RefObject } from "react";
+import { Separator } from "@/components/ui/separator";
 import type { Replica } from "../replica.js";
 import { pointerText, problemCounts, scaleLabel } from "./status.js";
 import { useEditor } from "./useEditor.js";
@@ -18,18 +20,36 @@ export interface StatusBarProps {
   activityRef: RefObject<HTMLSpanElement | null>;
 }
 
+const RULE = <Separator orientation="vertical" className="h-4 opacity-60" />;
+
 export function StatusBar({ replica, activityRef }: StatusBarProps): JSX.Element {
   const editor = useEditor();
   return (
-    <footer className="text-muted-foreground flex h-7 items-center gap-3.5 overflow-hidden border-t bg-card px-3">
-      <span className="tabular-nums">{pointerText(editor.pointer)}</span>
-      {editor.snap ? <span>{editor.snap}</span> : null}
+    <footer className="flex h-9 items-center gap-3 overflow-hidden border-t bg-card px-3 text-muted-foreground">
+      {/* Only takes space once there is a pointer to report. The width is fixed so the bar does not
+          jitter as the coordinates change, but reserving it while the pointer is off the plan just
+          indented everything after it for no reason. */}
+      {editor.pointer ? (
+        <>
+          <span className="w-[180px] tabular-nums">{pointerText(editor.pointer)}</span>
+          {RULE}
+        </>
+      ) : null}
+      {editor.snap ? (
+        <>
+          <span className="text-foreground">{editor.snap}</span>
+          {RULE}
+        </>
+      ) : null}
       {replica ? <Problems replica={replica} /> : <span>Connecting…</span>}
       <span className="grow" />
       <span ref={activityRef} className="truncate" />
+      {RULE}
       <span className="tabular-nums">{scaleLabel(editor.scale, Math.min(2, window.devicePixelRatio))}</span>
-      <span>
-        Press <kbd className="rounded border bg-muted px-1.5 py-px text-[11px]">Ctrl K</kbd> for commands
+      {RULE}
+      <span className="flex items-center gap-1.5">
+        <kbd className="rounded-md border bg-muted px-1.5 py-0.5 font-sans text-xs leading-none">Ctrl K</kbd>
+        commands
       </span>
     </footer>
   );

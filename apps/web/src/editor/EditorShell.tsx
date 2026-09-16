@@ -290,7 +290,8 @@ export function EditorShell(): JSX.Element {
   return (
     <EditorContext.Provider value={editor}>
       <TooltipProvider delayDuration={400}>
-        <div className="grid h-full grid-rows-[36px_30px_minmax(0,1fr)_28px] bg-background text-foreground">
+        {/* tracks match the bars: app bar h-11, tool options h-10, status h-9 */}
+        <div className="grid h-full grid-rows-[44px_40px_minmax(0,1fr)_36px] bg-background text-foreground">
           {replica ? (
             <AppBar
               replica={replica}
@@ -302,14 +303,15 @@ export function EditorShell(): JSX.Element {
               onImport={() => importFileRef.current?.click()}
             />
           ) : (
-            <header className="flex h-9 items-center border-b bg-card px-3">
-              <strong className="text-sm">floorplan-viz</strong>
+            <header className="flex h-11 items-center border-b bg-card px-3">
+              <strong className="font-semibold">floorplan-viz</strong>
             </header>
           )}
 
           <ToolOptionsBar />
 
-          <div className="grid min-h-0 grid-cols-[44px_minmax(0,1fr)_296px]">
+          {/* columns match the rail (w-[52px]) and the properties panel (w-72) */}
+          <div className="grid min-h-0 grid-cols-[52px_minmax(0,1fr)_288px]">
             <ToolRail />
 
             <div

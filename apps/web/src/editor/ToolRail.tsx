@@ -8,6 +8,16 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { TOOLS, type ToolId, toolReady } from "./tools.js";
 import { useEditor } from "./useEditor.js";
 
+// toggle-group rounds its first and last child for a HORIZONTAL row, which on a vertical rail came out as
+// `8px 0 0 8px`: rounded down one side only. `rounded-[3px]!` overrides that rule on every item.
+// The selected state keys off aria-checked, NOT data-state. TooltipTrigger asChild merges its props onto
+// this same element, and both it and the toggle write data-state — the tooltip's "closed" wins, so
+// `data-[state=on]:` never matched and the active tool had no visible state at all. aria-checked is the
+// toggle's own, and is what assistive technology reads anyway.
+const ITEM =
+  "size-9 rounded-lg! text-muted-foreground transition-colors hover:bg-muted hover:text-foreground " +
+  "aria-checked:bg-accent aria-checked:text-accent-foreground";
+
 export function ToolRail(): JSX.Element {
   const editor = useEditor();
   return (
@@ -21,7 +31,7 @@ export function ToolRail(): JSX.Element {
       }}
       orientation="vertical"
       aria-label="Tools"
-      className="flex w-11 flex-col items-center gap-0.5 border-r bg-card py-1.5"
+      className="flex w-[52px] flex-col items-center gap-1 border-r bg-card py-2"
     >
       {TOOLS.map((tool) => {
         const ready = toolReady(tool);
@@ -32,13 +42,15 @@ export function ToolRail(): JSX.Element {
                 value={tool.id}
                 aria-label={`${tool.title}, ${tool.shortcut}${ready ? "" : ", not built yet"}`}
                 data-tool={tool.id}
-                className={`size-[34px] rounded-md ${ready ? "" : "opacity-45"}`}
+                className={ready ? ITEM : `${ITEM} opacity-40`}
               >
                 <ToolIcon id={tool.id} />
               </ToggleGroupItem>
             </TooltipTrigger>
             <TooltipContent side="right">
-              {tool.title} ({tool.shortcut}){ready ? "" : " — not built yet"}
+              {tool.title}
+              <span className="ml-1.5 opacity-60">{tool.shortcut}</span>
+              {ready ? "" : " · not built yet"}
             </TooltipContent>
           </Tooltip>
         );
@@ -47,15 +59,15 @@ export function ToolRail(): JSX.Element {
   );
 }
 
-/** 18px line icons, the same geometry the design canvas drew. */
+/** 20px line icons, the same geometry the design canvas drew. */
 function ToolIcon({ id }: { id: ToolId }): JSX.Element {
   const common = {
-    width: 18,
-    height: 18,
+    width: 20,
+    height: 20,
     viewBox: "0 0 24 24",
     fill: "none",
     stroke: "currentColor",
-    strokeWidth: 1.6,
+    strokeWidth: 1.7,
     "aria-hidden": true,
   } as const;
   switch (id) {
