@@ -1,0 +1,103 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 13px; color: #2b2b2b; background: #f3f1ec; }
+    a { color: #1e6fd9; } a:hover { color: #17509c; }
+    .key { padding: 1px 6px; border: 1px solid #c9c5bd; border-radius: 3px; background: #faf9f6; font-size: 11px; color: #555; }
+    .row { display: flex; align-items: center; gap: 10px; padding: 7px 12px; }
+    .row .ico { color: #6b6b6b; display: flex; }
+    .row .sub { color: #8a857c; font-size: 12px; }
+    .row.on { background: #e8eff9; }
+  </style>
+</helmet>
+
+<div style="width: 760px; height: 560px; position: relative; background: #fbfaf7; overflow: hidden;">
+
+  <!-- dimmed plan behind -->
+  <svg width="100%" height="100%" viewBox="0 0 760 560" style="display: block; position: absolute; inset: 0;">
+    <defs>
+      <pattern id="g4" width="26" height="26" patternUnits="userSpaceOnUse">
+        <path d="M26 0H0V26" fill="none" stroke="#e6e3dd" stroke-width="1"/>
+      </pattern>
+    </defs>
+    <rect width="760" height="560" fill="url(#g4)"/>
+    <g fill="#3a3a3a" opacity="0.5">
+      <rect x="90" y="110" width="580" height="12"/>
+      <rect x="90" y="430" width="580" height="12"/>
+      <rect x="90" y="110" width="12" height="332"/>
+      <rect x="658" y="110" width="12" height="332"/>
+    </g>
+    <rect width="760" height="560" fill="rgba(43, 43, 43, 0.28)"/>
+  </svg>
+
+  <!-- palette -->
+  <div style="position: absolute; left: 50%; top: 84px; transform: translateX(-50%); width: 520px; background: #ffffff; border: 1px solid #d8d4cc; border-radius: 8px; box-shadow: 0 12px 32px rgba(0,0,0,0.18); overflow: hidden;">
+
+    <div style="display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #e0ddd6;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8a857c" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M16 16l4 4"/></svg>
+      <span style="color: #1f1f1f;">wall</span>
+      <span style="width: 1.5px; height: 15px; background: #1e6fd9;"></span>
+      <div style="flex-grow: 1;"></div>
+      <span class="key">Esc</span>
+    </div>
+
+    <div style="padding: 6px 0;">
+      <p style="margin: 0; padding: 4px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: #8a857c;">Tools</p>
+
+      <div class="row on">
+        <span class="ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 15h18M3 9h18" stroke-linecap="round"/><path d="M8 9v6M16 9v6"/></svg></span>
+        <span style="flex-grow: 1;">Draw wall</span>
+        <span class="key">W</span>
+      </div>
+
+      <div class="row">
+        <span class="ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M4 12h8v7"/></svg></span>
+        <span style="flex-grow: 1;">Draw room</span>
+        <span class="key">R</span>
+      </div>
+
+      <p style="margin: 6px 0 0; padding: 4px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: #8a857c;">Walls</p>
+
+      <div class="row">
+        <span class="ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M5 12h14M12 5v14"/></svg></span>
+        <span style="flex-grow: 1;">Wall thickness…<span class="sub"> · applies to the selection</span></span>
+      </div>
+
+      <div class="row">
+        <span class="ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M4 18L20 6"/><path d="M4 12v6h6"/></svg></span>
+        <span style="flex-grow: 1;">Split wall at cursor</span>
+        <span class="key">Ctrl ⇧ S</span>
+      </div>
+
+      <div class="row">
+        <span class="ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 12h12"/><path d="M9 8l-3 4 3 4M15 8l3 4-3 4"/></svg></span>
+        <span style="flex-grow: 1;">Join walls at their ends</span>
+      </div>
+
+      <p style="margin: 6px 0 0; padding: 4px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: #8a857c;">Openings</p>
+
+      <div class="row">
+        <span class="ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 12h5M16 12h5" stroke-linecap="round"/><path d="M8 12a8 8 0 0 1 8 0"/><path d="M8 12v-6"/></svg></span>
+        <span style="flex-grow: 1;">Add door to wall<span class="sub"> · needs a selected wall</span></span>
+        <span class="key">O</span>
+      </div>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 12px; padding: 7px 12px; border-top: 1px solid #e0ddd6; background: #faf9f6; color: #8a857c; font-size: 12px;">
+      <span><span class="key">↑</span> <span class="key">↓</span> to move</span>
+      <span><span class="key">Enter</span> to run</span>
+      <div style="flex-grow: 1;"></div>
+      <span>Every command, with its shortcut</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

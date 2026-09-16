@@ -1,0 +1,122 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 13px; color: #2b2b2b; background: #ffffff; }
+    a { color: #1e6fd9; } a:hover { color: #17509c; }
+    .key { display: inline-block; padding: 1px 6px; border: 1px solid #c9c5bd; border-radius: 3px; background: #faf9f6; font-size: 11px; color: #444; }
+    .h { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: #666; margin: 0 0 8px; }
+    .card { border: 1px solid #e0ddd6; border-radius: 6px; padding: 12px 14px; background: #ffffff; }
+    .line { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 4px 0; }
+    .line + .line { border-top: 1px dashed #eceae5; }
+    .muted { color: #666; }
+  </style>
+</helmet>
+
+<div style="width: 1040px; height: 760px; padding: 20px 24px; background: #ffffff; display: flex; flex-direction: column; gap: 16px;">
+
+  <div>
+    <h2 style="margin: 0 0 4px; font-size: 16px;">Keyboard and focus</h2>
+    <p style="margin: 0; color: #666;">Every gesture has a keyboard equal. One tab stop per region; arrows move within a region. The canvas is one stop, entered with Enter and left with Escape.</p>
+  </div>
+
+  <!-- focus order across the shell -->
+  <div class="card">
+    <p class="h">Tab order across the shell</p>
+    <div style="display: flex; align-items: stretch; gap: 8px;">
+      <div style="flex-grow: 0; width: 120px; border: 1.5px solid #1e6fd9; border-radius: 4px; padding: 8px; text-align: center; background: #f4f8fd;">
+        <div style="font-weight: 600;">1 · App bar</div>
+        <div class="muted" style="font-size: 12px;">level, undo, view, export</div>
+      </div>
+      <div style="width: 120px; border: 1px solid #c9c5bd; border-radius: 4px; padding: 8px; text-align: center;">
+        <div style="font-weight: 600;">2 · Tool options</div>
+        <div class="muted" style="font-size: 12px;">settings for the active tool</div>
+      </div>
+      <div style="width: 110px; border: 1px solid #c9c5bd; border-radius: 4px; padding: 8px; text-align: center;">
+        <div style="font-weight: 600;">3 · Tool rail</div>
+        <div class="muted" style="font-size: 12px;">roving arrows</div>
+      </div>
+      <div style="flex-grow: 1; border: 1px solid #c9c5bd; border-radius: 4px; padding: 8px; text-align: center;">
+        <div style="font-weight: 600;">4 · Canvas</div>
+        <div class="muted" style="font-size: 12px;">one stop · <span class="key">Enter</span> to work inside · <span class="key">Esc</span> to leave</div>
+      </div>
+      <div style="width: 150px; border: 1px solid #c9c5bd; border-radius: 4px; padding: 8px; text-align: center;">
+        <div style="font-weight: 600;">5 · Properties</div>
+        <div class="muted" style="font-size: 12px;">fields in order</div>
+      </div>
+      <div style="width: 110px; border: 1px solid #c9c5bd; border-radius: 4px; padding: 8px; text-align: center;">
+        <div style="font-weight: 600;">6 · Status</div>
+        <div class="muted" style="font-size: 12px;">problems, help</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; flex-grow: 1;">
+
+    <div class="card">
+      <p class="h">Inside the canvas</p>
+      <div class="line"><span>Step through entities</span><span><span class="key">Tab</span> <span class="key">⇧ Tab</span></span></div>
+      <div class="line"><span>Into a group, or a wall's ends</span><span><span class="key">↓</span> <span class="key">↑</span></span></div>
+      <div class="line"><span>Nudge by one grid step</span><span><span class="key">← ↑ → ↓</span></span></div>
+      <div class="line"><span>Nudge by 10 mm</span><span><span class="key">⇧</span> + arrows</span></div>
+      <div class="line"><span>Pick up, move, drop</span><span><span class="key">Space</span> · arrows · <span class="key">Space</span></span></div>
+      <div class="line"><span>Cancel the move</span><span><span class="key">Esc</span></span></div>
+      <div class="line"><span>Rotate by 15°</span><span><span class="key">[</span> <span class="key">]</span></span></div>
+      <div class="line"><span>Open properties for it</span><span><span class="key">Enter</span></span></div>
+    </div>
+
+    <div class="card">
+      <p class="h">Drawing by typing</p>
+      <div class="line"><span>Start a wall chain</span><span><span class="key">W</span></span></div>
+      <div class="line"><span>Length, then angle</span><span>type · <span class="key">Tab</span> · type</span></div>
+      <div class="line"><span>Place the segment</span><span><span class="key">Enter</span></span></div>
+      <div class="line"><span>Finish the chain</span><span><span class="key">Enter</span> twice</span></div>
+      <div class="line"><span>Close the loop</span><span>back to the first point</span></div>
+      <div class="line"><span>Undo the last segment</span><span><span class="key">Ctrl Z</span></span></div>
+      <div class="line"><span>Angle is relative to the last wall</span><span class="muted">absolute for the first</span></div>
+      <div class="line"><span>End the chain, keep the walls</span><span><span class="key">Esc</span></span></div>
+    </div>
+
+    <div class="card">
+      <p class="h">Everywhere</p>
+      <div class="line"><span>Commands, with shortcuts</span><span><span class="key">Ctrl K</span></span></div>
+      <div class="line"><span>Tools</span><span><span class="key">V</span> <span class="key">W</span> <span class="key">R</span> <span class="key">O</span> <span class="key">I</span> <span class="key">M</span> <span class="key">T</span></span></div>
+      <div class="line"><span>Pan, zoom, fit</span><span><span class="key">Space</span> drag · <span class="key">Ctrl</span> wheel · <span class="key">F</span></span></div>
+      <div class="line"><span>Bypass snapping</span><span>hold <span class="key">Alt</span></span></div>
+      <div class="line"><span>Align instead of snap</span><span>hold <span class="key">⇧</span></span></div>
+      <div class="line"><span>Delete the selection</span><span><span class="key">Del</span></span></div>
+      <div class="line"><span>Undo, redo</span><span><span class="key">Ctrl Z</span> <span class="key">Ctrl ⇧ Z</span></span></div>
+      <div class="line"><span>This list</span><span><span class="key">?</span></span></div>
+    </div>
+  </div>
+
+  <!-- what gets announced -->
+  <div class="card">
+    <p class="h">What a screen reader hears</p>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;">
+      <div style="border-left: 3px solid #1e6fd9; padding-left: 10px;">
+        <div class="muted" style="font-size: 11px;">While drawing · polite</div>
+        <div>"Wall 3, 4 250 millimetres at 180 degrees, snapped to the end of wall 1."</div>
+      </div>
+      <div style="border-left: 3px solid #1e6fd9; padding-left: 10px;">
+        <div class="muted" style="font-size: 11px;">On selection · polite</div>
+        <div>"Boat table, 3 600 by 1 400, in Boardroom, 1 250 from the west wall."</div>
+      </div>
+      <div style="border-left: 3px solid #b3261e; padding-left: 10px;">
+        <div class="muted" style="font-size: 11px;">On a problem · assertive</div>
+        <div>"Blocked: the door swing crosses this chair. Move it or the door."</div>
+      </div>
+    </div>
+  </div>
+
+  <p style="margin: 0; color: #8a857c; font-size: 12px;">Focus ring: 2 px #1e6fd9 with a 2 px offset, on every control and on the canvas entity in focus. Targets 32 px on a pointer, 44 px on touch. Text and icons meet WCAG 2.2 AA against their own background; motion respects reduced-motion.</p>
+</div>
+</x-dc>
+</body>
+</html>

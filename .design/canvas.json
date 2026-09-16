@@ -1,0 +1,47 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1440, "h": 900, "title": "Editor shell — plan-led" },
+    {
+      "file": "DrawingWall.dc.html",
+      "x": 1560,
+      "y": 0,
+      "w": 1040,
+      "h": 720,
+      "title": "Drawing a wall — keyboard entry"
+    },
+    {
+      "file": "Selection.dc.html",
+      "x": 0,
+      "y": 1020,
+      "w": 760,
+      "h": 720,
+      "title": "Selection — properties panel"
+    },
+    { "file": "CommandPalette.dc.html", "x": 880, "y": 1020, "w": 760, "h": 560, "title": "Command palette" },
+    {
+      "file": "KeyboardMap.dc.html",
+      "x": 1760,
+      "y": 1020,
+      "w": 1040,
+      "h": 760,
+      "title": "Keyboard and focus map"
+    }
+  ],
+  "annotations": [
+    {
+      "id": "brief",
+      "x": 0,
+      "y": -150,
+      "w": 620,
+      "text": "Floor plan editor — phase 3 shell.\nPlan-led, panels always open, full keyboard parity. Colours, type and control sizes lifted from apps/web/index.html and the plan palette."
+    },
+    {
+      "id": "space",
+      "x": 660,
+      "y": -150,
+      "w": 500,
+      "text": "Screen budget at 1440×900: chrome takes 44 px left, 296 px right, 94 px top, 28 px bottom.\nThat leaves 1100×566 for the plan with the 3D docked at 232 px, or 1100×798 when 3D is collapsed."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

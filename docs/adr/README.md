@@ -23,6 +23,7 @@ tests.
 | [014](ADR-014-wall-geometry-construction.md) | Wall footprints, symmetric join pass, arc tessellation, sloped tops, openings and reveals, tolerance table | Proposed |
 | [015](ADR-015-engine-invalidation.md) | Change sets expanded by a dependency table into rebuild sets; one dirty set for 3D and plan layers; caches on the same path | Proposed |
 | [016](ADR-016-room-detection-magnetism-gestures.md) | Room detection from the closed wall union with gap tolerance; magnetism table; gestures as transactions | Proposed |
+| [017](ADR-017-editor-shell-and-accessibility.md) | Editor shell: plan-led layout with panels always open; tools as modes; properties panel is the selection; a keyboard equal for every gesture | Proposed |
 
 Deliberate departures from common practice, collected for review:
 millimetres and y-up (001); openings bound to walls by id (001); rejected

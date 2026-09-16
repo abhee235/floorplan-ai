@@ -1,0 +1,109 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 13px; color: #2b2b2b; background: #f3f1ec; }
+    a { color: #1e6fd9; } a:hover { color: #17509c; }
+    .chip { padding: 2px 7px; border: 1px solid #c9c5bd; border-radius: 4px; background: #faf9f6; font-size: 12px; }
+    .key { padding: 1px 5px; border: 1px solid #c9c5bd; border-radius: 3px; background: #faf9f6; font-size: 11px; font-variant-numeric: tabular-nums; }
+  </style>
+</helmet>
+
+<div style="width: 1040px; height: 720px; display: grid; grid-template-rows: 30px 1fr 28px; background: #f3f1ec;">
+
+  <!-- tool options for the wall tool -->
+  <div style="display: flex; align-items: center; gap: 10px; padding: 0 12px; background: #faf9f6; border-bottom: 1px solid #e0ddd6;">
+    <span style="font-weight: 600; color: #1e6fd9;">Wall</span>
+    <span style="width: 1px; height: 16px; background: #e0ddd6;"></span>
+    <label style="display: flex; align-items: center; gap: 5px; color: #555;">Thickness <input value="100 mm" style="width: 74px; padding: 2px 6px; border: 1px solid #c9c5bd; border-radius: 4px; text-align: right; font: inherit; font-variant-numeric: tabular-nums;"></label>
+    <label style="display: flex; align-items: center; gap: 5px; color: #555;">Kind <span class="chip">Partition ▾</span></label>
+    <label style="display: flex; align-items: center; gap: 5px; color: #555;"><input type="checkbox" checked style="margin: 0;"> Snap to walls</label>
+    <label style="display: flex; align-items: center; gap: 5px; color: #555;"><input type="checkbox" checked style="margin: 0;"> Angle steps 15°</label>
+    <div style="flex-grow: 1;"></div>
+    <span style="color: #8a857c;">Double-click or close the loop to finish · <span class="key">Esc</span> keeps what is drawn</span>
+  </div>
+
+  <!-- plan mid-gesture -->
+  <div style="position: relative; background: #fbfaf7; overflow: hidden;">
+    <svg width="100%" height="100%" viewBox="0 0 1040 662" style="display: block;">
+      <defs>
+        <pattern id="g2" width="26" height="26" patternUnits="userSpaceOnUse">
+          <path d="M26 0H0V26" fill="none" stroke="#e6e3dd" stroke-width="1"/>
+        </pattern>
+      </defs>
+      <rect width="1040" height="662" fill="url(#g2)"/>
+
+      <!-- walls already committed in this gesture -->
+      <g fill="#3a3a3a">
+        <rect x="180" y="150" width="440" height="12"/>
+        <rect x="608" y="150" width="12" height="250"/>
+      </g>
+
+      <!-- the segment being drawn -->
+      <g>
+        <rect x="360" y="394" width="254" height="12" fill="#3a3a3a" opacity="0.35"/>
+        <path d="M614 400H366" stroke="#1e88e5" stroke-width="1.6" stroke-dasharray="5 4"/>
+      </g>
+
+      <!-- snap indicators -->
+      <g stroke="#1e88e5" fill="none" stroke-width="1.4">
+        <circle cx="614" cy="400" r="7"/>
+        <path d="M614 372v-16M614 428v16" stroke-dasharray="3 3" opacity="0.8"/>
+      </g>
+      <g stroke="#1e88e5" stroke-width="1" stroke-dasharray="4 4" opacity="0.7">
+        <path d="M186 400H360"/>
+      </g>
+      <circle cx="186" cy="156" r="6" fill="none" stroke="#1e88e5" stroke-width="1.4"/>
+      <text x="196" y="145" font-size="11" fill="#1e88e5">start of chain</text>
+
+      <!-- live length and angle entry, anchored to the cursor -->
+      <g>
+        <rect x="292" y="428" width="196" height="62" rx="6" fill="#ffffff" stroke="#b7cdea"/>
+        <text x="304" y="449" font-size="12" fill="#666">Length</text>
+        <text x="472" y="449" font-size="13" text-anchor="end" fill="#1f1f1f" font-weight="600" font-family="system-ui">4 250 mm</text>
+        <rect x="392" y="437" width="1.5" height="14" fill="#1e6fd9"/>
+        <text x="304" y="474" font-size="12" fill="#666">Angle</text>
+        <text x="472" y="474" font-size="13" text-anchor="end" fill="#1f1f1f" font-family="system-ui">180°</text>
+        <text x="304" y="489" font-size="10" fill="#8a857c">relative to the last wall</text>
+      </g>
+
+      <!-- dimension feedback on the segment -->
+      <g stroke="#6b6b6b" stroke-width="1" fill="none">
+        <path d="M366 358h248"/>
+        <path d="M366 352v12M614 352v12"/>
+      </g>
+      <text x="490" y="350" text-anchor="middle" font-size="12" fill="#333">4 250</text>
+
+      <!-- cursor -->
+      <g transform="translate(360 394)">
+        <path d="M0 0l0 18 5-5 4 8 4-2-4-8 7 0z" fill="#1f1f1f"/>
+      </g>
+    </svg>
+
+    <!-- announcement mirrored for screen readers, shown here so the design accounts for it -->
+    <div style="position: absolute; left: 12px; bottom: 12px; max-width: 420px; padding: 6px 10px; background: rgba(255,255,255,0.96); border: 1px solid #d8d4cc; border-left: 3px solid #1e6fd9; border-radius: 4px; color: #444;">
+      <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: #666;">Announced</span><br>
+      Wall 3, 4 250 millimetres at 180 degrees, snapped to the end of wall 1.
+    </div>
+  </div>
+
+  <!-- status bar in drawing state -->
+  <div style="display: flex; align-items: center; gap: 14px; padding: 0 12px; background: #ffffff; border-top: 1px solid #e0ddd6; color: #555;">
+    <span style="font-variant-numeric: tabular-nums;">x 4 250 · y 6 100 mm</span>
+    <span style="color: #8a857c;">|</span>
+    <span style="color: #1e6fd9;">Drawing wall 3 of chain</span>
+    <div style="flex-grow: 1;"></div>
+    <span>Type a length, <span class="key">Tab</span> for angle, <span class="key">Enter</span> to place</span>
+    <span style="color: #8a857c;">|</span>
+    <span><span class="key">Esc</span> ends the chain</span>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

@@ -1,0 +1,133 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 13px; color: #2b2b2b; background: #f3f1ec; }
+    a { color: #1e6fd9; } a:hover { color: #17509c; }
+    .sec-h { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: #666; margin: 0 0 6px; }
+    .field { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+    .field label { color: #555; }
+    .num { width: 92px; padding: 3px 6px; border: 1px solid #c9c5bd; border-radius: 4px; background: #fff; text-align: right; font: inherit; font-variant-numeric: tabular-nums; }
+    .chip { padding: 2px 7px; border: 1px solid #c9c5bd; border-radius: 4px; background: #faf9f6; font-size: 12px; }
+    .seg { display: flex; }
+    .seg span { padding: 3px 9px; border: 1px solid #c9c5bd; background: #faf9f6; font-size: 12px; }
+    .seg span:first-child { border-radius: 4px 0 0 4px; }
+    .seg span:last-child { border-radius: 0 4px 4px 0; border-left: none; }
+    .seg span.on { background: #e8eff9; border-color: #b7cdea; color: #1e6fd9; }
+  </style>
+</helmet>
+
+<div style="width: 760px; height: 720px; display: grid; grid-template-columns: 1fr 296px; background: #f3f1ec;">
+
+  <!-- plan fragment with a selected item and its handles -->
+  <div style="position: relative; background: #fbfaf7; overflow: hidden; border-right: 1px solid #e0ddd6;">
+    <svg width="100%" height="100%" viewBox="0 0 464 720" style="display: block;">
+      <defs>
+        <pattern id="g3" width="26" height="26" patternUnits="userSpaceOnUse">
+          <path d="M26 0H0V26" fill="none" stroke="#e6e3dd" stroke-width="1"/>
+        </pattern>
+      </defs>
+      <rect width="464" height="720" fill="url(#g3)"/>
+
+      <g fill="#3a3a3a">
+        <rect x="40" y="120" width="384" height="12"/>
+        <rect x="40" y="560" width="384" height="12"/>
+        <rect x="40" y="120" width="12" height="452"/>
+        <rect x="412" y="120" width="12" height="452"/>
+      </g>
+      <rect x="52" y="132" width="360" height="428" fill="rgba(214, 226, 240, 0.55)" stroke="#8fa6bf"/>
+
+      <!-- the selected table -->
+      <g>
+        <rect x="128" y="286" width="210" height="112" rx="3" fill="rgba(140, 120, 90, 0.35)" stroke="#6f5b3e"/>
+        <rect x="126" y="284" width="214" height="116" fill="none" stroke="#1e88e5" stroke-width="1.6"/>
+        <!-- resize handles -->
+        <g fill="#ffffff" stroke="#1e88e5" stroke-width="1.4">
+          <rect x="121" y="279" width="10" height="10"/>
+          <rect x="228" y="279" width="10" height="10"/>
+          <rect x="335" y="279" width="10" height="10"/>
+          <rect x="121" y="337" width="10" height="10"/>
+          <rect x="335" y="337" width="10" height="10"/>
+          <rect x="121" y="395" width="10" height="10"/>
+          <rect x="228" y="395" width="10" height="10"/>
+          <rect x="335" y="395" width="10" height="10"/>
+        </g>
+        <!-- rotate handle -->
+        <path d="M233 279v-26" stroke="#1e88e5" stroke-width="1.4"/>
+        <circle cx="233" cy="246" r="7" fill="#ffffff" stroke="#1e88e5" stroke-width="1.4"/>
+        <path d="M230 246a3 3 0 0 1 6 0" fill="none" stroke="#1e88e5" stroke-width="1.2"/>
+      </g>
+
+      <!-- clearance feedback -->
+      <rect x="104" y="262" width="258" height="160" fill="none" stroke="#1e88e5" stroke-width="1" stroke-dasharray="4 4" opacity="0.55"/>
+      <text x="233" y="440" text-anchor="middle" font-size="11" fill="#1e6fd9">900 mm chair clearance</text>
+
+      <!-- dimension to the wall -->
+      <g stroke="#6b6b6b" stroke-width="1" fill="none">
+        <path d="M52 342h74"/>
+        <path d="M52 336v12M126 336v12"/>
+      </g>
+      <text x="89" y="334" text-anchor="middle" font-size="11" fill="#333">1 250</text>
+    </svg>
+  </div>
+
+  <!-- properties for the selection -->
+  <div style="display: flex; flex-direction: column; background: #ffffff; min-height: 0;">
+    <div style="display: flex; gap: 4px; padding: 8px 10px; border-bottom: 1px solid #e0ddd6;">
+      <span class="chip" style="background: #e8eff9; border-color: #b7cdea; color: #1e6fd9;">Properties</span>
+      <span class="chip">Levels</span>
+      <span class="chip">Catalog</span>
+    </div>
+
+    <div style="padding: 10px 12px; overflow: auto;">
+      <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 2px;">
+        <strong style="font-size: 14px;">Boat table</strong>
+        <span style="color: #8a857c; font-size: 11px;">item_0a41</span>
+      </div>
+      <p style="margin: 0 0 12px; color: #666;">Steelcase Convene · verified</p>
+
+      <p class="sec-h">Position</p>
+      <div class="field"><label>X</label><input class="num" value="3 600 mm"></div>
+      <div class="field"><label>Y</label><input class="num" value="2 400 mm"></div>
+      <div class="field"><label>Rotation</label><input class="num" value="0°"></div>
+      <div class="field"><label>Elevation</label><input class="num" value="0 mm"></div>
+
+      <div style="height: 1px; background: #e0ddd6; margin: 14px 0;"></div>
+
+      <p class="sec-h">Size</p>
+      <div class="field"><label>Width</label><input class="num" value="3 600 mm"></div>
+      <div class="field"><label>Depth</label><input class="num" value="1 400 mm"></div>
+      <div class="field"><label>Height</label><input class="num" value="750 mm"></div>
+      <p style="margin: 2px 0 0; color: #8a857c; font-size: 11px;">Locked to the product's size. Unlock to override.</p>
+
+      <div style="height: 1px; background: #e0ddd6; margin: 14px 0;"></div>
+
+      <p class="sec-h">Placement</p>
+      <div class="field"><label>Room</label><span class="chip">Boardroom ▾</span></div>
+      <div class="field"><label>Mount</label><div class="seg"><span class="on">Floor</span><span>Wall</span><span>Ceiling</span></div></div>
+      <div class="field"><label>Anchor</label><span class="chip">Centre of room ▾</span></div>
+
+      <div style="height: 1px; background: #e0ddd6; margin: 14px 0;"></div>
+
+      <p class="sec-h">Problems</p>
+      <p style="margin: 0; color: #2e7d32;">Nothing blocking. Clearance met on all sides.</p>
+
+      <div style="height: 1px; background: #e0ddd6; margin: 14px 0;"></div>
+
+      <div style="display: flex; gap: 6px;">
+        <span class="chip">Duplicate</span>
+        <span class="chip">Align…</span>
+        <span class="chip" style="color: #b3261e;">Delete</span>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

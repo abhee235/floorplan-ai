@@ -11,3 +11,7 @@ docs/eval/transcripts/
 **/.fpviz/session.json
 **/recovery.json
 .playwright-mcp/
+
+# design canvas working files are kept; the seeded canvas page is rebuilt from them
+.design/*.html
+!.design/*.dc.html

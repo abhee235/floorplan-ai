@@ -1,0 +1,246 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; font-size: 13px; color: #2b2b2b; background: #f3f1ec; }
+    a { color: #1e6fd9; } a:hover { color: #17509c; }
+    .rail-btn { width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: 4px; background: transparent; color: #4a4a4a; }
+    .rail-btn.on { background: #e8eff9; border-color: #b7cdea; color: #1e6fd9; }
+    .chip { padding: 2px 7px; border: 1px solid #c9c5bd; border-radius: 4px; background: #faf9f6; font-size: 12px; }
+    .sec-h { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: #666; margin: 0 0 6px; }
+    .field { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+    .field label { color: #555; }
+    .num { width: 86px; padding: 3px 6px; border: 1px solid #c9c5bd; border-radius: 4px; background: #fff; text-align: right; font-variant-numeric: tabular-nums; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; height: 900px; display: grid; grid-template-rows: 36px 30px 1fr 28px; background: #f3f1ec;">
+
+  <!-- app bar -->
+  <div style="display: flex; align-items: center; gap: 12px; padding: 0 12px; background: #ffffff; border-bottom: 1px solid #e0ddd6;">
+    <strong style="font-size: 14px;">Kingsway House</strong>
+    <span style="color: #8a857c;">·</span>
+    <div style="display: flex; align-items: center; gap: 6px;">
+      <span style="color: #555;">Level</span>
+      <span class="chip">Ground ▾</span>
+    </div>
+    <div style="display: flex; gap: 4px; margin-left: 8px;">
+      <span class="chip">Undo</span>
+      <span class="chip">Redo</span>
+    </div>
+    <div style="flex-grow: 1;"></div>
+    <div style="display: flex; gap: 4px;">
+      <span class="chip">Plan</span>
+      <span class="chip" style="background: #e8eff9; border-color: #b7cdea; color: #1e6fd9;">Plan + 3D</span>
+      <span class="chip">3D</span>
+    </div>
+    <span class="chip">Import plan…</span>
+    <span class="chip" style="background: #1e6fd9; border-color: #1e6fd9; color: #fff;">Export</span>
+  </div>
+
+  <!-- tool options bar: belongs to the active tool -->
+  <div style="display: flex; align-items: center; gap: 10px; padding: 0 12px; background: #faf9f6; border-bottom: 1px solid #e0ddd6;">
+    <span style="font-weight: 600;">Select</span>
+    <span style="width: 1px; height: 16px; background: #e0ddd6;"></span>
+    <label style="display: flex; align-items: center; gap: 5px; color: #555;"><input type="checkbox" checked style="margin: 0;"> Snap to walls</label>
+    <label style="display: flex; align-items: center; gap: 5px; color: #555;"><input type="checkbox" checked style="margin: 0;"> Angle steps 15°</label>
+    <label style="display: flex; align-items: center; gap: 5px; color: #555;"><input type="checkbox" style="margin: 0;"> Grid 100 mm</label>
+    <div style="flex-grow: 1;"></div>
+    <span style="color: #8a857c;">Hold Shift to align · Alt to bypass snapping</span>
+  </div>
+
+  <!-- body: rail | canvas stack | properties -->
+  <div style="display: grid; grid-template-columns: 44px 1fr 296px; min-height: 0;">
+
+    <!-- tool rail -->
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 0; background: #ffffff; border-right: 1px solid #e0ddd6;">
+      <div class="rail-btn on" title="Select (V)">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M5 3l14 8-6 1.6L10 19z"/></svg>
+      </div>
+      <div class="rail-btn" title="Wall (W)">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 15h18M3 9h18" stroke-linecap="round"/><path d="M8 9v6M16 9v6"/></svg>
+      </div>
+      <div class="rail-btn" title="Room (R)">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M4 5h16v14H4z"/><path d="M4 12h8v7"/></svg>
+      </div>
+      <div class="rail-btn" title="Door or window (O)">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 12h5M16 12h5" stroke-linecap="round"/><path d="M8 12a8 8 0 0 1 8 0" /><path d="M8 12v-6"/></svg>
+      </div>
+      <div class="rail-btn" title="Item (I)">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M4 9h16v9H4z"/><path d="M7 9V6h10v3"/></svg>
+      </div>
+      <div class="rail-btn" title="Measure (M)">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M3 14l11-11 7 7-11 11z"/><path d="M8 9l2 2M11 6l2 2M5 12l2 2"/></svg>
+      </div>
+      <div class="rail-btn" title="Annotate (T)">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M5 6h14M12 6v13M9 19h6"/></svg>
+      </div>
+      <div style="width: 24px; height: 1px; background: #e0ddd6; margin: 6px 0;"></div>
+      <div class="rail-btn" title="Pan (space)">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M9 11V5.5a1.5 1.5 0 0 1 3 0V11m0-1.5a1.5 1.5 0 0 1 3 0V12m0-1a1.5 1.5 0 0 1 3 0v4a5 5 0 0 1-5 5h-2a5 5 0 0 1-5-5v-3a1.5 1.5 0 0 1 3 0"/></svg>
+      </div>
+    </div>
+
+    <!-- canvas stack: plan over docked 3D -->
+    <div style="display: grid; grid-template-rows: 1fr 232px; min-height: 0;">
+
+      <!-- plan -->
+      <div style="position: relative; background: #fbfaf7; overflow: hidden;">
+        <svg width="100%" height="100%" viewBox="0 0 1100 566" style="display: block;">
+          <defs>
+            <pattern id="g" width="26" height="26" patternUnits="userSpaceOnUse">
+              <path d="M26 0H0V26" fill="none" stroke="#e6e3dd" stroke-width="1"/>
+            </pattern>
+            <pattern id="gm" width="130" height="130" patternUnits="userSpaceOnUse">
+              <path d="M130 0H0V130" fill="none" stroke="#d3cfc7" stroke-width="1"/>
+            </pattern>
+          </defs>
+          <rect width="1100" height="566" fill="url(#g)"/>
+          <rect width="1100" height="566" fill="url(#gm)"/>
+
+          <!-- rooms -->
+          <rect x="210" y="120" width="330" height="300" fill="rgba(214, 226, 240, 0.55)" stroke="#8fa6bf"/>
+          <rect x="560" y="120" width="330" height="170" fill="rgba(214, 226, 240, 0.55)" stroke="#8fa6bf"/>
+          <rect x="560" y="310" width="330" height="110" fill="rgba(214, 226, 240, 0.55)" stroke="#8fa6bf"/>
+
+          <!-- walls as fused bands -->
+          <g fill="#3a3a3a">
+            <rect x="196" y="106" width="708" height="14"/>
+            <rect x="196" y="420" width="708" height="14"/>
+            <rect x="196" y="106" width="14" height="328"/>
+            <rect x="890" y="106" width="14" height="328"/>
+            <rect x="540" y="106" width="14" height="328"/>
+            <rect x="554" y="290" width="336" height="14"/>
+          </g>
+
+          <!-- openings: gaps with swing arcs -->
+          <rect x="300" y="420" width="82" height="14" fill="#ffffff"/>
+          <path d="M300 420a82 82 0 0 0 82 82" fill="none" stroke="#6b6b6b" stroke-width="1.2"/>
+          <rect x="540" y="180" width="14" height="70" fill="#ffffff"/>
+          <rect x="660" y="106" width="120" height="14" fill="#ffffff"/>
+          <g stroke="#3a3a3a" stroke-width="1.2">
+            <path d="M660 109h120M660 117h120"/>
+          </g>
+
+          <!-- items -->
+          <g fill="rgba(140, 120, 90, 0.35)" stroke="#6f5b3e">
+            <rect x="290" y="210" width="170" height="90" rx="3"/>
+            <rect x="620" y="150" width="120" height="60" rx="3"/>
+            <rect x="620" y="340" width="90" height="46" rx="3"/>
+          </g>
+          <g fill="rgba(140, 120, 90, 0.35)" stroke="#6f5b3e">
+            <circle cx="286" cy="200" r="13"/><circle cx="330" cy="188" r="13"/><circle cx="374" cy="188" r="13"/><circle cx="418" cy="188" r="13"/>
+            <circle cx="286" cy="312" r="13"/><circle cx="330" cy="322" r="13"/><circle cx="374" cy="322" r="13"/><circle cx="418" cy="322" r="13"/>
+          </g>
+
+          <!-- room labels -->
+          <g fill="#333333" font-family="system-ui, sans-serif">
+            <text x="375" y="266" text-anchor="middle" font-size="15" font-weight="600">Boardroom</text>
+            <text x="375" y="286" text-anchor="middle" font-size="12" fill="#666">41.2 m² · 12 seats</text>
+            <text x="725" y="200" text-anchor="middle" font-size="15" font-weight="600">Open office</text>
+            <text x="725" y="220" text-anchor="middle" font-size="12" fill="#666">24.8 m²</text>
+            <text x="725" y="370" text-anchor="middle" font-size="15" font-weight="600">Huddle</text>
+          </g>
+
+          <!-- dimension line -->
+          <g stroke="#6b6b6b" stroke-width="1" fill="none">
+            <path d="M196 470h708"/>
+            <path d="M196 464v12M904 464v12"/>
+          </g>
+          <text x="550" y="464" text-anchor="middle" font-size="12" fill="#333">12 250</text>
+        </svg>
+
+        <!-- floating zoom cluster -->
+        <div style="position: absolute; right: 12px; bottom: 12px; display: flex; gap: 4px; padding: 4px; background: rgba(255,255,255,0.96); border: 1px solid #d8d4cc; border-radius: 6px; box-shadow: 0 2px 10px rgba(0,0,0,0.08);">
+          <span class="chip" style="border: none; background: transparent;">−</span>
+          <span class="chip" style="border: none; background: transparent; font-variant-numeric: tabular-nums;">1:50</span>
+          <span class="chip" style="border: none; background: transparent;">+</span>
+          <span style="width: 1px; background: #e0ddd6;"></span>
+          <span class="chip" style="border: none; background: transparent;">Fit</span>
+        </div>
+      </div>
+
+      <!-- docked 3D -->
+      <div style="position: relative; border-top: 1px solid #e0ddd6; background: #f3f1ec; overflow: hidden;">
+        <svg width="100%" height="100%" viewBox="0 0 1100 232" style="display: block;">
+          <rect width="1100" height="232" fill="#f3f1ec"/>
+          <path d="M0 176L360 96l420 44 320-58V232H0z" fill="#dedbd5"/>
+          <g>
+            <path d="M330 150l250-44 250 40-250 46z" fill="#c9c2b8"/>
+            <path d="M330 150v-52l250-44v52z" fill="#e8e6e1"/>
+            <path d="M580 106v-52l250 40v52z" fill="#d9d6d0"/>
+            <path d="M330 98l250-44 250 40-250 44z" fill="#f4f2ee"/>
+            <path d="M412 132l86-16v26l-86 16z" fill="#9c7a55" opacity="0.9"/>
+            <path d="M648 122l70 12v18l-70-12z" fill="#1a1a1a" opacity="0.85"/>
+          </g>
+        </svg>
+        <div style="position: absolute; left: 12px; top: 10px; display: flex; gap: 4px;">
+          <span class="chip">Overhead</span>
+          <span class="chip" style="background: #e8eff9; border-color: #b7cdea; color: #1e6fd9;">Eye</span>
+          <span class="chip">Walk</span>
+        </div>
+        <div style="position: absolute; right: 12px; top: 10px; display: flex; gap: 4px;">
+          <span class="chip">Hide walls</span>
+          <span class="chip">Enlarge</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- properties panel -->
+    <div style="display: flex; flex-direction: column; background: #ffffff; border-left: 1px solid #e0ddd6; min-height: 0;">
+      <div style="display: flex; gap: 4px; padding: 8px 10px; border-bottom: 1px solid #e0ddd6;">
+        <span class="chip" style="background: #e8eff9; border-color: #b7cdea; color: #1e6fd9;">Properties</span>
+        <span class="chip">Levels</span>
+        <span class="chip">Catalog</span>
+      </div>
+      <div style="padding: 10px 12px; overflow: auto;">
+        <p class="sec-h">Nothing selected</p>
+        <p style="margin: 0 0 12px; color: #666;">Click an entity in the plan, or press <span class="chip" style="padding: 1px 5px;">Tab</span> to step through them. These settings apply to the level.</p>
+
+        <p class="sec-h">Level</p>
+        <div class="field"><label>Name</label><input class="num" style="width: 120px; text-align: left;" value="Ground"></div>
+        <div class="field"><label>Elevation</label><input class="num" value="0 mm"></div>
+        <div class="field"><label>Height</label><input class="num" value="2 700 mm"></div>
+        <div class="field"><label>Floor</label><input class="num" value="150 mm"></div>
+
+        <div style="height: 1px; background: #e0ddd6; margin: 14px 0;"></div>
+
+        <p class="sec-h">Defaults for new walls</p>
+        <div class="field"><label>Thickness</label><input class="num" value="100 mm"></div>
+        <div class="field"><label>Kind</label><input class="num" style="width: 120px; text-align: left;" value="Partition"></div>
+
+        <div style="height: 1px; background: #e0ddd6; margin: 14px 0;"></div>
+
+        <p class="sec-h">This level</p>
+        <div style="display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; color: #555;">
+          <span>Walls</span><span style="font-variant-numeric: tabular-nums;">18</span>
+          <span>Rooms</span><span style="font-variant-numeric: tabular-nums;">3</span>
+          <span>Openings</span><span style="font-variant-numeric: tabular-nums;">7</span>
+          <span>Items</span><span style="font-variant-numeric: tabular-nums;">24</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- status bar -->
+  <div style="display: flex; align-items: center; gap: 14px; padding: 0 12px; background: #ffffff; border-top: 1px solid #e0ddd6; color: #555;">
+    <span style="font-variant-numeric: tabular-nums;">x 8 420 · y 3 150 mm</span>
+    <span style="color: #8a857c;">|</span>
+    <span>Snap: wall end</span>
+    <span style="color: #8a857c;">|</span>
+    <span class="ok" style="color: #2e7d32;">No problems</span>
+    <div style="flex-grow: 1;"></div>
+    <span>Ready</span>
+    <span style="color: #8a857c;">|</span>
+    <span>Press <span class="chip" style="padding: 1px 5px;">Ctrl K</span> for commands</span>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
