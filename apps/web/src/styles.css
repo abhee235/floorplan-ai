@@ -52,20 +52,30 @@
   --muted-foreground: oklch(0.552 0.016 285.938);
   --destructive: oklch(57.8% 0.206 29);
 
-  /* Borders, ours rather than the registry's. Zinc's own --border is oklch(0.92), which against a white
-     card is 1.27:1 — technically a line, practically invisible, and the chrome's bars are all bg-card on
-     bg-background so the border is the ONLY thing separating them. 0.845 lifts that to about 1.6:1: a
-     hairline you can actually see without it reading as a rule drawn across the window.
+  /* Borders. The registry's zinc --border is oklch(0.92 0.004 286.32) — 1.27:1 against a white card,
+     which sounds invisible and is not, on their site. The reason is zinc's --primary: oklch(0.21), near
+     black. The loudest thing on that page sits SEVENTY-ONE L points below the border, so the border is at
+     the bottom of a very tall hierarchy and can be a whisper without disappearing.
 
-     --input is darker again, and on purpose. A field's border is the only thing saying "you can type
-     here", which WCAG 1.4.11 treats as a control boundary rather than decoration; 0.76 is about 2.2:1.
-     (Full 1.4.11 compliance is 3:1, which lands near oklch(0.67) — noticeably heavy. Worth revisiting
-     together rather than me choosing silently.)
+     Our primary is oklch(0.67). A border at 0.845 is only about 18 L points from it, so it stops sitting
+     under the accent and starts competing with it — which is why the same weight that reads as crisp with
+     a near-black primary reads as heavy with a blue one. The rule is the counter-intuitive one: a LIGHTER
+     primary wants LIGHTER borders, because the whole page is less contrasty and there is less room
+     underneath to hide a line in.
 
-     Both carry a little chroma at hue 264 instead of zinc's near-neutral 286: the greys pick up the blue
-     rather than sitting beside it. */
-  --border: oklch(0.845 0.012 264);
-  --input: oklch(0.76 0.015 264);
+     0.886 is 1.42:1. Above zinc's 1.27 because these bars are flush — no gutters, no shadows, nothing but
+     the border separating bg-card from bg-card. Below the 1.61 that fought the blue.
+
+     --input keeps a step of weight: a field's border is the only thing saying "you can type here", which
+     WCAG 1.4.11 treats as a control boundary rather than decoration. It affords that weight because a
+     small rounded rectangle carries far less visual mass than a 900px vertical rule of the identical
+     colour. (Full 1.4.11 is 3:1, near oklch(0.67) — that genuinely is heavy, and it would collide with
+     the primary besides.)
+
+     Both carry a little chroma at hue 258 rather than zinc's near-neutral 286, so the greys read as the
+     blue's family rather than as a separate neutral sitting beside it. */
+  --border: oklch(0.886 0.009 258);
+  --input: oklch(0.84 0.012 258);
   --chart-1: oklch(67% 0.183 249.2);
   --chart-2: oklch(0.552 0.016 285.938);
   --chart-3: oklch(0.442 0.017 285.786);
@@ -73,7 +83,7 @@
   --chart-5: oklch(0.274 0.006 286.033);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.141 0.005 285.823);
-  --sidebar-border: oklch(0.845 0.012 264);
+  --sidebar-border: oklch(0.886 0.009 258);
   --sidebar-ring: oklch(67% 0.183 249.2);
 }
 
@@ -94,9 +104,11 @@
   --muted: oklch(0.274 0.006 286.033);
   --muted-foreground: oklch(0.705 0.015 286.067);
   --destructive: oklch(0.704 0.191 22.216);
-  /* Same reasoning as the light ramp: 10% white on a dark card is barely a line. */
-  --border: oklch(1 0 0 / 16%);
-  --input: oklch(1 0 0 / 24%);
+  /* Dark mode inverts the argument: against a dark card the blue primary is the LIGHTEST thing on screen,
+     so there is headroom under it again and the registry's own 10%/15% is nearly right. A touch up, no
+     more — this ramp is not exercised yet and should be re-judged on screen before it is trusted. */
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 18%);
   --chart-1: oklch(67% 0.183 249.2);
   --chart-2: oklch(0.552 0.016 285.938);
   --chart-3: oklch(0.442 0.017 285.786);
@@ -108,7 +120,7 @@
   --sidebar-primary-foreground: oklch(100% 0 0);
   --sidebar-accent: oklch(0.274 0.006 286.033);
   --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 16%);
+  --sidebar-border: oklch(1 0 0 / 12%);
   --sidebar-ring: oklch(61.2% 0.168 249.5);
 }
 
