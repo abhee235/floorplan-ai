@@ -5,11 +5,12 @@
 // commands, and two places working it out separately is how they drift.
 
 import type { JSX } from "react";
+import { Fragment } from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { Replica } from "../replica.js";
 import { Keyed } from "./Phrase.js";
 import { PropertyField } from "./PropertyField.js";
-import { describeEntity, type EditCommand, type SelectedEntity } from "./selection.js";
+import { describeEntity, type EditCommand, type Fact, type SelectedEntity } from "./selection.js";
 import { countsText, formatMm } from "./status.js";
 import { k, t } from "./tools.js";
 import { useProject, useSelectionKey } from "./useReplica.js";
@@ -63,19 +64,42 @@ export function PropertiesPanel({
               scroll is a better failure than hiding what is selected. */}
           {entities.map((entity) => (
             <Section key={entity.id} title={entity.title}>
-              {entity.facts.map((fact) => (
-                <PropertyField
-                  key={fact.label}
-                  // Per entity, so two selected walls do not both claim one id; the label is slugged
-                  // because an id with a space in it is not one a label's htmlFor can name.
-                  id={`${entity.id}-${slug(fact.label)}`}
-                  label={fact.label}
-                  value={fact.value}
-                  unit={fact.unit}
-                  edit={fact.edit}
-                  send={send}
-                />
-              ))}
+              {bands(entity.facts).map((band, index) => {
+                const rows = band.facts.map((fact) => (
+                  <PropertyField
+                    key={fact.label}
+                    // Per entity, so two selected walls do not both claim one id; the label is slugged
+                    // because an id with a space in it is not one a label's htmlFor can name.
+                    id={`${entity.id}-${slug(fact.label)}`}
+                    label={fact.label}
+                    caption={fact.caption}
+                    prefix={fact.prefix}
+                    value={fact.value}
+                    unit={fact.unit}
+                    choices={fact.choices}
+                    edit={fact.edit}
+                    send={send}
+                  />
+                ));
+                if (!band.title) return <Fragment key={`rows-${index}`}>{rows}</Fragment>;
+                // A named group, so a screen reader says "Position" on the way in and every row need not
+                // repeat it. A div rather than a fieldset: a legend is laid out in the fieldset's border,
+                // which put the band's spacing under its heading instead of above it.
+                const headingId = `${entity.id}-${slug(band.title)}-heading`;
+                return (
+                  <div
+                    key={band.title}
+                    role="group"
+                    aria-labelledby={headingId}
+                    className="space-y-1.5 pt-2.5"
+                  >
+                    <p id={headingId} className="text-xs font-medium text-foreground">
+                      {band.title}
+                    </p>
+                    {rows}
+                  </div>
+                );
+              })}
             </Section>
           ))}
 
@@ -122,6 +146,18 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <div className="space-y-1.5">{children}</div>
     </section>
   );
+}
+
+/** Runs of rows that share a group, in the order selection.ts gave them. */
+function bands(facts: readonly Fact[]): { title: string | null; facts: Fact[] }[] {
+  const out: { title: string | null; facts: Fact[] }[] = [];
+  for (const fact of facts) {
+    const title = fact.group ?? null;
+    const last = out.at(-1);
+    if (last && last.title === title) last.facts.push(fact);
+    else out.push({ title, facts: [fact] });
+  }
+  return out;
 }
 
 function slug(label: string): string {

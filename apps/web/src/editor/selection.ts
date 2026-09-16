@@ -6,6 +6,8 @@
 import type { Item, Opening, Project, Room, Wall } from "@fpv/ir";
 import { derive } from "@fpv/ir";
 import { describeLength, formatMm, parseMm } from "./status.js";
+import { WALL_KINDS } from "./tools.js";
+import { MAX_LENGTH_MM } from "./wall-tool.js";
 
 /** The entity kinds the editor can select and delete today. */
 export type EntityKind = "wall" | "room" | "item" | "opening";
@@ -144,14 +146,33 @@ export type EditOutcome =
   | { ok: true; command: EditCommand | null; said: string }
   | { ok: false; message: string };
 
+export interface Choice {
+  value: string;
+  label: string;
+}
+
 /** One row of the properties panel. */
 export interface Fact {
+  /** The row's whole name, as a screen reader hears it: "Start X". */
   label: string;
-  /** Formatted for reading. For an editable fact, exactly the text the field starts from. */
+  /**
+   * The part of `label` printed beside the field, when that is less than all of it; the rest is read out
+   * only. A coordinate pair prints "Start" once, on its X row, and nothing on its Y row, with the axis
+   * inside each field instead. Always a leading part of `label`, so what is printed is also what is heard.
+   */
+  caption?: string;
+  /** Printed inside the field, ahead of the value: the axis of a coordinate. */
+  prefix?: string;
+  /** The band within the entity this row sits in (ADR-017 D3); rows without one come first. */
+  group?: string;
+  /** Formatted for reading. For an editable fact, exactly the text the field starts from; for a choice, the
+   *  chosen value, not its label. */
   value: string;
   /** Printed beside the value rather than inside it, so an edit is a bare number. */
   unit?: string;
-  /** Present when the panel can change this fact: turns what was typed into what to send. */
+  /** Present when the value is picked from a list rather than typed. */
+  choices?: readonly Choice[];
+  /** Present when the panel can change this fact: turns what was typed, or picked, into what to send. */
   edit?: (text: string) => EditOutcome;
 }
 
@@ -191,10 +212,39 @@ export function describeEntity(project: Project, id: string): SelectedEntity | n
   return o ? { id, kind, title: openingTitle(o), facts: openingFacts(o) } : null;
 }
 
+/** How far from the origin a typed coordinate may be: the same kilometre the wall tool allows (W-072). */
+const COORDINATE_RANGE = { min: -MAX_LENGTH_MM, max: MAX_LENGTH_MM } as const;
+
+/** A typed wall length: a whole millimetre at least, since Mm is an integer, up to that same kilometre. */
+export const LENGTH_RANGE = { min: 1, max: MAX_LENGTH_MM } as const;
+
 function wallFacts(w: Wall): Fact[] {
+  const arc = derive.isArc(w);
   return [
-    { label: "Length", value: `${Math.round(derive.wallLength(w))} mm` },
     {
+      label: "Kind",
+      value: w.kind,
+      choices: WALL_KINDS,
+      edit: choiceEdit("Kind", WALL_KINDS, w.kind, (kind) => wallModify(w.id, { kind })),
+    },
+    ...endFacts(w, "start"),
+    ...endFacts(w, "end"),
+    arc
+      ? // Along the curve, which is the length anyone means by a curved wall's length. Not typed: a new
+        // length could keep the chord and deepen the curve, or keep the curve and move an end, and neither
+        // is obviously what was meant. The arc's own extent is the control for its shape.
+        { group: "Size", label: "Length", value: formatMm(derive.wallArcLength(w)), unit: "mm" }
+      : {
+          group: "Size",
+          label: "Length",
+          value: formatMm(derive.wallLength(w)),
+          unit: "mm",
+          edit: lengthEdit("Length", Math.round(derive.wallLength(w)), LENGTH_RANGE, (mm) =>
+            wallModify(w.id, { end: endAtLength(w, mm) }),
+          ),
+        },
+    {
+      group: "Size",
       label: "Thickness",
       value: formatMm(w.thickness),
       unit: "mm",
@@ -202,8 +252,46 @@ function wallFacts(w: Wall): Fact[] {
         wallModify(w.id, { thickness }),
       ),
     },
-    { label: "Kind", value: w.kind },
   ];
+}
+
+/**
+ * The X and Y rows for one end of a wall. Moving an end takes whatever is joined there along with it
+ * (W-031), because that is what wall.modify does, not because anything here arranges it.
+ */
+function endFacts(w: Wall, end: "start" | "end"): Fact[] {
+  const name = end === "start" ? "Start" : "End";
+  const at = w[end];
+  const other = end === "start" ? w.end : w.start;
+  return (["x", "y"] as const).map((axis) => {
+    const letter = axis.toUpperCase();
+    return {
+      group: "Position",
+      label: `${name} ${letter}`,
+      caption: axis === "x" ? name : "",
+      prefix: letter,
+      value: formatMm(at[axis]),
+      unit: "mm",
+      edit: lengthEdit(`${name} ${letter}`, at[axis], COORDINATE_RANGE, (mm) => {
+        const moved = { ...at, [axis]: mm };
+        // Said here rather than left to the host's wall.zero-length, whose words are about the schema.
+        if (moved.x === other.x && moved.y === other.y)
+          return "That would put both ends of the wall on one point.";
+        return wallModify(w.id, { [end]: moved });
+      }),
+    };
+  });
+}
+
+/** The end that gives the wall this length, with the start and the direction kept. */
+function endAtLength(w: Wall, mm: number): { x: number; y: number } {
+  const scale = mm / derive.wallLength(w);
+  // Whole millimetres, as Mm requires. The rounding can leave the new length a fraction of a millimetre
+  // off the one typed and the direction a hair off the old one; neither shows at the panel's precision.
+  return {
+    x: Math.round(w.start.x + (w.end.x - w.start.x) * scale),
+    y: Math.round(w.start.y + (w.end.y - w.start.y) * scale),
+  };
 }
 
 function wallModify(wallId: string, changes: Record<string, unknown>): EditCommand {
@@ -213,19 +301,41 @@ function wallModify(wallId: string, changes: Record<string, unknown>): EditComma
 /**
  * An edit for a length in millimetres. The words are the ones a person needs to fix the text, and the
  * limits are written in plain digits: a grouped "10 000" is read by some screen readers as four numbers.
+ *
+ * `command` may answer with a sentence instead of a command, for a value that is a fine number but not a
+ * possible one — an end typed onto the other end.
  */
 function lengthEdit(
   name: string,
   current: number,
   range: { min: number; max: number },
-  command: (mm: number) => EditCommand,
+  command: (mm: number) => EditCommand | string,
 ): (text: string) => EditOutcome {
   return (text) => {
     const mm = parseMm(text);
     if (mm === null) return { ok: false, message: `${name} needs a number of millimetres, such as 120.` };
     if (mm < range.min || mm > range.max)
       return { ok: false, message: `${name} must be from ${range.min} to ${range.max} mm.` };
-    return { ok: true, command: mm === current ? null : command(mm), said: describeLength(mm) };
+    if (mm === current) return { ok: true, command: null, said: describeLength(mm) };
+    const built = command(mm);
+    if (typeof built === "string") return { ok: false, message: built };
+    return { ok: true, command: built, said: describeLength(mm) };
+  };
+}
+
+/** An edit for a value picked from a list. The list is the only way in, so an unknown value is a bug in the
+ *  caller rather than a typing slip, but it is still refused in words rather than sent. */
+function choiceEdit(
+  name: string,
+  choices: readonly Choice[],
+  current: string,
+  command: (value: string) => EditCommand,
+): (value: string) => EditOutcome {
+  return (value) => {
+    const choice = choices.find((c) => c.value === value);
+    if (!choice)
+      return { ok: false, message: `${name} must be one of ${choices.map((c) => c.label).join(", ")}.` };
+    return { ok: true, command: value === current ? null : command(value), said: choice.label };
   };
 }
 

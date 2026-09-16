@@ -202,3 +202,74 @@ describe("a property field (ADR-017 D3)", () => {
     expect(sent).toEqual([]);
   });
 });
+
+describe("how a property row is labelled", () => {
+  const editor = {
+    announcer: new Announcer({ polite: { textContent: "" }, assertive: { textContent: "" } }),
+  } as Partial<Editor> as Editor;
+  const show = (props: Parameters<typeof PropertyField>[0]) =>
+    render(
+      <EditorContext.Provider value={editor}>
+        <PropertyField {...props} />
+      </EditorContext.Provider>,
+    );
+
+  it("prints only part of a name when a caption says so, and a screen reader hears all of it", () => {
+    const { container } = show({
+      id: "w-start-y",
+      label: "Start Y",
+      caption: "",
+      prefix: "Y",
+      value: "0",
+      unit: "mm",
+      edit,
+      send: async () => {},
+    });
+    const input = screen.getByLabelText("Start Y, in millimetres");
+    expect(input.id).toBe("w-start-y");
+    // nothing printed beside the field: the only text in the label is the screen-reader-only part
+    const label = container.querySelector("label");
+    expect(label?.querySelector(".sr-only")?.textContent).toBe(label?.textContent);
+    // the axis is printed inside the field, and kept from a screen reader, which has it in the label
+    const prefix = [...container.querySelectorAll('[aria-hidden="true"]')].map((el) => el.textContent);
+    expect(prefix).toEqual(["Y", "mm"]);
+  });
+
+  it("prints the caption of a pair's first row, and hears the rest after it", () => {
+    const { container } = show({
+      id: "w-start-x",
+      label: "Start X",
+      caption: "Start",
+      prefix: "X",
+      value: "0",
+    });
+    expect(container.querySelector("label")?.firstChild?.textContent).toBe("Start");
+    expect(screen.getByLabelText("Start X").id).toBe("w-start-x");
+  });
+
+  it("shows a read-only choice by its label, not by the value the model stores", () => {
+    show({
+      id: "w-kind",
+      label: "Kind",
+      value: "interior",
+      choices: [{ value: "interior", label: "Interior" }],
+    });
+    expect((screen.getByLabelText("Kind") as HTMLInputElement).value).toBe("Interior");
+  });
+
+  it("shows an editable choice as a list named by its label, holding the model's value", () => {
+    show({
+      id: "w-kind",
+      label: "Kind",
+      value: "interior",
+      choices: [
+        { value: "exterior", label: "Exterior" },
+        { value: "interior", label: "Interior" },
+      ],
+      edit: (value) => ({ ok: true, command: null, said: value }),
+      send: async () => {},
+    });
+    const list = screen.getByRole("combobox", { name: "Kind" });
+    expect(list.textContent).toContain("Interior");
+  });
+});

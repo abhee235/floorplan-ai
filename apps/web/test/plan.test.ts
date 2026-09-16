@@ -128,6 +128,22 @@ describe("plan renderer (ADR-003 D6)", () => {
     expect(plan.draws).toEqual({ static: 1, structure: 2, items: 2, overlay: 2 });
   });
 
+  it("redraws the selection outline when the geometry under it changes", () => {
+    const { layers: ctxs } = layers();
+    const plan = new PlanRenderer(ctxs, 800, 600);
+    const p = fixture();
+    plan.setProject(p);
+    plan.setSelection(["wall_000003"]);
+    plan.flush();
+    expect(plan.draws.overlay).toBe(1);
+    // wall 4 moves, and wall 3 is joined to it: the selected wall's corner moves although it was not named
+    const moved = apply(p, { type: "wall.move", payload: { wallIds: ["wall_000004"], dx: 0, dy: 100 } }, ctx);
+    if (!moved.ok) throw new Error(moved.error.message);
+    plan.onChanges(moved.changes, moved.project);
+    plan.flush();
+    expect(plan.draws.overlay).toBe(2);
+  });
+
   it("hit tests items before walls before rooms in plan millimetres", () => {
     const { layers: ctxs } = layers();
     const plan = new PlanRenderer(ctxs, 800, 600);

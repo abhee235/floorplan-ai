@@ -47,6 +47,14 @@ export interface ToolDefinition {
   options: ToolOption[];
 }
 
+/** The wall kinds, as the wall tool offers them for a new wall and the properties panel for an existing one. */
+export const WALL_KINDS: readonly { value: string; label: string }[] = [
+  { value: "exterior", label: "Exterior" },
+  { value: "interior", label: "Interior" },
+  { value: "partition", label: "Partition" },
+  { value: "glass", label: "Glass" },
+];
+
 const SNAP_OPTIONS: ToolOption[] = [
   { id: "snapWalls", label: "Snap to walls", kind: "toggle", value: true },
   { id: "snapAngle", label: "Angle steps 15°", kind: "toggle", value: true },
@@ -96,18 +104,7 @@ export const TOOLS: ToolDefinition[] = [
     ],
     options: [
       { id: "thickness", label: "Thickness", kind: "number", value: 100, unit: "mm" },
-      {
-        id: "kind",
-        label: "Kind",
-        kind: "choice",
-        value: "interior",
-        choices: [
-          { value: "exterior", label: "Exterior" },
-          { value: "interior", label: "Interior" },
-          { value: "partition", label: "Partition" },
-          { value: "glass", label: "Glass" },
-        ],
-      },
+      { id: "kind", label: "Kind", kind: "choice", value: "interior", choices: [...WALL_KINDS] },
       ...SNAP_OPTIONS,
     ],
   },

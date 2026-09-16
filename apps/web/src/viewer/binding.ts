@@ -106,6 +106,10 @@ export class SceneBinding {
     this.project = project;
     if (changes.updated.some((r) => r.type === "meta")) this.full = true;
     else expand(changes, project, this.dirty);
+    // The outline is edges of the selected meshes as they were when it was built, and a change replaces
+    // those meshes: without this it went on tracing the old shape. Any change, not only one to a selected
+    // id, because a neighbour's change reshapes a selected wall's mitred corner too.
+    if (this.selection.length > 0) this.dirty.layers.add("overlay");
     this.scheduler.schedule(() => this.flush());
   }
 

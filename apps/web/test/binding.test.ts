@@ -143,6 +143,27 @@ describe("scene binding (ADR-003 D1, ADR-015 D3)", () => {
     expect(b.overlay.children).toHaveLength(0);
   });
 
+  it("R-087 the selection outline follows the selected wall when it changes shape", () => {
+    const b = new SceneBinding();
+    const p = fixture();
+    b.setProject(p);
+    b.setSelection(["wall_000002"]);
+    const outline = () => new THREE.Box3().setFromObject(b.overlay);
+    const before = outline();
+    const r = run(p, {
+      type: "wall.modify",
+      payload: { wallId: "wall_000002", changes: { thickness: 600 } },
+    });
+    b.onChanges(r.changes, r.project);
+    const after = outline();
+    const mesh = new THREE.Box3();
+    for (const o of b.objectsOf("wall_000002")) mesh.expandByObject(o);
+    // wall 2 runs along y, so its thickness is its extent in x
+    expect(after.max.x - after.min.x).toBeGreaterThan(before.max.x - before.min.x);
+    expect(after.min.x).toBeCloseTo(mesh.min.x, 3);
+    expect(after.max.x).toBeCloseTo(mesh.max.x, 3);
+  });
+
   it("R-088 a ray from above hits the floor, never the ceiling; the ground is not pickable", () => {
     const b = new SceneBinding();
     const p = run(fixture(), {

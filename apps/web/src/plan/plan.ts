@@ -92,6 +92,11 @@ export class PlanRenderer {
     this.project = project;
     if (changes.updated.some((r) => r.type === "meta")) this.full = true;
     else expand(changes, project, this.dirty);
+    // The selection outline is drawn from the geometry, so any change can move it: the selected entity
+    // itself, or a wall it is mitred against. A drag never showed this, because it repaints the overlay on
+    // every move; an edit typed into the properties panel, an undo or an agent's command left the outline
+    // where the entity used to be. Nothing selected, nothing to redraw.
+    if (this.selection.length > 0) this.dirty.layers.add("overlay");
   }
 
   setSelection(ids: string[]): void {
