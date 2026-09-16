@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { apply, type Ctx } from "@fpv/commands";
 import { Project, type Project as ProjectT, sequentialIdGenerator } from "@fpv/ir";
 import { describe, expect, it } from "vitest";
-import { describeEntity } from "../../src/editor/selection.js";
+import { describeEntity, type EditOutcome, type Fact, THICKNESS_RANGE } from "../../src/editor/selection.js";
 
 const fixtureDir = fileURLToPath(new URL("../../../../tools/fixtures/six-wall-room.fpviz/", import.meta.url));
 const fixture = (): ProjectT => Project.parse(JSON.parse(readFileSync(`${fixtureDir}project.json`, "utf8")));
@@ -52,11 +52,87 @@ describe("describing a selected entity", () => {
     expect(area).toBeGreaterThan(0);
   });
 
+  it("offers only the thickness of a wall for typing so far", () => {
+    const p = fixture();
+    const d = describeEntity(p, (p.walls[0] as { id: string }).id);
+    expect(d?.facts.filter((f) => f.edit).map((f) => f.label)).toEqual(["Thickness"]);
+  });
+
   it("returns null for an id that is not in the project", () => {
     expect(describeEntity(fixture(), "wall_zzzzzz")).toBeNull();
   });
 
   it("returns null for a kind the editor does not handle", () => {
     expect(describeEntity(fixture(), "zone_000001")).toBeNull();
+  });
+});
+
+describe("typing a wall's thickness", () => {
+  const thicknessOf = (p: ProjectT, wallId: string): Fact => {
+    const fact = describeEntity(p, wallId)?.facts.find((f) => f.label === "Thickness");
+    if (!fact?.edit) throw new Error("thickness is not editable");
+    return fact;
+  };
+  const commandOf = (outcome: EditOutcome) => {
+    if (!outcome.ok || !outcome.command)
+      throw new Error(`expected a command, got ${JSON.stringify(outcome)}`);
+    return outcome.command;
+  };
+
+  it("shows the bare number, with the unit beside it", () => {
+    const p = fixture();
+    const wall = p.walls[0] as ProjectT["walls"][number];
+    const fact = thicknessOf(p, wall.id);
+    expect(fact.value).toBe(String(wall.thickness));
+    expect(fact.unit).toBe("mm");
+  });
+
+  it("builds a wall.modify the real reducer takes, and only the thickness changes", () => {
+    const p = fixture();
+    const wall = p.walls[0] as ProjectT["walls"][number];
+    const outcome = thicknessOf(p, wall.id).edit?.("1.5 cm") as EditOutcome;
+    expect(outcome).toMatchObject({ ok: true, said: "15 millimetres" });
+    const command = commandOf(outcome);
+    expect(command).toEqual({
+      type: "wall.modify",
+      payload: { wallId: wall.id, changes: { thickness: 15 } },
+    });
+
+    const r = apply(p, command, ctx);
+    if (!r.ok) throw new Error(r.error.message);
+    const after = r.project.walls.find((w) => w.id === wall.id);
+    expect(after?.thickness).toBe(15);
+    expect(after?.start).toEqual(wall.start);
+    expect(after?.end).toEqual(wall.end);
+    expect(r.changes.updated).toContainEqual({ type: "wall", id: wall.id });
+  });
+
+  it("sends nothing when the text names the thickness already there", () => {
+    const p = fixture();
+    const wall = p.walls[0] as ProjectT["walls"][number];
+    const edit = thicknessOf(p, wall.id).edit as (text: string) => EditOutcome;
+    expect(edit(String(wall.thickness))).toMatchObject({ ok: true, command: null });
+    // rounding lands on the same whole millimetre, so that is no change either
+    expect(edit(`${wall.thickness}.2`)).toMatchObject({ ok: true, command: null });
+  });
+
+  it("refuses text that is not a length, in words that say what to type", () => {
+    const p = fixture();
+    const edit = thicknessOf(p, (p.walls[0] as { id: string }).id).edit as (text: string) => EditOutcome;
+    expect(edit("thick")).toEqual({
+      ok: false,
+      message: "Thickness needs a number of millimetres, such as 120.",
+    });
+  });
+
+  it("refuses a thickness outside the range, naming the range (W-072)", () => {
+    const p = fixture();
+    const edit = thicknessOf(p, (p.walls[0] as { id: string }).id).edit as (text: string) => EditOutcome;
+    const refusal = { ok: false, message: "Thickness must be from 1 to 10000 mm." };
+    expect(edit("0")).toEqual(refusal);
+    expect(edit("-100")).toEqual(refusal);
+    expect(edit("10.001 m")).toEqual(refusal);
+    expect(edit(String(THICKNESS_RANGE.max))).toMatchObject({ ok: true });
+    expect(edit(String(THICKNESS_RANGE.min))).toMatchObject({ ok: true });
   });
 });

@@ -6,6 +6,7 @@ import {
   describeLength,
   formatMm,
   paletteSections,
+  parseMm,
   pointerText,
   problemSummary,
   scaleLabel,
@@ -23,6 +24,33 @@ describe("lengths in words and figures", () => {
 
   it("leaves a screen reader plain digits, which it reads as a number", () => {
     expect(describeLength(4250)).toBe("4250 millimetres");
+  });
+
+  it("reads a typed length back as whole millimetres", () => {
+    expect(parseMm("120")).toBe(120);
+    expect(parseMm(" 120 ")).toBe(120);
+    expect(parseMm("120.4")).toBe(120);
+    expect(parseMm("120.5")).toBe(121);
+    expect(parseMm(".5")).toBe(1);
+    expect(parseMm("-40")).toBe(-40);
+  });
+
+  it("reads back what formatMm writes, whatever space groups the thousands", () => {
+    expect(parseMm(formatMm(12250))).toBe(12250);
+    expect(parseMm("12 250")).toBe(12250);
+    expect(parseMm("12 250")).toBe(12250);
+  });
+
+  it("takes a typed unit, and a bare number as millimetres", () => {
+    expect(parseMm("120mm")).toBe(120);
+    expect(parseMm("12 cm")).toBe(120);
+    expect(parseMm("1.2 m")).toBe(1200);
+    expect(parseMm("1.2M")).toBe(1200);
+  });
+
+  it("refuses what is not a length rather than guessing", () => {
+    for (const text of ["", " ", "abc", "12 ft", "1,200", "1.2.3", "mm", "1e3", "Infinity", "12-3"])
+      expect(parseMm(text), text).toBeNull();
   });
 
   it("states where the pointer is, and says nothing when it is off the plan", () => {

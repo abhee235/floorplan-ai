@@ -5,6 +5,7 @@
 
 import type { Item, Opening, Project, Room, Wall } from "@fpv/ir";
 import { derive } from "@fpv/ir";
+import { describeLength, formatMm, parseMm } from "./status.js";
 
 /** The entity kinds the editor can select and delete today. */
 export type EntityKind = "wall" | "room" | "item" | "opening";
@@ -129,14 +130,46 @@ export function moveCommands(
   return out;
 }
 
+export interface EditCommand {
+  type: string;
+  payload: Record<string, unknown>;
+}
+
+/**
+ * What typing into a field asks for. `command` is null when the text names the value already there, so
+ * nothing is sent and no history entry is made. `said` is the resulting value in words, for the
+ * announcement: "1.2 m" typed is "1200 millimetres" set, and a screen reader should hear the latter.
+ */
+export type EditOutcome =
+  | { ok: true; command: EditCommand | null; said: string }
+  | { ok: false; message: string };
+
+/** One row of the properties panel. */
+export interface Fact {
+  label: string;
+  /** Formatted for reading. For an editable fact, exactly the text the field starts from. */
+  value: string;
+  /** Printed beside the value rather than inside it, so an edit is a bare number. */
+  unit?: string;
+  /** Present when the panel can change this fact: turns what was typed into what to send. */
+  edit?: (text: string) => EditOutcome;
+}
+
 export interface SelectedEntity {
   id: string;
   kind: EntityKind;
   /** What to call it in the panel: a name where the entity has one, else the kind and its id. */
   title: string;
-  /** Rows for the properties panel: a label and an already-formatted value. */
-  facts: { label: string; value: string }[];
+  facts: Fact[];
 }
+
+/**
+ * The thickness a field will take (W-072): a millimetre at least, which is also the schema's floor, and no
+ * more than ten metres, past which a wall is a typing mistake rather than a wall. Refused rather than
+ * clamped, unlike the wall tool's typed length: a panel field that quietly writes a different number from
+ * the one typed is harder to trust than one that says what it wants.
+ */
+export const THICKNESS_RANGE = { min: 1, max: 10_000 } as const;
 
 /** Everything the panel needs about one selected id, or null when the id is not in the project. */
 export function describeEntity(project: Project, id: string): SelectedEntity | null {
@@ -158,15 +191,45 @@ export function describeEntity(project: Project, id: string): SelectedEntity | n
   return o ? { id, kind, title: openingTitle(o), facts: openingFacts(o) } : null;
 }
 
-function wallFacts(w: Wall): { label: string; value: string }[] {
+function wallFacts(w: Wall): Fact[] {
   return [
     { label: "Length", value: `${Math.round(derive.wallLength(w))} mm` },
-    { label: "Thickness", value: `${Math.round(w.thickness)} mm` },
+    {
+      label: "Thickness",
+      value: formatMm(w.thickness),
+      unit: "mm",
+      edit: lengthEdit("Thickness", w.thickness, THICKNESS_RANGE, (thickness) =>
+        wallModify(w.id, { thickness }),
+      ),
+    },
     { label: "Kind", value: w.kind },
   ];
 }
 
-function roomFacts(r: Room): { label: string; value: string }[] {
+function wallModify(wallId: string, changes: Record<string, unknown>): EditCommand {
+  return { type: "wall.modify", payload: { wallId, changes } };
+}
+
+/**
+ * An edit for a length in millimetres. The words are the ones a person needs to fix the text, and the
+ * limits are written in plain digits: a grouped "10 000" is read by some screen readers as four numbers.
+ */
+function lengthEdit(
+  name: string,
+  current: number,
+  range: { min: number; max: number },
+  command: (mm: number) => EditCommand,
+): (text: string) => EditOutcome {
+  return (text) => {
+    const mm = parseMm(text);
+    if (mm === null) return { ok: false, message: `${name} needs a number of millimetres, such as 120.` };
+    if (mm < range.min || mm > range.max)
+      return { ok: false, message: `${name} must be from ${range.min} to ${range.max} mm.` };
+    return { ok: true, command: mm === current ? null : command(mm), said: describeLength(mm) };
+  };
+}
+
+function roomFacts(r: Room): Fact[] {
   // Square metres: square millimetres is a number nobody reads. roomArea is already absolute and already
   // subtracts the holes (R-006), so there is nothing to correct for here.
   const areaM2 = derive.roomArea(r) / 1_000_000;
@@ -183,7 +246,7 @@ function itemTitle(it: Item): string {
   return it.ref.kind === "product" ? it.ref.productId : it.ref.recipe.kind;
 }
 
-function itemFacts(it: Item): { label: string; value: string }[] {
+function itemFacts(it: Item): Fact[] {
   return [
     { label: "Position", value: `${Math.round(it.position.x)}, ${Math.round(it.position.y)} mm` },
     { label: "Rotation", value: `${Math.round(it.rotation)}°` },
@@ -194,7 +257,7 @@ function openingTitle(o: Opening): string {
   return o.kind === "door" ? "Door" : o.kind === "window" ? "Window" : "Passage";
 }
 
-function openingFacts(o: Opening): { label: string; value: string }[] {
+function openingFacts(o: Opening): Fact[] {
   return [
     { label: "Width", value: `${Math.round(o.width)} mm` },
     { label: "In wall", value: o.wallId },

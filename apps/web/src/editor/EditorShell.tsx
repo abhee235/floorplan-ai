@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { startApp } from "../app.js";
+import type { BridgeClient } from "../bridge/client.js";
 import { drawCompass } from "../plan/compass.js";
 import { AppBar } from "./AppBar.js";
 import { Announcer } from "./announce.js";
@@ -187,17 +188,7 @@ export function EditorShell(): JSX.Element {
         magnetism: optionsRef.current["wall.snapWalls"] !== false,
       }),
       active: () => toolRef.current === "wall",
-      send: async (command) => {
-        // the bridge resolves with a result either way, so a refusal has to be read out of it rather
-        // than caught: without this a rejected command still announced that the walls had been drawn
-        const result = await client.command(command);
-        if (!result.ok)
-          throw new Error(
-            result.error
-              ? `${result.error.message}${result.error.hint ? ` (${result.error.hint})` : ""}`
-              : "the host refused the command",
-          );
-      },
+      send: (command) => sendOrThrow(client, command),
       redraw,
       status: setSnap,
       preview3d: (points) => {
@@ -223,18 +214,8 @@ export function EditorShell(): JSX.Element {
       project: () => replica.project,
       settings: () => ({ magnetism: optionsRef.current["room.snapWalls"] !== false }),
       active: () => toolRef.current === "room",
-      send: async (command) => {
-        // Same as the wall path: the bridge resolves with a result either way, so a refusal has to be
-        // read out of it. room.create can refuse with room.not-enclosed, and without this a click on
-        // open ground would announce a room that was never made.
-        const result = await client.command(command);
-        if (!result.ok)
-          throw new Error(
-            result.error
-              ? `${result.error.message}${result.error.hint ? ` (${result.error.hint})` : ""}`
-              : "the host refused the command",
-          );
-      },
+      // room.create can refuse with room.not-enclosed, and a click on open ground must not announce a room
+      send: (command) => sendOrThrow(client, command),
       redraw,
       status: setSnap,
       preview3d: (polygon) => {
@@ -527,7 +508,15 @@ export function EditorShell(): JSX.Element {
               );
             })()}
 
-            {replica ? <PropertiesPanel replica={replica} level={level} /> : <aside className="border-l" />}
+            {app ? (
+              <PropertiesPanel
+                replica={app.replica}
+                level={level}
+                send={(command) => sendOrThrow(app.client, command)}
+              />
+            ) : (
+              <aside className="border-l" />
+            )}
           </div>
 
           {/* Never behind a branch: the app writes its activity line into activityRef, and swapping this
@@ -554,6 +543,21 @@ export function EditorShell(): JSX.Element {
       </TooltipProvider>
     </EditorContext.Provider>
   );
+}
+
+/**
+ * Sends one command, and throws with the host's reason when it is refused. The bridge resolves with a
+ * result either way, so a refusal has to be read out of it rather than caught: without this a refused
+ * command still announced that the walls had been drawn.
+ */
+async function sendOrThrow(client: BridgeClient, command: unknown): Promise<void> {
+  const result = await client.command(command);
+  if (!result.ok)
+    throw new Error(
+      result.error
+        ? `${result.error.message}${result.error.hint ? ` (${result.error.hint})` : ""}`
+        : "the host refused the command",
+    );
 }
 
 // Remembering where the divider was left. v4 dropped `autoSaveId`, so this is ours to do: `defaultLayout`

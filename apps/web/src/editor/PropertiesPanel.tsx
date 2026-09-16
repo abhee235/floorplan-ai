@@ -5,17 +5,25 @@
 // commands, and two places working it out separately is how they drift.
 
 import type { JSX } from "react";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { Replica } from "../replica.js";
 import { Keyed } from "./Phrase.js";
-import { describeEntity, type SelectedEntity } from "./selection.js";
+import { PropertyField } from "./PropertyField.js";
+import { describeEntity, type EditCommand, type SelectedEntity } from "./selection.js";
 import { countsText, formatMm } from "./status.js";
 import { k, t } from "./tools.js";
 import { useProject, useSelectionKey } from "./useReplica.js";
 
-export function PropertiesPanel({ replica, level }: { replica: Replica; level: string | null }): JSX.Element {
+export function PropertiesPanel({
+  replica,
+  level,
+  send,
+}: {
+  replica: Replica;
+  level: string | null;
+  /** Sends an edit to the host; throws with the host's reason when it is refused. */
+  send: (command: EditCommand) => Promise<void>;
+}): JSX.Element {
   const project = useProject(replica);
   const selectionKey = useSelectionKey(replica);
   const selected = selectionKey ? selectionKey.split(",") : [];
@@ -56,11 +64,16 @@ export function PropertiesPanel({ replica, level }: { replica: Replica; level: s
           {entities.map((entity) => (
             <Section key={entity.id} title={entity.title}>
               {entity.facts.map((fact) => (
-                <Field
+                <PropertyField
                   key={fact.label}
+                  // Per entity, so two selected walls do not both claim one id; the label is slugged
+                  // because an id with a space in it is not one a label's htmlFor can name.
+                  id={`${entity.id}-${slug(fact.label)}`}
                   label={fact.label}
                   value={fact.value}
-                  id={`${entity.id}-${fact.label}`}
+                  unit={fact.unit}
+                  edit={fact.edit}
+                  send={send}
                 />
               ))}
             </Section>
@@ -68,10 +81,18 @@ export function PropertiesPanel({ replica, level }: { replica: Replica; level: s
 
           {current ? (
             <Section title="Level">
-              <Field label="Name" value={current.name} align="left" />
-              <Field label="Elevation" value={`${formatMm(current.elevation)} mm`} />
-              <Field label="Height" value={`${formatMm(current.height)} mm`} />
-              <Field label="Floor" value={`${formatMm(current.floorThickness)} mm`} />
+              <PropertyField id="level-name" label="Name" value={current.name} align="left" />
+              <PropertyField
+                id="level-elevation"
+                label="Elevation"
+                value={`${formatMm(current.elevation)} mm`}
+              />
+              <PropertyField id="level-height" label="Height" value={`${formatMm(current.height)} mm`} />
+              <PropertyField
+                id="level-floor"
+                label="Floor"
+                value={`${formatMm(current.floorThickness)} mm`}
+              />
             </Section>
           ) : null}
 
@@ -103,31 +124,6 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-/** Read-only for now, but still focusable: a disabled field would drop out of the keyboard path. */
-function Field({
-  label,
-  value,
-  align = "right",
-  id: idOverride,
-}: {
-  label: string;
-  value: string;
-  align?: "left" | "right";
-  /** Entity fields pass their own, so two selected walls do not both claim `level-length`. */
-  id?: string;
-}): JSX.Element {
-  const id = idOverride ?? `level-${label.toLowerCase()}`;
-  return (
-    <div className="flex items-center justify-between gap-2">
-      <Label htmlFor={id} className="text-muted-foreground">
-        {label}
-      </Label>
-      <Input
-        id={id}
-        readOnly
-        value={value}
-        className={`h-7 w-[150px] ${align === "right" ? "text-right tabular-nums" : ""}`}
-      />
-    </div>
-  );
+function slug(label: string): string {
+  return label.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 }

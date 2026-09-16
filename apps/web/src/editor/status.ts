@@ -20,6 +20,23 @@ export function formatMm(mm: number, group = true): string {
   return `${rounded < 0 ? "-" : ""}${parts.join(GROUP)}`;
 }
 
+const MM_PER: Record<string, number> = { mm: 1, cm: 10, m: 1000 };
+
+/**
+ * A length someone typed, in whole millimetres, or null when the text is not one.
+ *
+ * Reads back what formatMm writes, so a grouped "12 250" is fine whatever space groups it. A unit may be
+ * typed because "1.2 m" is how people think of a length even on a millimetre drawing; a bare number is
+ * millimetres. Rounded, because Mm is an integer and the host refuses anything else. A comma is refused
+ * rather than guessed at: it is a thousands separator in one locale and a decimal point in the next.
+ */
+export function parseMm(text: string): number | null {
+  const match = /^([+-]?(?:\d+(?:\.\d*)?|\.\d+))(mm|cm|m)?$/.exec(text.replace(/\s/g, "").toLowerCase());
+  if (!match) return null;
+  const mm = Number(match[1]) * (MM_PER[match[2] ?? "mm"] ?? 1);
+  return Number.isFinite(mm) ? Math.round(mm) : null;
+}
+
 /** A length for a screen reader: plain digits, which are read as a number rather than spelled out. */
 export function describeLength(mm: number): string {
   return `${Math.round(mm)} millimetres`;
