@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  addSkirtingColour,
   deserialize,
   type Migration,
   MigrationError,
   migrate,
+  Project,
+  type RawDocument,
   SCHEMA_VERSION,
   serialize,
 } from "../src/index.js";
@@ -23,7 +26,7 @@ describe("serialize", () => {
 
   it("P-022 two-space indentation, one trailing newline", () => {
     const text = serialize(fixture());
-    expect(text.startsWith('{\n  "schemaVersion": 1,\n')).toBe(true);
+    expect(text.startsWith(`{\n  "schemaVersion": ${SCHEMA_VERSION},\n`)).toBe(true);
     expect(text.endsWith("}\n")).toBe(true);
   });
 
@@ -166,5 +169,25 @@ describe("migrations", () => {
 
   it("file.version for a missing or invalid schemaVersion", () => {
     expect(() => migrate({}, new Map(), 1)).toThrow(/schemaVersion/);
+  });
+
+  it("P-047 version 1 to 2 gives every baseboard a colour of its own, null, and touches nothing else", () => {
+    const v2 = JSON.parse(FIXTURE_TEXT) as RawDocument & { walls: Record<string, unknown>[] };
+    const walls = v2.walls.map((w, i) =>
+      i === 0 ? { ...w, skirting: { left: { thickness: 12, height: 100 }, right: null } } : w,
+    );
+    const v1 = { ...v2, schemaVersion: 1, walls };
+    const out = migrate(v1);
+    expect(out.migrated).toBe(true);
+    expect(out.raw.schemaVersion).toBe(SCHEMA_VERSION);
+    const migratedWalls = out.raw.walls as { skirting: unknown }[];
+    expect(migratedWalls[0]?.skirting).toEqual({
+      left: { thickness: 12, height: 100, color: null },
+      right: null,
+    });
+    expect(migratedWalls.slice(1)).toEqual(walls.slice(1));
+    expect(Project.parse(out.raw).walls[0]?.skirting.left?.color).toBeNull();
+    // a document with no walls is left for the schema check to refuse
+    expect(addSkirtingColour({ schemaVersion: 1, meta: {} })).toEqual({ schemaVersion: 1, meta: {} });
   });
 });

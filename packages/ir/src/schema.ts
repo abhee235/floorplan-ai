@@ -70,7 +70,8 @@ export const Level = z.object({
 export const WallKind = z.enum(["exterior", "interior", "partition", "glass"]);
 export const WallEnd = z.enum(["start", "end"]);
 export const Join = z.object({ wallId: WallId, end: WallEnd });
-export const Skirting = z.object({ thickness: MmPositive, height: MmPositive });
+/** A baseboard. `color` null takes the colour of the side it runs along (W-112). */
+export const Skirting = z.object({ thickness: MmPositive, height: MmPositive, color: Rgb.nullable() });
 
 export const Wall = z.object({
   id: WallId,
@@ -248,7 +249,7 @@ export const Meta = z.object({
 export const ProductSnapshot = z.object({ id: ProductId, snapshotAt: Timestamp }).passthrough();
 export const TextureSnapshot = z.object({ id: TextureId }).passthrough();
 
-export const SCHEMA_VERSION = 1 as const;
+export const SCHEMA_VERSION = 2 as const;
 
 export const Project = z.object({
   schemaVersion: z.literal(SCHEMA_VERSION),

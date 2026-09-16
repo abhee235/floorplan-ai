@@ -112,7 +112,7 @@ export const Wall = z.object({
   kind: WallKind,
   joins: z.object({ start: Join.nullable(), end: Join.nullable() }),
   finishes: z.object({ left: FinishRef.nullable(), right: FinishRef.nullable(), top: FinishRef.nullable() }),
-  skirting: z.object({ left: z.object({ thickness: MmPositive, height: MmPositive }).nullable(), right: z.object({ thickness: MmPositive, height: MmPositive }).nullable() }),
+  skirting: z.object({ left: Skirting.nullable(), right: Skirting.nullable() }),  // Skirting = { thickness: MmPositive, height: MmPositive, color: Rgb.nullable() }; null colour takes the side's (schema 2)
   properties: z.record(z.string()),
 });
 ```
@@ -400,8 +400,10 @@ projectBounds(project): Rect
   fields under `properties.__unknown` per entity, rejects NaN and Infinity,
   and returns problems from a shape parse as a single `file.shape` error
   with the zod path.
-- Migrations live in `packages/ir/migrations/<from>-to-<to>.ts`, pure, with
+- Migrations are registered in `packages/ir/src/migrations.ts` by the version they upgrade from, pure, with
   a fixture pair each.
+- Schema 2 (2026-09-17): baseboards gained `color`; version 1 files get `color: null` on every
+  baseboard they have, which draws them exactly as before.
 
 ## 9. Ledger coverage for this spec
 

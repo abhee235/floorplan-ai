@@ -84,10 +84,10 @@ describe("describing a selected entity", () => {
       "Height at end",
       "Colour, left side",
       "Finish, left side",
-      "Baseboard height, left side",
+      "Height of baseboard, left side",
       "Colour, right side",
       "Finish, right side",
-      "Baseboard height, right side",
+      "Height of baseboard, right side",
     ]);
     // a real length, grouped as a drawing writes it, not a placeholder
     expect(d?.facts.find((f) => f.label === "Length")?.value).toBe(`8${NARROW}000`);
@@ -109,10 +109,10 @@ describe("describing a selected entity", () => {
       "Height",
       "Left side, facing north",
       "Left side, facing north",
-      "Left side, facing north",
+      "Baseboard, left side",
       "Right side, facing south",
       "Right side, facing south",
-      "Right side, facing south",
+      "Baseboard, right side",
     ]);
   });
 
@@ -604,21 +604,24 @@ describe("giving a wall's sides a baseboard (ADR-014 D8)", () => {
   const labelsOf = (p: ProjectT) => (describeEntity(p, W1)?.facts ?? []).map((f) => f.label);
 
   it("shows no baseboard as an empty height standing for none, with no depth to set", () => {
-    const row = rowOf(fixture(), W1, "Baseboard height, left side");
-    expect(row).toMatchObject({ value: "", caption: "Baseboard", unit: "mm" });
+    const row = rowOf(fixture(), W1, "Height of baseboard, left side");
+    expect(row).toMatchObject({ value: "", caption: "Height", unit: "mm", group: "Baseboard, left side" });
     expect(row.empty).toEqual({ shown: "none", action: "Remove the baseboard" });
     expect(labelsOf(fixture())).not.toContain("Depth of baseboard, left side");
   });
 
   it("adds a baseboard of the usual depth when a height is typed, and the wall builds it", () => {
     const p = fixture();
-    const command = typed(p, W1, "Baseboard height, left side", "100");
+    const command = typed(p, W1, "Height of baseboard, left side", "100");
     expect(command.payload).toEqual({
       wallId: W1,
-      changes: { skirting: { left: { thickness: SKIRTING_DEPTH, height: 100 }, right: null } },
+      changes: { skirting: { left: { thickness: SKIRTING_DEPTH, height: 100, color: null }, right: null } },
     });
     const { project } = run(p, command);
-    expect(skirtingOf(project, W1)).toEqual({ left: { thickness: 12, height: 100 }, right: null });
+    expect(skirtingOf(project, W1)).toEqual({
+      left: { thickness: 12, height: 100, color: null },
+      right: null,
+    });
     const level = project.levels[0] as ProjectT["levels"][number];
     const parts = buildWalls(project.walls, project.openings, { level, isLowest: true, isHighest: true });
     expect(parts.some((x) => x.entityId === W1 && x.part === "skirting-left")).toBe(true);
@@ -631,41 +634,79 @@ describe("giving a wall's sides a baseboard (ADR-014 D8)", () => {
   });
 
   it("changes the depth and keeps the height, and the other side is left alone", () => {
-    const p = run(fixture(), typed(fixture(), W1, "Baseboard height, right side", "80")).project;
-    const q = run(p, typed(p, W1, "Baseboard height, left side", "100")).project;
+    const p = run(fixture(), typed(fixture(), W1, "Height of baseboard, right side", "80")).project;
+    const q = run(p, typed(p, W1, "Height of baseboard, left side", "100")).project;
     const { project } = run(q, typed(q, W1, "Depth of baseboard, left side", "18"));
     expect(skirtingOf(project, W1)).toEqual({
-      left: { thickness: 18, height: 100 },
-      right: { thickness: 12, height: 80 },
+      left: { thickness: 18, height: 100, color: null },
+      right: { thickness: 12, height: 80, color: null },
     });
   });
 
   it("removes the baseboard when its height is emptied", () => {
-    const p = run(fixture(), typed(fixture(), W1, "Baseboard height, left side", "100")).project;
-    const { project } = run(p, typed(p, W1, "Baseboard height, left side", ""));
+    const p = run(fixture(), typed(fixture(), W1, "Height of baseboard, left side", "100")).project;
+    const { project } = run(p, typed(p, W1, "Height of baseboard, left side", ""));
     expect(skirtingOf(project, W1).left).toBeNull();
     expect(labelsOf(project)).not.toContain("Depth of baseboard, left side");
-    expect(outcomeOf(fixture(), W1, "Baseboard height, left side", "")).toMatchObject({
+    expect(outcomeOf(fixture(), W1, "Height of baseboard, left side", "")).toMatchObject({
       ok: true,
       command: null,
     });
   });
 
   it("W-100 refuses a baseboard taller than the wall, naming the wall's height", () => {
-    expect(outcomeOf(fixture(), W1, "Baseboard height, left side", "2701")).toEqual({
+    expect(outcomeOf(fixture(), W1, "Height of baseboard, left side", "2701")).toEqual({
       ok: false,
       message: "Baseboard height must be from 1 to 2700 mm.",
     });
     // a sloping wall is as tall as its taller end
     const sloped = modified(fixture(), { height: 3000, heightAtEnd: 2000 });
-    expect(outcomeOf(sloped, W1, "Baseboard height, left side", "3000")).toMatchObject({ ok: true });
+    expect(outcomeOf(sloped, W1, "Height of baseboard, left side", "3000")).toMatchObject({ ok: true });
   });
 
   it("refuses a depth that is not a skirting board's", () => {
-    const p = run(fixture(), typed(fixture(), W1, "Baseboard height, left side", "100")).project;
+    const p = run(fixture(), typed(fixture(), W1, "Height of baseboard, left side", "100")).project;
     expect(outcomeOf(p, W1, "Depth of baseboard, left side", "0")).toEqual({
       ok: false,
       message: `Baseboard depth must be from 1 to ${SKIRTING_DEPTH_RANGE.max} mm.`,
     });
+  });
+
+  it("gives a baseboard a colour of its own, and hands it back to its side when emptied", () => {
+    const p = run(fixture(), typed(fixture(), W1, "Height of baseboard, left side", "100")).project;
+    const colour = rowOf(p, W1, "Colour of baseboard, left side");
+    expect(colour).toMatchObject({ value: "", caption: "Colour", group: "Baseboard, left side" });
+    // unpainted side: the swatch shows the baseboard off-white
+    expect(colour.colour).toEqual({ effective: "#F6F5F1" });
+    expect(colour.empty).toEqual({ shown: "as side", action: "Use the side's colour" });
+    const white = run(p, typed(p, W1, "Colour of baseboard, left side", "fff")).project;
+    expect(skirtingOf(white, W1).left).toEqual({ thickness: 12, height: 100, color: "#FFFFFF" });
+    // the height keeps the colour when it changes
+    const taller = run(white, typed(white, W1, "Height of baseboard, left side", "150")).project;
+    expect(skirtingOf(taller, W1).left?.color).toBe("#FFFFFF");
+    const back = run(taller, typed(taller, W1, "Colour of baseboard, left side", "")).project;
+    expect(skirtingOf(back, W1).left?.color).toBeNull();
+    expect(outcomeOf(back, W1, "Colour of baseboard, left side", "white")).toEqual({
+      ok: false,
+      message: "Colour needs a hex value, such as #FFFFFF.",
+    });
+  });
+
+  it("shows the side's colour on the swatch of a baseboard that takes it", () => {
+    const painted = modified(fixture(), {
+      finishes: {
+        left: {
+          color: "#123456",
+          textureId: null,
+          placement: null,
+          mirrorForLeftSide: false,
+          shininess: null,
+        },
+        right: null,
+        top: null,
+      },
+    });
+    const p = run(painted, typed(painted, W1, "Height of baseboard, left side", "100")).project;
+    expect(rowOf(p, W1, "Colour of baseboard, left side").colour).toEqual({ effective: "#123456" });
   });
 });

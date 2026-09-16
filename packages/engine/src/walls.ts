@@ -462,14 +462,20 @@ export function buildWalls(
     );
     out.push(capEnd.toPart(w.id, "wall-end-end", edgeKey));
     for (const c of cutList) buildOpeningFaces(left, right, len, c, el, out, revealKey);
-    // Baseboards take the side's own finish when it has one, and their own quiet colour otherwise (W-112);
-    // on glass they are part of the frame.
+    // A baseboard wears its own colour when it has one and its side's otherwise, with the side's shininess
+    // either way, and a quiet off-white of its own on an unpainted side (W-112). On glass it is frame.
     for (const [name, side] of [
       ["left", left],
       ["right", right],
     ] as const) {
-      const base = glass ? "wall-glass-frame" : "wall-skirting";
-      const key = glass ? base : finishedMaterialKey(base, w.finishes[name]);
+      const finish = w.finishes[name];
+      const own = w.skirting[name]?.color ?? null;
+      const key = glass
+        ? "wall-glass-frame"
+        : finishedMaterialKey("wall-skirting", {
+            color: own ?? finish?.color ?? null,
+            shininess: finish?.shininess ?? null,
+          });
       buildSkirting(w, name, side, len, cutList, el, ctx.level, key, out);
     }
   }

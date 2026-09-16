@@ -125,7 +125,10 @@ describe("stage 2: against a wall (F-082..F-090)", () => {
     const skirted = project({
       walls: [
         wall("wall_s", 0, 0, 4000, 0, {
-          skirting: { left: { thickness: 20, height: 100 }, right: { thickness: 20, height: 100 } },
+          skirting: {
+            left: { thickness: 20, height: 100, color: null },
+            right: { thickness: 20, height: 100, color: null },
+          },
         }),
       ],
     });

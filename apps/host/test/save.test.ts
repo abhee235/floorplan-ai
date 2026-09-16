@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, utimesSync, writeFi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Project, sequentialIdGenerator } from "@fpv/ir";
+import { Project, SCHEMA_VERSION, sequentialIdGenerator } from "@fpv/ir";
 import { describe, expect, it } from "vitest";
 import {
   createSession,
@@ -63,14 +63,14 @@ describe("project files: atomic save (ADR-012 D3)", () => {
     const manifest = JSON.parse(readFileSync(join(dir, MANIFEST_FILE), "utf8")) as Manifest;
     expect(manifest.project.sha256).toBe(sha256(text));
     expect(manifest.formatVersion).toBe(1);
-    expect(manifest.schemaVersion).toBe(1);
+    expect(manifest.schemaVersion).toBe(SCHEMA_VERSION);
     expect(manifest.savedAt).toBe(NOW);
     const doc = JSON.parse(text) as {
       schemaVersion: number;
       meta: { units: string; north: number; createdAt: string };
       walls: { thickness: number }[];
     };
-    expect(doc.schemaVersion).toBe(1);
+    expect(doc.schemaVersion).toBe(SCHEMA_VERSION);
     expect(doc.meta.units).toBe("mm");
     expect(Number.isInteger(doc.walls[0]?.thickness)).toBe(true);
     expect(doc.meta.north).toBe(90); // degrees, not radians
@@ -176,7 +176,10 @@ describe("project files: open, integrity, recovery (ADR-012 D4, D6, D7)", () => 
     const dir2 = tmp();
     writeFileSync(
       join(dir2, PROJECT_FILE),
-      readFileSync(join(dir, PROJECT_FILE), "utf8").replace('"schemaVersion": 1', '"schemaVersion": 99'),
+      readFileSync(join(dir, PROJECT_FILE), "utf8").replace(
+        `"schemaVersion": ${SCHEMA_VERSION}`,
+        '"schemaVersion": 99',
+      ),
     );
     expect((await fail(session().files.open(dir2))).code).toBe("file.newer");
   });

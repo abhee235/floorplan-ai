@@ -369,7 +369,7 @@ function sideFacts(w: Wall, side: "left" | "right", level: Level, north: number)
         finished({ shininess: SHININESS[value] ?? null }),
       ),
     },
-    ...skirtingFacts(w, side, level, group),
+    ...skirtingFacts(w, side, level),
   ];
 }
 
@@ -390,8 +390,11 @@ export const SKIRTING_DEPTH_RANGE = { min: 1, max: 200 } as const;
  * A height above the wall is refused rather than stored (W-100): the view would cut it at the wall's top
  * anyway, and a panel should not keep a number the drawing does not show.
  */
-function skirtingFacts(w: Wall, side: "left" | "right", level: Level, group: string): Fact[] {
+function skirtingFacts(w: Wall, side: "left" | "right", level: Level): Fact[] {
   const name = `${side} side`;
+  // A band of its own, so its rows can be called Height, Depth and Colour without meeting the side's
+  // own Colour in the band above.
+  const group = `Baseboard, ${name}`;
   const current = w.skirting[side];
   const tallest = Math.round(derive.wallMaxHeight(w, level));
   const withSkirting = (value: Wall["skirting"]["left"]): EditCommand =>
@@ -399,22 +402,28 @@ function skirtingFacts(w: Wall, side: "left" | "right", level: Level, group: str
   const facts: Fact[] = [
     {
       group,
-      label: `Baseboard height, ${name}`,
-      caption: "Baseboard",
+      label: `Height of baseboard, ${name}`,
+      caption: "Height",
       value: current ? formatMm(current.height) : "",
       unit: "mm",
       empty: { shown: "none", action: "Remove the baseboard" },
-      hint: "The height of the baseboard along this side. Empty means none.",
+      hint: "How high the baseboard along this side is. Empty means there is none.",
       edit: orEmpty(
         lengthEdit("Baseboard height", current?.height ?? null, { min: 1, max: tallest }, (height) =>
-          withSkirting({ thickness: current?.thickness ?? SKIRTING_DEPTH, height }),
+          withSkirting({
+            thickness: current?.thickness ?? SKIRTING_DEPTH,
+            height,
+            color: current?.color ?? null,
+          }),
         ),
         () => ({ ok: true, command: current ? withSkirting(null) : null, said: "none" }),
       ),
     },
   ];
-  if (current)
-    facts.push({
+  if (!current) return facts;
+  const sideColour = w.finishes[side]?.color ?? null;
+  facts.push(
+    {
       group,
       label: `Depth of baseboard, ${name}`,
       caption: "Depth",
@@ -424,7 +433,35 @@ function skirtingFacts(w: Wall, side: "left" | "right", level: Level, group: str
       edit: lengthEdit("Baseboard depth", current.thickness, SKIRTING_DEPTH_RANGE, (thickness) =>
         withSkirting({ ...current, thickness }),
       ),
-    });
+    },
+    {
+      group,
+      label: `Colour of baseboard, ${name}`,
+      caption: "Colour",
+      value: current.color ?? "",
+      // what it looks like while it has no colour of its own: its side's, or the baseboard off-white
+      colour: {
+        effective: current.color ?? sideColour ?? hexOf(MATERIAL_COLOURS["wall-skirting"] ?? 0xf6f5f1),
+      },
+      empty: { shown: "as side", action: "Use the side's colour" },
+      hint: "A hex colour, such as #FFFFFF. Empty takes the colour of the side it runs along.",
+      edit: (text) => {
+        if (text.trim() === "")
+          return {
+            ok: true,
+            command: current.color === null ? null : withSkirting({ ...current, color: null }),
+            said: "as its side",
+          };
+        const hex = parseHexColour(text);
+        if (hex === null) return { ok: false, message: "Colour needs a hex value, such as #FFFFFF." };
+        return {
+          ok: true,
+          command: hex === current.color ? null : withSkirting({ ...current, color: hex }),
+          said: hex,
+        };
+      },
+    },
+  );
   return facts;
 }
 

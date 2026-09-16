@@ -27,7 +27,7 @@ const vertices = (part: GeometryPart) => {
     });
   return out;
 };
-const board = { thickness: 20, height: 100 };
+const board = { thickness: 20, height: 100, color: null };
 
 describe("baseboards (ADR-014 D8)", () => {
   it("W-107 W-099 a baseboard is a strip out from its side, on the floor, as high as it says", () => {
@@ -66,7 +66,11 @@ describe("baseboards (ADR-014 D8)", () => {
   });
 
   it("W-100 never rises above the wall where the wall is lower", () => {
-    const low = withSkirting(SOUTH, { left: { thickness: 20, height: 150 }, right: null }, { height: 80 });
+    const low = withSkirting(
+      SOUTH,
+      { left: { thickness: 20, height: 150, color: null }, right: null },
+      { height: 80 },
+    );
     const b = partBounds(
       partOf(buildWalls(low, project.openings, ctx), SOUTH, "skirting-left") as GeometryPart,
     );
@@ -104,7 +108,7 @@ describe("baseboards (ADR-014 D8)", () => {
     const tight: Wall = {
       ...arc,
       arcExtent: 180,
-      skirting: { left: null, right: { thickness: 3, height: 50 } },
+      skirting: { left: null, right: { thickness: 3, height: 50, color: null } },
     };
     const part = partOf(buildWalls([tight], [], ctx), "wall_arc001", "skirting-right") as GeometryPart;
     expect(part).toBeDefined();
@@ -117,5 +121,22 @@ describe("baseboards (ADR-014 D8)", () => {
   it("is left out entirely when a side has no baseboard", () => {
     const parts = buildWalls(project.walls, project.openings, ctx);
     expect(parts.some((p) => p.part === "skirting-left" || p.part === "skirting-right")).toBe(false);
+  });
+
+  it("W-112 a baseboard's own colour wins over its side's, and keeps the side's shininess", () => {
+    const glossRed = {
+      color: "#FF0000",
+      textureId: null,
+      placement: null,
+      mirrorForLeftSide: false,
+      shininess: 0.6,
+    };
+    const walls = withSkirting(
+      SOUTH,
+      { left: { ...board, color: "#FFFFFF" }, right: null },
+      { finishes: { left: glossRed, right: null, top: null } },
+    );
+    const parts = buildWalls(walls, project.openings, ctx);
+    expect(partOf(parts, SOUTH, "skirting-left")?.materialKey).toBe("wall-skirting|#FFFFFF|0.6");
   });
 });
