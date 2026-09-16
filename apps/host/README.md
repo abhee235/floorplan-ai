@@ -199,7 +199,7 @@ or in `<data>/config.json`:
 }
 ```
 
-The host prints `floorplan-viz reader: ...` at start. The import works like a
+The host prints `floorplan-ai reader: ...` at start. The import works like a
 DXF: the first call returns a draft (walls squared up, collinear pieces merged,
 ends snapped, openings attached to walls) and shows it over the image in the
 viewer; the second call with `confirm: true` commits it. The scale is taken
@@ -213,7 +213,7 @@ PNG's pixels and snaps the model's walls to the lines actually drawn. Score a mo
 ## Driving the tools from Claude Code while watching the viewer
 
 ```
-claude mcp add floorplan -- corepack pnpm --dir C:/path/to/floorplan-viz host:dev
+claude mcp add floorplan -- corepack pnpm --dir C:/path/to/floorplan-ai host:dev
 ```
 
 Then open http://127.0.0.1:4310/ in a browser. Every tool call Claude Code makes reaches the tab as

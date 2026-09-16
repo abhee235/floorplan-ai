@@ -394,7 +394,7 @@ export function EditorShell(): JSX.Element {
             />
           ) : (
             <header className="flex h-10 items-center border-b bg-card px-3">
-              <strong className="font-semibold">floorplan-viz</strong>
+              <strong className="font-semibold">floorplan-ai</strong>
             </header>
           )}
 

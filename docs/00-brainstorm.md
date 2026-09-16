@@ -1,4 +1,4 @@
-# Floorplan-Viz: Brainstorm
+# Floorplan-AI: Brainstorm
 
 Status: brainstorm complete, feeds ADRs (next step)
 Date: 2026-09-14

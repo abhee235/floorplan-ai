@@ -1,4 +1,4 @@
-# Floorplan-Viz
+# Floorplan-AI
 
 Floor plans and briefs become editable 3D office models and a traceable bill of materials.
 

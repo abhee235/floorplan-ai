@@ -4,6 +4,8 @@ import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+// The project was called floorplan-viz when this directory was first created on people's machines. The
+// data directory keeps that name so an existing catalog and its libraries are still found after the rename.
 export const APP_DIR_NAME = "floorplan-viz";
 
 export function defaultDataDir(

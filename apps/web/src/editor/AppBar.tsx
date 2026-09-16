@@ -43,7 +43,7 @@ export function AppBar({ replica, level, onLevel, onImport }: AppBarProps): JSX.
 
   return (
     <header className="flex h-10 items-center gap-2 border-b bg-card px-3">
-      <strong className="truncate font-semibold">{project?.meta.name ?? "floorplan-viz"}</strong>
+      <strong className="truncate font-semibold">{project?.meta.name ?? "floorplan-ai"}</strong>
 
       <Separator orientation="vertical" className="mx-1 h-4" />
 

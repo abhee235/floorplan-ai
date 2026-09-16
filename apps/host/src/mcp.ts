@@ -39,7 +39,7 @@ function isRenderResult(v: unknown): v is { images: { pngBase64: string }[] } {
 }
 
 export function createMcpServer(session: Session, options: McpOptions = {}): McpServer {
-  const server = new McpServer({ name: "floorplan-viz", version: HOST_VERSION });
+  const server = new McpServer({ name: "floorplan-ai", version: HOST_VERSION });
   const tools: ToolDef[] = session.registry.advertised(options.profile ?? "high");
   for (const def of tools) {
     server.registerTool(

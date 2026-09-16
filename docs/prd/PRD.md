@@ -1,4 +1,4 @@
-# Floorplan-Viz: Product Requirements
+# Floorplan-AI: Product Requirements
 
 Status: Draft
 Date: 2026-09-15
@@ -6,7 +6,7 @@ Inputs: 00-brainstorm.md, the edge-case ledger, adr/, spec/
 
 ## 1. Product statement
 
-Floorplan-Viz turns a floor plan, or just a written brief, into an editable
+Floorplan-AI turns a floor plan, or just a written brief, into an editable
 3D model of an office and a bill of materials that an estimator can cost.
 It is built for meeting and business spaces: boardrooms, huddle rooms,
 training rooms, open-plan desking, reception, cafeteria. It runs on a laptop

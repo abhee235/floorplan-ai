@@ -90,8 +90,8 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   const args = parseArgs(argv);
   // model providers, keys and roles come from the nearest .env; the shell environment wins
   const dotenv = loadDotEnv();
-  if (dotenv.file) process.stderr.write(`floorplan-viz env: ${dotenv.file}\n`);
-  for (const note of dotenv.notes) process.stderr.write(`floorplan-viz env: ${note}\n`);
+  if (dotenv.file) process.stderr.write(`floorplan-ai env: ${dotenv.file}\n`);
+  for (const note of dotenv.notes) process.stderr.write(`floorplan-ai env: ${note}\n`);
   if ((!args.mcp && !args.serve && !args.agent) || (args.mcp && args.agent)) {
     process.stderr.write(
       "usage: host [--mcp] [--serve] [--port <n>] [--project <project.json>] [--profile high|medium|low] [--data <dir>]\n" +
@@ -109,9 +109,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   // the catalog database lives in the data directory; the seed library is installed on first run
   const now = () => new Date().toISOString();
   const catalog = openCatalog(args.data, now);
-  process.stderr.write(
-    `floorplan-viz catalog: ${catalog.path}${catalog.seeded ? " (seed installed)" : ""}\n`,
-  );
+  process.stderr.write(`floorplan-ai catalog: ${catalog.path}${catalog.seeded ? " (seed installed)" : ""}\n`);
   // one file store per session; a project given on the command line is opened before anything listens
   const files = new ProjectFileStore();
   const opened = args.project ? await files.open(args.project) : null;
@@ -121,13 +119,13 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     );
   // product verification: search and model are optional; without them callers pass sources and a proposal
   const loaded = loadHostConfig({ dataDir: catalog.dir });
-  for (const note of loaded.notes) process.stderr.write(`floorplan-viz config: ${note}\n`);
+  for (const note of loaded.notes) process.stderr.write(`floorplan-ai config: ${note}\n`);
   const verification = createVerifier(catalog.store, loaded.config, { now });
-  process.stderr.write(`floorplan-viz verifier: ${verification.describe}\n`);
+  process.stderr.write(`floorplan-ai verifier: ${verification.describe}\n`);
   const readerConfig = loadReaderConfig({ dataDir: catalog.dir });
-  for (const note of readerConfig.notes) process.stderr.write(`floorplan-viz config: ${note}\n`);
+  for (const note of readerConfig.notes) process.stderr.write(`floorplan-ai config: ${note}\n`);
   const planReaderSetup = createReader(readerConfig.model);
-  process.stderr.write(`floorplan-viz reader: ${planReaderSetup.describe}\n`);
+  process.stderr.write(`floorplan-ai reader: ${planReaderSetup.describe}\n`);
   const session = createSession({
     files,
     now,
@@ -142,7 +140,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   if (args.serve) {
     const served = await serve(session, { port: args.port, projectPath: () => files.path() });
     // stdout may be the MCP transport, so the URL goes to stderr
-    process.stderr.write(`floorplan-viz viewer: ${served.url}\n`);
+    process.stderr.write(`floorplan-ai viewer: ${served.url}\n`);
     await files.writeSession(served.port, PROTOCOL_VERSION);
     const bye = () => {
       files.stopAutosave();
@@ -154,15 +152,15 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   }
   if (args.agent) {
     const agentConfig = loadAgentConfig({ dataDir: catalog.dir });
-    for (const note of agentConfig.notes) process.stderr.write(`floorplan-viz config: ${note}\n`);
+    for (const note of agentConfig.notes) process.stderr.write(`floorplan-ai config: ${note}\n`);
     if (!agentConfig.model) {
       process.stderr.write(
-        "floorplan-viz agent: no designer model; set roles.designer in config.json or FPV_AGENT_BASE_URL and FPV_AGENT_MODEL\n",
+        "floorplan-ai agent: no designer model; set roles.designer in config.json or FPV_AGENT_BASE_URL and FPV_AGENT_MODEL\n",
       );
       process.exitCode = 2;
     } else {
       const provider = openAICompatible(agentConfig.model);
-      process.stderr.write(`floorplan-viz agent: ${provider.model} at ${agentConfig.model.baseUrl}\n`);
+      process.stderr.write(`floorplan-ai agent: ${provider.model} at ${agentConfig.model.baseUrl}\n`);
       const { run, transcriptPath } = await runAgentTask(session, provider, args.agent, {
         transcriptDir: join(catalog.dir, "transcripts"),
         ...(args.steps ? { maxSteps: args.steps } : {}),
@@ -172,7 +170,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
           if (line) process.stderr.write(`${line}\n`);
         },
       });
-      if (transcriptPath) process.stderr.write(`floorplan-viz agent transcript: ${transcriptPath}\n`);
+      if (transcriptPath) process.stderr.write(`floorplan-ai agent transcript: ${transcriptPath}\n`);
       process.stdout.write(
         `${run.text ?? `(no answer: ${run.reason}${run.error ? `, ${run.error}` : ""})`}\n`,
       );

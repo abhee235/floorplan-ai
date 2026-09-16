@@ -78,7 +78,7 @@ describe("glTF binary export (PRD P2-5)", () => {
   const { json } = parseGlb(out.bytes);
 
   it("is a valid glTF 2.0 binary whose root is the project", () => {
-    expect(json.asset).toMatchObject({ version: "2.0", generator: "floorplan-viz 0.0.1" });
+    expect(json.asset).toMatchObject({ version: "2.0", generator: "floorplan-ai 0.0.1" });
     expect(json.asset.extras).toMatchObject({ units: "metres, y up", draft: false, scope: "project" });
     expect(json.scenes[json.scene]?.nodes).toEqual([0]);
     expect(json.nodes[0]?.extras.kind).toBe("project");

@@ -41,7 +41,7 @@ describe("BOM CSV export (ADR-013 D3)", () => {
     const golden = `${DIR}bom.export.csv`;
     if (process.env.UPDATE_GOLDEN) writeFileSync(golden, csv);
     expect(csv).toBe(readFileSync(golden, "utf8").replace(/\r?\n/g, "\r\n"));
-    expect(csv.startsWith("\uFEFF# floorplan-viz bill of materials\r\n")).toBe(true);
+    expect(csv.startsWith("\uFEFF# floorplan-ai bill of materials\r\n")).toBe(true);
     const rows = csv.split("\r\n");
     const header = rows.indexOf(EXPORT_CSV_COLUMNS.join(","));
     expect(header).toBeGreaterThan(0);

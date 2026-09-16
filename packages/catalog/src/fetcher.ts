@@ -60,7 +60,7 @@ export function httpPageFetcher(options: HttpFetcherOptions = {}): PageFetcher {
   const timeoutMs = options.timeoutMs ?? 15_000;
   const maxBytes = options.maxBytes ?? 3_000_000;
   const maxRedirects = options.maxRedirects ?? 4;
-  const userAgent = options.userAgent ?? "floorplan-viz product verifier (+local)";
+  const userAgent = options.userAgent ?? "floorplan-ai product verifier (+local)";
 
   async function guard(url: URL): Promise<void> {
     if (url.protocol !== "http:" && url.protocol !== "https:")

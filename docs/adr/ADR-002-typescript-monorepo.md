@@ -17,7 +17,7 @@ model layer, and let the MCP server and the web app consume the same code.
 ### D1. Layout
 
 ```
-floorplan-viz/
+floorplan-ai/
   package.json            # pnpm workspace root, scripts only
   pnpm-workspace.yaml
   tsconfig.base.json

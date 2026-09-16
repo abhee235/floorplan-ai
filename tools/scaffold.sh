@@ -7,7 +7,7 @@ mkdir -p packages apps tools/ledger tools/fixtures docs/eval
 
 cat > package.json <<'EOF'
 {
-  "name": "floorplan-viz",
+  "name": "floorplan-ai",
   "private": true,
   "version": "0.0.1",
   "description": "Floor plans and briefs to editable 3D office models and a bill of materials",
@@ -126,7 +126,7 @@ cat > .gitattributes <<'EOF'
 EOF
 
 cat > README.md <<'EOF'
-# Floorplan-Viz
+# Floorplan-AI
 
 Floor plans and briefs become editable 3D office models and a traceable bill of materials.
 

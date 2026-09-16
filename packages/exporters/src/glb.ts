@@ -397,7 +397,7 @@ export function projectToGlb(project: Project, options: GlbOptions): GlbExport {
   const json: Json = {
     asset: {
       version: "2.0",
-      generator: `floorplan-viz ${options.appVersion}`,
+      generator: `floorplan-ai ${options.appVersion}`,
       extras: {
         exportedAt: options.exportedAt,
         draft: options.draft ?? false,

@@ -50,6 +50,6 @@ describe("GLB opens in three.js GLTFLoader (PRD P2-5)", () => {
     expect(named("ground")?.parent?.name).toBe(project.levels[0]?.id);
     expect(size.y).toBeGreaterThan(2);
     expect(size.y).toBeLessThan(6);
-    expect(gltf.parser.json.asset.generator).toBe("floorplan-viz 0.0.1");
+    expect(gltf.parser.json.asset.generator).toBe("floorplan-ai 0.0.1");
   });
 });

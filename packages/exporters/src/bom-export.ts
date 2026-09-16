@@ -145,7 +145,7 @@ export function bomToExportCsv(
   sources: SourceLookup,
 ): string {
   const names = namesOf(project);
-  const rows: string[] = ["# floorplan-viz bill of materials"];
+  const rows: string[] = ["# floorplan-ai bill of materials"];
   for (const [k, v] of provenanceLines(provenance)) rows.push(csvCell(`# ${k}: ${v}`));
   rows.push(EXPORT_CSV_COLUMNS.join(","));
   for (const l of bom.lines)

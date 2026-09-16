@@ -44,8 +44,8 @@ export function defaultWebDir(): string {
 }
 
 const NOT_BUILT =
-  "<!doctype html><meta charset=utf-8><title>floorplan-viz</title><body style='font:14px system-ui;padding:2em'>" +
-  "<h1>floorplan-viz host</h1><p>The web app is not built. Run <code>corepack pnpm web:build</code> and reload, " +
+  "<!doctype html><meta charset=utf-8><title>floorplan-ai</title><body style='font:14px system-ui;padding:2em'>" +
+  "<h1>floorplan-ai host</h1><p>The web app is not built. Run <code>corepack pnpm web:build</code> and reload, " +
   "or start <code>corepack pnpm web:dev</code> for the Vite dev server (it proxies the bridge to this host).</p>" +
   "<p>The bridge is live at <code>/bridge</code>.</p>";
 

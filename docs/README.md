@@ -1,4 +1,4 @@
-# Floorplan-Viz documentation
+# Floorplan-AI documentation
 
 Workflow: brainstorm -> research -> ADRs -> spec -> PRD -> implementation.
 
