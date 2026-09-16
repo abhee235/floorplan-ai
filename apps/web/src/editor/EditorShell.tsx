@@ -404,20 +404,22 @@ export function EditorShell(): JSX.Element {
           <div className="grid min-h-0 grid-cols-[48px_minmax(0,1fr)_288px]">
             <ToolRail />
 
-            {/* The panes are written once and mounted into whichever container the view mode asks for.
-                They must not be duplicated per branch: planRef and viewportRef are handed to imperative
-                code that appends canvases to them, and a second copy would take the ref on mount and
-                leave the first holding a detached node.
+            {/* One tree for every view mode. planRef, viewportRef and fitRef are handed to imperative
+                code that appends canvases and listeners to those nodes, so the nodes must live for the
+                whole session: never duplicated, and never moved to another parent. A view mode that
+                rendered its own container (the grid the single-pane modes once had) made React replace
+                the panes on every switch, and the canvases and listeners went with the old nodes —
+                the editor went blank until a reload.
 
-                Only "both" gets the splitter. react-resizable-panels lays out in percentages, so it has
-                no way to express "this pane is collapsed to nothing" that is as honest as simply not
-                rendering the group — the single-pane modes keep the grid they already had. */}
+                So the splitter is always there, and a view mode hides the pane it does not show, and the
+                divider with it. The layout is untouched by that, so the split someone chose is still there
+                when both panes come back. */}
             {(() => {
               // h-full, because these panes are flex children now rather than grid tracks. A grid track
               // stretched them for free; a flex item does not, so without it the wrapper collapsed to
               // zero and took the canvas host down with it.
               const planPane = (
-                <div className={`relative h-full min-h-0 overflow-hidden ${view === "3d" ? "hidden" : ""}`}>
+                <div className="relative h-full min-h-0 overflow-hidden">
                   <div
                     ref={planRef}
                     id="plan"
@@ -460,27 +462,10 @@ export function EditorShell(): JSX.Element {
                 </div>
               );
               const viewPane = (
-                <div
-                  className={`relative h-full min-h-0 overflow-hidden ${view === "plan" ? "hidden" : ""}`}
-                  data-pane="3d"
-                >
+                <div className="relative h-full min-h-0 overflow-hidden" data-pane="3d">
                   <div ref={viewportRef} id="viewport" className="h-full w-full overflow-hidden" />
                 </div>
               );
-
-              if (view !== "both")
-                return (
-                  <div
-                    className={
-                      view === "plan"
-                        ? "grid min-h-0 grid-rows-[minmax(0,1fr)_0]"
-                        : "grid min-h-0 grid-rows-[0_minmax(0,1fr)]"
-                    }
-                  >
-                    {planPane}
-                    {viewPane}
-                  </div>
-                );
 
               return (
                 // `orientation`, not `direction`: v4 renamed it, and it is what the handle's own
@@ -495,13 +480,33 @@ export function EditorShell(): JSX.Element {
                   defaultLayout={savedLayout()}
                   onLayoutChanged={saveLayout}
                 >
-                  <ResizablePanel id={PLAN_PANEL} defaultSize="72" minSize="20" className="relative min-h-0">
+                  {/* data-view-hidden, not a class: the library puts className on an inner element and
+                      display:flex inline on the outer one, so only the attribute rule in styles.css can
+                      take a panel out of the layout. The panel left behind grows into the space. */}
+                  <ResizablePanel
+                    id={PLAN_PANEL}
+                    defaultSize="72"
+                    minSize="20"
+                    className="relative min-h-0"
+                    data-view-hidden={view === "3d" || undefined}
+                  >
                     {planPane}
                   </ResizablePanel>
                   {/* The handle is a real separator: focusable, with arrow keys, because a divider that
-                      only answers to a drag is a divider a keyboard cannot move. */}
-                  <ResizableHandle withHandle aria-label="Resize the plan and the 3D view" />
-                  <ResizablePanel id={VIEW_PANEL} defaultSize="28" minSize="10" className="relative min-h-0">
+                      only answers to a drag is a divider a keyboard cannot move. Hidden with a pane, it
+                      also leaves the tab order, which is right: there is nothing to divide. */}
+                  <ResizableHandle
+                    withHandle
+                    aria-label="Resize the plan and the 3D view"
+                    data-view-hidden={view !== "both" || undefined}
+                  />
+                  <ResizablePanel
+                    id={VIEW_PANEL}
+                    defaultSize="28"
+                    minSize="10"
+                    className="relative min-h-0"
+                    data-view-hidden={view === "plan" || undefined}
+                  >
                     {viewPane}
                   </ResizablePanel>
                 </ResizablePanelGroup>

@@ -210,3 +210,10 @@
 [data-slot="label"] {
   font-weight: 400;
 }
+
+/* A pane the view mode does not show, and the divider beside it (EditorShell). Important, because the
+   resizable panel library sets display:flex inline on the panel, and only an important rule outranks an
+   inline style. The pane stays in the document, so the canvases and listeners inside it survive. */
+[data-view-hidden] {
+  display: none !important;
+}
