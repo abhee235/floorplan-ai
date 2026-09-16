@@ -12,6 +12,7 @@ import {
   handleAnchors,
   handleAt,
   handleCommand,
+  handleCursor,
   indicatorMarginMm,
   previewWall,
   type WallHandle,
@@ -282,6 +283,7 @@ export function startApp(el: AppElements): {
         wallFootprintUnjoined(shaped),
         planPointOf(e),
         indicatorMarginMm(plan.view.scale, e.pointerType === "touch"),
+        1 / plan.view.scale,
       );
       if (handle) {
         handling = { wallId: shaped.id, handle, preview: null };
@@ -318,7 +320,32 @@ export function startApp(el: AppElements): {
       planDirty = true;
       return;
     }
-    if (!drag) return;
+    if (!drag) {
+      // Nothing is being dragged, so the pointer's job is to say what a press WOULD do: a resize arrow
+      // on an end, a grab on the bend, a move over anything already selected. Without this there is no
+      // way to tell a stretch from a drag until the wrong one has already started.
+      const at = planPointOf(e);
+      const shaped = handleWall();
+      const fp = shaped ? wallFootprintUnjoined(shaped) : null;
+      const hovered =
+        shaped && fp
+          ? handleAt(
+              shaped,
+              fp,
+              at,
+              indicatorMarginMm(plan.view.scale, e.pointerType === "touch"),
+              1 / plan.view.scale,
+            )
+          : null;
+      if (hovered && shaped && fp) {
+        const anchors = handleAnchors(shaped, fp);
+        el.plan.style.cursor = anchors ? handleCursor(hovered, anchors[hovered].angleDeg) : "pointer";
+      } else {
+        const over = plan.hitTest(at, SELECTION_PX / plan.view.scale);
+        el.plan.style.cursor = over && replica.selection.includes(over) ? "move" : "";
+      }
+      return;
+    }
     const dpr = Math.min(2, window.devicePixelRatio);
     plan.panBy((e.clientX - drag.x) * dpr, (e.clientY - drag.y) * dpr);
     drag = { x: e.clientX, y: e.clientY };

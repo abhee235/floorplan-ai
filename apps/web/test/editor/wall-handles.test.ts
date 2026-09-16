@@ -4,9 +4,11 @@ import { defaultWall, derive } from "@fpv/ir";
 import { describe, expect, it } from "vitest";
 import {
   arcExtentThrough,
+  GLYPH_REACH_PX,
   handleAnchors,
   handleAt,
   handleCommand,
+  handleCursor,
   indicatorMarginMm,
   MAX_ARC_EXTENT_DEG,
   previewWall,
@@ -49,22 +51,48 @@ describe("wall handles", () => {
   it("W-085 a press on the middle cross-section is the arc handle", () => {
     const w = wall({ x: 0, y: 0 }, { x: 4000, y: 0 });
     const fp = wallFootprintUnjoined(w);
-    expect(handleAt(w, fp, { x: 2000, y: 0 }, 50)).toBe("arc");
+    expect(handleAt(w, fp, { x: 2000, y: 0 }, 50, 1)).toBe("arc");
   });
 
   it("presses on the end caps are the resize handles", () => {
     const w = wall({ x: 0, y: 0 }, { x: 4000, y: 0 });
     const fp = wallFootprintUnjoined(w);
-    expect(handleAt(w, fp, { x: 0, y: 40 }, 50)).toBe("start");
-    expect(handleAt(w, fp, { x: 4000, y: -40 }, 50)).toBe("end");
-    expect(handleAt(w, fp, { x: 1200, y: 0 }, 50)).toBeNull();
+    expect(handleAt(w, fp, { x: 0, y: 40 }, 50, 1)).toBe("start");
+    expect(handleAt(w, fp, { x: 4000, y: -40 }, 50, 1)).toBe("end");
+    expect(handleAt(w, fp, { x: 1200, y: 0 }, 50, 1)).toBeNull();
   });
 
   it("an endpoint wins over the arc handle where the two regions overlap", () => {
     // A wall shorter than twice the margin: every region covers every other.
     const w = wall({ x: 0, y: 0 }, { x: 100, y: 0 });
     const fp = wallFootprintUnjoined(w);
-    expect(handleAt(w, fp, { x: 50, y: 0 }, 500)).toBe("start");
+    expect(handleAt(w, fp, { x: 50, y: 0 }, 500, 1)).toBe("start");
+  });
+
+  it("the drawn glyph is pressable, not just the wall under it", () => {
+    const w = wall({ x: 0, y: 0 }, { x: 4000, y: 0 });
+    const fp = wallFootprintUnjoined(w);
+    const mmPerPx = 10;
+    const margin = 20; // deliberately tight: only the glyph region can catch these presses
+    // The arrows point out of the wall, away from its middle: start to the left, end to the right.
+    const outward = GLYPH_REACH_PX * mmPerPx * 0.8;
+    expect(handleAt(w, fp, { x: -outward, y: 0 }, margin, mmPerPx)).toBe("start");
+    expect(handleAt(w, fp, { x: 4000 + outward, y: 0 }, margin, mmPerPx)).toBe("end");
+    // Past the end of the glyph there is nothing to press.
+    expect(
+      handleAt(w, fp, { x: -(GLYPH_REACH_PX * mmPerPx + margin * 2), y: 0 }, margin, mmPerPx),
+    ).toBeNull();
+  });
+
+  it("the cursor says what a press would do", () => {
+    expect(handleCursor("arc", 0)).toBe("grab");
+    expect(handleCursor("arc", 137)).toBe("grab");
+    // Resize cursors are symmetric about a half turn, so opposite ends share one.
+    expect(handleCursor("end", 0)).toBe("ew-resize");
+    expect(handleCursor("start", 180)).toBe("ew-resize");
+    expect(handleCursor("end", 90)).toBe("ns-resize");
+    expect(handleCursor("end", 45)).toBe("nesw-resize");
+    expect(handleCursor("end", 135)).toBe("nwse-resize");
   });
 
   it("W-091 the touch margin is three times the mouse margin", () => {

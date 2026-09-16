@@ -20,6 +20,15 @@ export type WallHandle = "start" | "end" | "arc";
 export const MAX_ARC_EXTENT_DEG = 270;
 
 /**
+ * How far a handle's glyph reaches from its anchor, in screen pixels.
+ *
+ * The hit test unions this with the wall's own region, and the painter must not draw past it. They were
+ * allowed to disagree once: the arrow was drawn out to twelve pixels while the catch radius reached five,
+ * so pressing exactly what was drawn missed the handle and panned the view instead.
+ */
+export const GLYPH_REACH_PX = 18;
+
+/**
  * Hit margin in plan millimetres.
  *
  * Screen pixels divided by the scale, so a handle stays the same size on screen at every zoom, and
@@ -95,22 +104,53 @@ export function handleAnchors(w: Wall, fp: readonly Point[]): Record<WallHandle,
 /**
  * The handle under a plan point, or null.
  *
- * Each region is a segment rather than a disc: the two endpoint regions are the caps across the wall's
- * full thickness, and the arc region is the cross-section at the middle. A cap is what the eye reads as
- * "the end of the wall", and on a thick wall a disc round the centreline would miss most of it.
+ * Two regions per handle, unioned: the part of the WALL the handle acts on, and the GLYPH drawn for it.
+ * The wall regions are segments rather than discs — the end caps across the full thickness, and the
+ * cross-section at the middle — because a cap is what the eye reads as "the end of the wall", and on a
+ * thick wall a disc round the centreline would miss most of it.
  *
- * Endpoints are tested before the arc so that a short wall, where the cap and the middle overlap, still
- * resizes rather than bends — resizing is the commoner intent and the harder one to reach by other means.
+ * The glyph region matters just as much: the arrow and the bow are drawn OUTWARD from the anchor, so
+ * without it the handle you can see is not the handle you can press.
+ *
+ * Endpoints are tested before the arc so that a short wall, where the regions overlap, still resizes
+ * rather than bends — resizing is the commoner intent and the harder one to reach by other means.
  */
-export function handleAt(w: Wall, fp: readonly Point[], p: Point, marginMm: number): WallHandle | null {
+export function handleAt(
+  w: Wall,
+  fp: readonly Point[],
+  p: Point,
+  marginMm: number,
+  mmPerPx: number,
+): WallHandle | null {
   if (fp.length < 4) return null;
   const n = fp.length;
+  const anchors = handleAnchors(w, fp);
   const near = (a: Point, b: Point) => poly.distancePointSegment(p, a, b) <= marginMm;
-  if (near(fp[0] as Point, fp[n - 1] as Point)) return "start";
-  if (near(fp[n / 2 - 1] as Point, fp[n / 2] as Point)) return "end";
+  const onGlyph = (kind: WallHandle): boolean => {
+    if (!anchors) return false;
+    const { at, angleDeg } = anchors[kind];
+    const reach = GLYPH_REACH_PX * mmPerPx;
+    const rad = (angleDeg * Math.PI) / 180;
+    return near(at, { x: at.x + Math.cos(rad) * reach, y: at.y + Math.sin(rad) * reach });
+  };
+  if (near(fp[0] as Point, fp[n - 1] as Point) || onGlyph("start")) return "start";
+  if (near(fp[n / 2 - 1] as Point, fp[n / 2] as Point) || onGlyph("end")) return "end";
   const [leftMiddle, rightMiddle] = sideMiddles(fp);
-  if (near(leftMiddle, rightMiddle)) return "arc";
+  if (near(leftMiddle, rightMiddle) || onGlyph("arc")) return "arc";
   return null;
+}
+
+/**
+ * The CSS cursor for a handle, so hovering says what a press will do before it does it.
+ *
+ * Resize cursors come in four directions only, so a wall's angle rounds to the nearest of them; they are
+ * symmetric about a half turn, which is why the four cover every angle. The bend handle takes a grab
+ * cursor instead, because no resize arrow describes bending.
+ */
+export function handleCursor(handle: WallHandle, angleDeg: number): string {
+  if (handle === "arc") return "grab";
+  const CURSORS = ["ew-resize", "nesw-resize", "ns-resize", "nwse-resize"] as const;
+  return CURSORS[Math.round(normalizeDeg(angleDeg) / 45) % 4] as string;
 }
 
 /** Centre of the circle through three points, or null when they are collinear. */

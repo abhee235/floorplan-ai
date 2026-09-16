@@ -78,10 +78,12 @@ export {
 } from "./editor/tools.js";
 export {
   arcExtentThrough,
+  GLYPH_REACH_PX,
   type HandleAnchor,
   handleAnchors,
   handleAt,
   handleCommand,
+  handleCursor,
   indicatorMarginMm,
   MAX_ARC_EXTENT_DEG,
   previewWall,
