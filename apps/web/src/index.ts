@@ -55,6 +55,7 @@ export {
   nextSelection,
   type SelectedEntity,
   THICKNESS_RANGE,
+  WALL_FINISHES,
 } from "./editor/selection.js";
 export {
   type CountsLike,
@@ -67,6 +68,7 @@ export {
   type ProblemSummary,
   paletteSections,
   parseDegrees,
+  parseHexColour,
   parseMm,
   pointerText,
   problemCounts,

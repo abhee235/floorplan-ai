@@ -23,6 +23,38 @@ export const MATERIAL_COLOURS: Readonly<Record<string, number>> = {
   item: 0x8f9aa6,
 };
 
+/** What a surface's own finish can change about its material; a FinishRef satisfies it. */
+export interface FinishLike {
+  color: string | null;
+  shininess: number | null;
+}
+
+/**
+ * The material key for a surface that may carry a finish: the base key alone, or
+ * `<base>|<colour>|<shininess>` with either part empty.
+ *
+ * The finish rides in the key rather than beside it because the key is the one thing both consumers already
+ * group by: the viewer caches a material per key and the glTF export writes one per key. A wall painted red
+ * is then a different material everywhere, with no second lookup that one of them could forget.
+ */
+export function finishedMaterialKey(base: string, finish: FinishLike | null): string {
+  if (!finish || (finish.color === null && finish.shininess === null)) return base;
+  return `${base}|${finish.color ?? ""}|${finish.shininess ?? ""}`;
+}
+
+interface KeyParts {
+  base: string;
+  colour: number | null;
+  shininess: number | null;
+}
+
+function splitKey(key: string): KeyParts {
+  const [base = key, colour = "", shininess = ""] = key.split("|");
+  const hex = /^#[0-9A-Fa-f]{6}$/.test(colour) ? Number.parseInt(colour.slice(1), 16) : null;
+  const shine = shininess === "" ? null : Number(shininess);
+  return { base, colour: hex, shininess: shine !== null && Number.isFinite(shine) ? shine : null };
+}
+
 /** Recipe keys carry size and shape ("recipe:table:boat:3600x1400x750"); materials go by kind. */
 export function materialKeyOf(key: string): string {
   if (key.startsWith("recipe:")) return `recipe:${key.split(":")[1] ?? "box"}`;
@@ -30,9 +62,20 @@ export function materialKeyOf(key: string): string {
 }
 
 export function materialColour(key: string): number {
-  return MATERIAL_COLOURS[materialKeyOf(key)] ?? MATERIAL_COLOURS.item ?? 0x8f9aa6;
+  const { base, colour } = splitKey(key);
+  return colour ?? MATERIAL_COLOURS[materialKeyOf(base)] ?? MATERIAL_COLOURS.item ?? 0x8f9aa6;
+}
+
+/**
+ * Roughness from a finish's shininess: 0 is the flat 0.85 every surface has by default, 1 is a hard gloss
+ * at 0.15. Linear, because shininess is a person's choice of matt, satin or gloss, not a measurement.
+ */
+export function roughnessForShininess(shininess: number): number {
+  return 0.85 - 0.7 * Math.min(1, Math.max(0, shininess));
 }
 
 export function materialRoughness(key: string): number {
-  return materialKeyOf(key) === "recipe:display" ? 0.35 : 0.85;
+  const { base, shininess } = splitKey(key);
+  if (shininess !== null) return roughnessForShininess(shininess);
+  return materialKeyOf(base) === "recipe:display" ? 0.35 : 0.85;
 }

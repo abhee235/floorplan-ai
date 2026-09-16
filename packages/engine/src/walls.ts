@@ -19,6 +19,7 @@ import type { Level, Opening, Point, Wall } from "@fpv/ir";
 import { derive } from "@fpv/ir";
 import type { CutOutSource } from "./cutouts.js";
 import { MeshBuilder } from "./mesh.js";
+import { finishedMaterialKey } from "./palette.js";
 import { type GeometryPart, MM_PER_M, type P3 } from "./types.js";
 
 export interface WallBuildContext {
@@ -399,8 +400,11 @@ export function buildWalls(
     const right = makeSide([...fp.slice(n)].reverse(), w);
     const el = wallElevations(w, ctx);
     const cutList = cuts(w, openings, ctx.level, ctx.cutOuts);
-    out.push(buildSide(left, right, len, cutList, el).toPart(w.id, "wall-left", "wall-side"));
-    out.push(buildSide(right, left, len, cutList, el).toPart(w.id, "wall-right", "wall-side"));
+    // Each side wears its own finish (W-106); the end caps and reveals keep the plain wall material.
+    const leftKey = finishedMaterialKey("wall-side", w.finishes.left);
+    const rightKey = finishedMaterialKey("wall-side", w.finishes.right);
+    out.push(buildSide(left, right, len, cutList, el).toPart(w.id, "wall-left", leftKey));
+    out.push(buildSide(right, left, len, cutList, el).toPart(w.id, "wall-right", rightKey));
     // top: full footprint ring with per-vertex top elevation (W-093 sloped tops)
     const top = new MeshBuilder();
     const ring: P3[] = [
@@ -411,7 +415,7 @@ export function buildWalls(
       }),
     ];
     top.addFace(ring, { x: 0, y: 0, z: 1 }, planUv);
-    out.push(top.toPart(w.id, "wall-top", "wall-top"));
+    out.push(top.toPart(w.id, "wall-top", finishedMaterialKey("wall-top", w.finishes.top)));
     // end caps (W-003 corners)
     const dir = { x: w.end.x - w.start.x, y: w.end.y - w.start.y, z: 0 };
     const ls = left.points[0] as Point;

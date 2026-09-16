@@ -79,6 +79,7 @@ export function PropertiesPanel({
                     choices={fact.choices}
                     empty={fact.empty}
                     hint={fact.hint}
+                    colour={fact.colour}
                     edit={fact.edit}
                     send={send}
                   />

@@ -3,7 +3,7 @@
 // The field's side of an edit: the draft, the refusal, and the round trip. What typed text MEANS belongs to
 // selection.ts and is tested there against the real reducer; here `edit` is a stand-in, so each case can
 // say exactly what came back.
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, onTestFinished } from "vitest";
 import { TooltipProvider } from "../../src/components/ui/tooltip.js";
@@ -228,9 +228,10 @@ describe("how a property row is labelled", () => {
     });
     const input = screen.getByLabelText("Start Y, in millimetres");
     expect(input.id).toBe("w-start-y");
-    // nothing printed beside the field: the only text in the label is the screen-reader-only part
-    const label = container.querySelector("label");
-    expect(label?.querySelector(".sr-only")?.textContent).toBe(label?.textContent);
+    // nothing printed beside the field, and the whole name on the field itself, where no layout can
+    // put a stray space into it
+    expect(container.querySelector("label")?.textContent).toBe("");
+    expect(input.getAttribute("aria-label")).toBe("Start Y, in millimetres");
     // the axis is printed inside the field, and kept from a screen reader, which has it in the label
     const prefix = [...container.querySelectorAll('[aria-hidden="true"]')].map((el) => el.textContent);
     expect(prefix).toEqual(["Y", "mm"]);
@@ -386,5 +387,88 @@ describe("a property field that may be empty", () => {
     expect(document.getElementById("wall-height-error")?.textContent).toBe(
       "Type a whole number. Kept it empty.",
     );
+  });
+});
+
+describe("a colour field", () => {
+  const colourEdit =
+    (current: string) =>
+    (text: string): EditOutcome => {
+      if (text.trim() === "")
+        return {
+          ok: true,
+          command: current ? { type: "paint", payload: { color: null } } : null,
+          said: "default",
+        };
+      const hex = /^#[0-9A-F]{6}$/i.test(text) ? text.toUpperCase() : null;
+      if (!hex) return { ok: false, message: "Colour needs a hex value." };
+      return {
+        ok: true,
+        command: hex === current ? null : { type: "paint", payload: { color: hex } },
+        said: hex,
+      };
+    };
+
+  function setupColour(start: string) {
+    const editor = {
+      announcer: new Announcer({ polite: { textContent: "" }, assertive: { textContent: "" } }),
+    } as Partial<Editor> as Editor;
+    const sent: EditCommand[] = [];
+    const ui = (value: string) => (
+      <EditorContext.Provider value={editor}>
+        <TooltipProvider>
+          <PropertyField
+            id="w-colour-left"
+            label="Colour, left side"
+            caption="Colour"
+            value={value}
+            colour={{ effective: "#E8E6E1" }}
+            empty={{ shown: "default", action: "Use the default colour" }}
+            edit={colourEdit(value)}
+            send={send}
+          />
+        </TooltipProvider>
+      </EditorContext.Provider>
+    );
+    const view = render(ui(start));
+    async function send(command: EditCommand): Promise<void> {
+      sent.push(command);
+      view.rerender(ui((command.payload.color as string | null) ?? ""));
+    }
+    const text = screen.getByRole("textbox") as HTMLInputElement;
+    const swatch = screen.getByLabelText("Colour, left side, picker") as HTMLInputElement;
+    return { text, swatch, sent, user: userEvent.setup() };
+  }
+
+  it("shows the default colour on its swatch while the value is empty", () => {
+    const { text, swatch } = setupColour("");
+    expect(swatch.type).toBe("color");
+    expect(swatch.value).toBe("#e8e6e1");
+    expect(text.value).toBe("");
+    expect(text.placeholder).toBe("default");
+  });
+
+  it("previews a colour from the picker in the text, and sends it only when the picker settles", () => {
+    const { text, swatch, sent } = setupColour("");
+    fireEvent.input(swatch, { target: { value: "#00ff00" } });
+    expect(text.value).toBe("#00FF00");
+    expect(sent).toEqual([]);
+    fireEvent.change(swatch, { target: { value: "#00ff00" } });
+    expect(sent).toEqual([{ type: "paint", payload: { color: "#00FF00" } }]);
+  });
+
+  it("follows a typed colour on its swatch, and sends it on Enter", async () => {
+    const { text, swatch, sent, user } = setupColour("");
+    await user.click(text);
+    await user.keyboard("#0000ff");
+    expect(swatch.value).toBe("#0000ff");
+    await user.keyboard("{Enter}");
+    expect(sent).toEqual([{ type: "paint", payload: { color: "#0000FF" } }]);
+  });
+
+  it("makes room for both the swatch and the reset button once the side is painted", () => {
+    const { text } = setupColour("#FF0000");
+    expect(screen.getByRole("button", { name: "Use the default colour (Colour, left side)" })).toBeDefined();
+    expect(text.className).toContain("pl-12");
   });
 });

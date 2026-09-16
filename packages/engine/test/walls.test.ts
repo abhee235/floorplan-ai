@@ -26,6 +26,29 @@ describe("wall faces", () => {
     }
   });
 
+  it("W-106 each side wears its own finish; the caps keep the plain wall material", () => {
+    const finish = (color: string | null, shininess: number | null) => ({
+      color,
+      textureId: null,
+      placement: null,
+      mirrorForLeftSide: false,
+      shininess,
+    });
+    const walls = project.walls.map((w) =>
+      w.id === "wall_000002"
+        ? { ...w, finishes: { left: finish("#FF0000", null), right: null, top: finish(null, 0.5) } }
+        : w,
+    );
+    const painted = buildWalls(walls, project.openings, ctx);
+    const key = (kind: string) => partsOf(painted, "wall_000002", kind)[0]?.materialKey;
+    expect(key("wall-left")).toBe("wall-side|#FF0000|");
+    expect(key("wall-right")).toBe("wall-side");
+    expect(key("wall-top")).toBe("wall-top||0.5");
+    expect(key("wall-end-start")).toBe("wall-side");
+    // the neighbours are untouched
+    expect(partsOf(painted, "wall_000001", "wall-left")[0]?.materialKey).toBe("wall-side");
+  });
+
   it("O-051 O-052 O-065 O-066 the door cuts both faces of its wall; no sill at sill 0; head and jambs exist", () => {
     const left = partsOf(parts, "wall_000001", "wall-left")[0];
     const right = partsOf(parts, "wall_000001", "wall-right")[0];

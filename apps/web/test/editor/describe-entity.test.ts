@@ -7,6 +7,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { apply, type Ctx } from "@fpv/commands";
+import { buildWalls } from "@fpv/engine";
 import { derive, Project, type Project as ProjectT, sequentialIdGenerator, WallKind } from "@fpv/ir";
 import { describe, expect, it } from "vitest";
 import {
@@ -79,6 +80,10 @@ describe("describing a selected entity", () => {
       "Thickness",
       "Height",
       "Height at end",
+      "Colour, left side",
+      "Finish, left side",
+      "Colour, right side",
+      "Finish, right side",
     ]);
     // a real length, grouped as a drawing writes it, not a placeholder
     expect(d?.facts.find((f) => f.label === "Length")?.value).toBe(`8${NARROW}000`);
@@ -98,6 +103,10 @@ describe("describing a selected entity", () => {
       "Size",
       "Height",
       "Height",
+      "Left side, facing north",
+      "Left side, facing north",
+      "Right side, facing south",
+      "Right side, facing south",
     ]);
   });
 
@@ -494,5 +503,92 @@ describe("typing the height at a wall's end", () => {
   it("sends nothing for the start's height on a top that is already flat", () => {
     expect(outcomeOf(fixture(), W1, "Height at end", "2700")).toMatchObject({ ok: true, command: null });
     expect(outcomeOf(fixture(), W1, "Height at end", "")).toMatchObject({ ok: true, command: null });
+  });
+});
+
+describe("painting a wall's sides (W-106)", () => {
+  const W2 = "wall_000002"; // runs north, so its left faces west
+  const blank = { color: null, textureId: null, placement: null, mirrorForLeftSide: false, shininess: null };
+  const finishesOf = (p: ProjectT, id: string) => wallOf(p, id).finishes;
+
+  it("names each side by the way it faces, since left and right are invisible on a plan", () => {
+    const groups = describeEntity(fixture(), W2)?.facts.map((f) => f.group);
+    expect(groups).toContain("Left side, facing west");
+    expect(groups).toContain("Right side, facing east");
+  });
+
+  it("shows an unpainted side as empty, standing for the default colour, and matt", () => {
+    const colour = rowOf(fixture(), W1, "Colour, left side");
+    expect(colour.value).toBe("");
+    expect(colour.caption).toBe("Colour");
+    expect(colour.colour).toEqual({ effective: "#E8E6E1" });
+    expect(colour.empty).toEqual({ shown: "default", action: "Use the default colour" });
+    expect(rowOf(fixture(), W1, "Finish, left side")).toMatchObject({
+      value: "matt",
+      choices: expect.any(Array),
+    });
+  });
+
+  it("paints one side, leaves the other alone, and the wall builds with that colour", () => {
+    const p = fixture();
+    const command = typed(p, W1, "Colour, left side", "f00");
+    expect(command.payload).toEqual({
+      wallId: W1,
+      changes: { finishes: { left: { ...blank, color: "#FF0000" }, right: null, top: null } },
+    });
+    const { project } = run(p, command);
+    expect(finishesOf(project, W1).left?.color).toBe("#FF0000");
+    expect(finishesOf(project, W1).right).toBeNull();
+    const level = project.levels[0] as ProjectT["levels"][number];
+    const parts = buildWalls(project.walls, project.openings, { level, isLowest: true, isHighest: true });
+    const side = (kind: string) => parts.find((x) => x.entityId === W1 && x.part === kind)?.materialKey;
+    expect(side("wall-left")).toBe("wall-side|#FF0000|");
+    expect(side("wall-right")).toBe("wall-side");
+  });
+
+  it("keeps what the other side already wears when this one changes", () => {
+    const p = run(fixture(), typed(fixture(), W1, "Colour, left side", "#00FF00")).project;
+    const { project } = run(p, typed(p, W1, "Colour, right side", "#0000FF"));
+    expect(finishesOf(project, W1).left?.color).toBe("#00FF00");
+    expect(finishesOf(project, W1).right?.color).toBe("#0000FF");
+  });
+
+  it("sends nothing for the colour already there, and refuses what is not a colour", () => {
+    const p = run(fixture(), typed(fixture(), W1, "Colour, left side", "#ABCDEF")).project;
+    expect(outcomeOf(p, W1, "Colour, left side", "abcdef")).toMatchObject({ ok: true, command: null });
+    expect(outcomeOf(p, W1, "Colour, left side", "teal")).toEqual({
+      ok: false,
+      message: "Colour needs a hex value, such as #E8E6E1.",
+    });
+  });
+
+  it("gives a side back to the default when its colour is emptied, storing no finish at all", () => {
+    const p = run(fixture(), typed(fixture(), W1, "Colour, left side", "#ABCDEF")).project;
+    const { project } = run(p, typed(p, W1, "Colour, left side", ""));
+    expect(finishesOf(project, W1).left).toBeNull();
+    // but a side that is still glossy keeps its finish, with only the colour gone
+    const glossy = run(p, typed(p, W1, "Finish, left side", "gloss")).project;
+    const cleared = run(glossy, typed(glossy, W1, "Colour, left side", "")).project;
+    expect(finishesOf(cleared, W1).left).toEqual({ ...blank, shininess: 0.6 });
+  });
+
+  it("sets the finish as a shininess, and matt as none", () => {
+    const p = fixture();
+    const satin = run(p, typed(p, W1, "Finish, left side", "satin")).project;
+    expect(finishesOf(satin, W1).left).toEqual({ ...blank, shininess: 0.25 });
+    expect(rowOf(satin, W1, "Finish, left side").value).toBe("satin");
+    const matt = run(satin, typed(satin, W1, "Finish, left side", "matt")).project;
+    expect(finishesOf(matt, W1).left).toBeNull();
+    expect(outcomeOf(p, W1, "Finish, left side", "matt")).toMatchObject({ ok: true, command: null });
+  });
+
+  it("shows a shininess set by someone else as the nearest of the three finishes", () => {
+    const at = (shininess: number) =>
+      rowOf(
+        modified(fixture(), { finishes: { left: { ...blank, shininess }, right: null, top: null } }),
+        W1,
+        "Finish, left side",
+      ).value;
+    expect([at(0.05), at(0.2), at(0.5), at(1)]).toEqual(["matt", "satin", "gloss", "gloss"]);
   });
 });

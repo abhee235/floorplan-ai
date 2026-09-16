@@ -20,7 +20,7 @@ interface Gltf {
     name: string;
     primitives: { attributes: Record<string, number>; indices: number; material: number }[];
   }[];
-  materials: { name: string }[];
+  materials: { name: string; pbrMetallicRoughness: { baseColorFactor: number[]; roughnessFactor: number } }[];
   accessors: {
     bufferView: number;
     componentType: number;
@@ -168,5 +168,36 @@ describe("glTF binary export (PRD P2-5)", () => {
     expect(() => projectToGlb(project, { ...base, scope: { kind: "room", id: "room_nope" } })).toThrow(
       "does not exist",
     );
+  });
+
+  it("W-106 a painted wall side exports as its own material, in the colour the viewer shows", () => {
+    const wall = project.walls[0];
+    if (!wall) throw new Error("fixture has no wall");
+    const painted = {
+      ...project,
+      walls: project.walls.map((w) =>
+        w.id === wall.id
+          ? {
+              ...w,
+              finishes: {
+                ...w.finishes,
+                left: {
+                  color: "#FF0000",
+                  textureId: null,
+                  placement: null,
+                  mirrorForLeftSide: false,
+                  shininess: 1,
+                },
+              },
+            }
+          : w,
+      ),
+    };
+    const materials = parseGlb(projectToGlb(painted, base).bytes).json.materials;
+    const red = materials.find((m) => m.name === "wall-side|#FF0000|1");
+    expect(red?.pbrMetallicRoughness.baseColorFactor).toEqual([1, 0, 0, 1]);
+    expect(red?.pbrMetallicRoughness.roughnessFactor).toBeCloseTo(0.15, 6);
+    // the plain wall material is still there for every other side
+    expect(materials.some((m) => m.name === "wall-side")).toBe(true);
   });
 });

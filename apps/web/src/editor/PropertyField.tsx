@@ -7,13 +7,14 @@
 
 import { RotateCcw } from "lucide-react";
 import type { JSX, KeyboardEvent, ReactNode } from "react";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Choice, EditCommand, EditOutcome, EmptyMeaning } from "./selection.js";
+import { parseHexColour } from "./status.js";
 import { useEditor } from "./useEditor.js";
 
 /** How a unit is read aloud; the printed unit is hidden from a screen reader in favour of this. */
@@ -34,6 +35,8 @@ export interface PropertyFieldProps {
   empty?: EmptyMeaning | undefined;
   /** Read to a screen reader as the field's description. */
   hint?: string | undefined;
+  /** A colour row: a swatch opens the system picker, and shows `effective` while the value is empty. */
+  colour?: { effective: string } | undefined;
   edit?: ((text: string) => EditOutcome) | undefined;
   /** Resolves once the host has taken the command, and throws with its reason when it refuses. */
   send?: ((command: EditCommand) => Promise<void>) | undefined;
@@ -56,11 +59,13 @@ function TextField({
   choices,
   empty,
   hint,
+  colour,
   edit,
   send,
 }: PropertyFieldProps): JSX.Element {
   const report = useReport(label, send);
   const input = useRef<HTMLInputElement>(null);
+  const swatch = useRef<HTMLInputElement>(null);
   // What is typed but not yet taken, or null when the field shows the model. Kept in a ref as well as in
   // state, because a reply from the host can land after more typing and must not throw that typing away.
   const [draft, setDraftState] = useState<string | null>(null);
@@ -85,6 +90,9 @@ function TextField({
   // beside the field would otherwise follow "straight" as "straight °".
   const showingEmpty = empty !== undefined && (draft ?? shown) === "";
   const resettable = editable && empty !== undefined && value !== "";
+  // Controls inside the field's left edge, which a right-aligned value leaves empty: the swatch, then the
+  // reset button. The text keeps clear of however many there are.
+  const leading = (colour && editable ? 1 : 0) + (resettable ? 1 : 0);
 
   const setDraft = (next: string | null): void => {
     latest.current = next;
@@ -138,6 +146,19 @@ function TextField({
     input.current?.focus();
   };
 
+  // The picker commits on the native change event, when a colour is settled, not on every input event
+  // React reports while the picker is open: those only preview the value in the text, or dragging across
+  // the picker would leave a history entry per pixel. The listener reads the newest commit through a ref.
+  const commitRef = useRef(commit);
+  commitRef.current = commit;
+  useEffect(() => {
+    const el = swatch.current;
+    if (!el) return;
+    const settle = (): void => void commitRef.current("enter");
+    el.addEventListener("change", settle);
+    return () => el.removeEventListener("change", settle);
+  }, []);
+
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
     if (!editable) return;
     if (e.key === "Enter") {
@@ -161,25 +182,40 @@ function TextField({
 
   return (
     <Row id={id} label={label} caption={caption} unit={unit} hint={hint} error={report.error}>
-      {resettable ? (
-        // Inside the field's left edge, which a right-aligned value leaves empty. Beside the field it took
-        // the width the label needed, and "Height at end" broke onto two lines. First in the DOM, so the
-        // focus order runs left to right as the eye does.
-        <span className="absolute inset-y-0 left-0.5 z-10 flex items-center">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label={`${empty.action} (${label})`}
-                className="text-muted-foreground"
-                onClick={() => void clear()}
-              >
-                <RotateCcw aria-hidden />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="left">{empty.action}</TooltipContent>
-          </Tooltip>
+      {leading > 0 ? (
+        // Beside the field these took the width the label needed, and "Height at end" broke onto two lines.
+        // First in the DOM, so the focus order runs left to right as the eye does.
+        <span className="absolute inset-y-0 left-0.5 z-10 flex items-center gap-0.5">
+          {colour && editable ? (
+            <input
+              ref={swatch}
+              type="color"
+              aria-label={`${label}, picker`}
+              // What is being typed, once it is a colour; otherwise the model's colour, or the default.
+              value={(parseHexColour(draft ?? "") ?? parseHexColour(value) ?? colour.effective).toLowerCase()}
+              onChange={(e) => {
+                setDraft(e.target.value.toUpperCase());
+                if (report.error) report.clear();
+              }}
+              className="ml-1 size-4 shrink-0 cursor-pointer appearance-none rounded-sm border border-input bg-transparent p-0 [&::-moz-color-swatch]:rounded-[3px] [&::-moz-color-swatch]:border-none [&::-webkit-color-swatch-wrapper]:p-0 [&::-webkit-color-swatch]:rounded-[3px] [&::-webkit-color-swatch]:border-none"
+            />
+          ) : null}
+          {resettable ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label={`${empty.action} (${label})`}
+                  className="text-muted-foreground"
+                  onClick={() => void clear()}
+                >
+                  <RotateCcw aria-hidden />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left">{empty.action}</TooltipContent>
+            </Tooltip>
+          ) : null}
         </span>
       ) : null}
       <Input
@@ -194,6 +230,7 @@ function TextField({
         autoComplete="off"
         spellCheck={false}
         placeholder={empty?.shown}
+        aria-label={nameOf(label, unit)}
         aria-invalid={report.error ? true : undefined}
         aria-describedby={describedBy(id, hint, report.error)}
         onChange={(e) => {
@@ -218,7 +255,7 @@ function TextField({
           // Left alignment is for text being typed into a visible box. Without the box, a left-aligned
           // value floats in the middle of the row, away from the column every other value ends on.
           align === "right" || !editable ? "text-right tabular-nums" : "",
-          prefix || resettable ? "pl-7" : "",
+          prefix || leading === 1 ? "pl-7" : leading === 2 ? "pl-12" : "",
           // Room for the unit, and no more: "mm" wants a gap before it, a degree sign sits against its number.
           unit && !showingEmpty ? (unit.length > 1 ? "pr-10" : "pr-5") : "",
           editable ? "" : "border-transparent bg-transparent shadow-none dark:bg-transparent",
@@ -280,6 +317,7 @@ function ChoiceField({
         <SelectTrigger
           id={id}
           size="sm"
+          aria-label={nameOf(label, undefined)}
           aria-invalid={report.error ? true : undefined}
           aria-describedby={describedBy(id, hint, report.error)}
           className="w-full data-[size=sm]:h-7"
@@ -300,6 +338,15 @@ function ChoiceField({
 
 const errorId = (id: string): string => `${id}-error`;
 const hintId = (id: string): string => `${id}-hint`;
+
+/**
+ * A control's accessible name: the row's whole label and its unit in words, "Start Y, in millimetres". What
+ * the row prints is always the start of this, so what a sighted person reads is what a speech user says to
+ * reach the field.
+ */
+function nameOf(label: string, unit: string | undefined): string {
+  return unit ? `${label}, in ${UNIT_NAMES[unit] ?? unit}` : label;
+}
 
 /** The hint first, then the refusal: the reason something was refused reads best after what it is. */
 function describedBy(id: string, hint: string | undefined, error: string | null): string | undefined {
@@ -329,19 +376,18 @@ function Row({
   return (
     <div>
       <div className="flex items-center justify-between gap-2">
+        {/* Printed only. The whole name travels on the control as aria-label (see nameOf): the rest of it
+            used to sit here in a visually hidden span, and because that span is absolutely positioned,
+            Chrome padded it with a space and named the field "Finish , left side". */}
         <Label htmlFor={id} className="text-muted-foreground">
           {printed}
-          {/* The rest of the name, and the unit in words. Printed plus heard is always the whole label, so
-              what a sighted person reads is what a speech user says to reach the field. */}
-          <span className="sr-only">
-            {label.slice(printed.length)}
-            {unit ? `, in ${UNIT_NAMES[unit] ?? unit}` : ""}
-          </span>
         </Label>
         <div className="relative w-[150px] shrink-0">{children}</div>
       </div>
       {hint ? (
-        <span id={hintId(id)} className="sr-only">
+        // hidden, not visually hidden: a description is still read from a hidden element, and this way it
+        // is not also read aloud in passing by a screen reader walking the panel line by line.
+        <span id={hintId(id)} hidden>
           {hint}
         </span>
       ) : null}

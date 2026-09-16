@@ -61,6 +61,18 @@ export function formatDegrees(deg: number): string {
 // prints the same, but Object.is tells them apart, and so does a deep-equal of a command built from it.
 const roundTenth = (n: number): number => (Math.sign(n) * Math.round(Math.abs(n) * 10)) / 10 + 0;
 
+/**
+ * A colour someone typed, as the model stores it ("#RRGGBB", upper case), or null when it is not one. Takes
+ * three or six hex digits, with or without the hash, because that is how colours get copied around.
+ */
+export function parseHexColour(text: string): string | null {
+  const m = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(text.trim());
+  if (!m) return null;
+  const digits = m[1] as string;
+  const six = digits.length === 3 ? [...digits].map((d) => d + d).join("") : digits;
+  return `#${six.toUpperCase()}`;
+}
+
 /** A length for a screen reader: plain digits, which are read as a number rather than spelled out. */
 export function describeLength(mm: number): string {
   return `${Math.round(mm)} millimetres`;

@@ -3,9 +3,10 @@
 // Free of the DOM and of the canvas so it can be tested. The shell and the properties panel both read
 // from here rather than each working the selection out for themselves.
 
-import type { Item, Level, Opening, Project, Room, Wall } from "@fpv/ir";
+import { MATERIAL_COLOURS } from "@fpv/engine";
+import type { FinishRef, Item, Level, Opening, Project, Room, Wall } from "@fpv/ir";
 import { derive } from "@fpv/ir";
-import { describeLength, formatDegrees, formatMm, parseDegrees, parseMm } from "./status.js";
+import { describeLength, formatDegrees, formatMm, parseDegrees, parseHexColour, parseMm } from "./status.js";
 import { WALL_KINDS } from "./tools.js";
 import { MAX_LENGTH_MM } from "./wall-tool.js";
 
@@ -176,6 +177,8 @@ export interface Fact {
   empty?: EmptyMeaning;
   /** Read to a screen reader as the field's description: what the value means beyond its name. */
   hint?: string;
+  /** Present on a colour row: the colour its swatch shows while the value is empty. */
+  colour?: { effective: string };
   /** Present when the panel can change this fact: turns what was typed, or picked, into what to send. */
   edit?: (text: string) => EditOutcome;
 }
@@ -218,7 +221,7 @@ export function describeEntity(project: Project, id: string): SelectedEntity | n
     const w = project.walls.find((x) => x.id === id);
     if (!w) return null;
     const level = derive.levelOf(project, w.levelId) ?? derive.lowestLevel(project);
-    return { id, kind, title: "Wall", facts: wallFacts(w, level) };
+    return { id, kind, title: "Wall", facts: wallFacts(w, level, project.meta.north) };
   }
   if (kind === "room") {
     const r = project.rooms.find((x) => x.id === id);
@@ -238,7 +241,7 @@ const COORDINATE_RANGE = { min: -MAX_LENGTH_MM, max: MAX_LENGTH_MM } as const;
 /** A typed wall length: a whole millimetre at least, since Mm is an integer, up to that same kilometre. */
 export const LENGTH_RANGE = { min: 1, max: MAX_LENGTH_MM } as const;
 
-function wallFacts(w: Wall, level: Level): Fact[] {
+function wallFacts(w: Wall, level: Level, north: number): Fact[] {
   const arc = derive.isArc(w);
   return [
     {
@@ -282,6 +285,90 @@ function wallFacts(w: Wall, level: Level): Fact[] {
       ),
     },
     ...heightFacts(w, level),
+    ...sideFacts(w, "left", north),
+    ...sideFacts(w, "right", north),
+  ];
+}
+
+/** How glossy a side is, as a person picks it. The model keeps a number; these are the three it offers. */
+export const WALL_FINISHES: readonly Choice[] = [
+  { value: "matt", label: "Matt" },
+  { value: "satin", label: "Satin" },
+  { value: "gloss", label: "Gloss" },
+];
+
+/** Matt is no shininess at all, so a side left matt carries nothing and stays the default material. */
+const SHININESS: Record<string, number | null> = { matt: null, satin: 0.25, gloss: 0.6 };
+
+/** The offered finish nearest a stored shininess, so a value set by an agent still shows as one of three. */
+function finishOf(shininess: number | null): string {
+  if (shininess === null || shininess < 0.125) return "matt";
+  return shininess < 0.425 ? "satin" : "gloss";
+}
+
+const hexOf = (rgb: number): string => `#${rgb.toString(16).padStart(6, "0").toUpperCase()}`;
+
+/** A finish that says nothing is stored as no finish, so a reset side reads exactly like an untouched one. */
+function tidyFinish(f: FinishRef): FinishRef | null {
+  const blank =
+    f.color === null &&
+    f.textureId === null &&
+    f.placement === null &&
+    f.shininess === null &&
+    !f.mirrorForLeftSide;
+  return blank ? null : f;
+}
+
+/**
+ * The colour and finish of one side (W-106). Left and right are as walked from start to end, which nobody
+ * can see on a plan, so the band also says which way the side faces (ADR-006 compass words).
+ *
+ * Every label names its side as well as its field: two "Colour" rows in one wall would otherwise share an id,
+ * and a screen reader jumping between fields would hear the same name twice.
+ */
+function sideFacts(w: Wall, side: "left" | "right", north: number): Fact[] {
+  const name = `${side} side`;
+  const group = `${side === "left" ? "Left" : "Right"} side, facing ${derive.wallCompassSide(w, side, north)}`;
+  const current = w.finishes[side];
+  const finished = (change: Partial<FinishRef>): EditCommand => {
+    const base: FinishRef = current ?? {
+      color: null,
+      textureId: null,
+      placement: null,
+      mirrorForLeftSide: false,
+      shininess: null,
+    };
+    return wallModify(w.id, { finishes: { ...w.finishes, [side]: tidyFinish({ ...base, ...change }) } });
+  };
+  const colour = current?.color ?? null;
+  const finish = finishOf(current?.shininess ?? null);
+  return [
+    {
+      group,
+      label: `Colour, ${name}`,
+      caption: "Colour",
+      value: colour ?? "",
+      colour: { effective: colour ?? hexOf(MATERIAL_COLOURS["wall-side"] ?? 0xe8e6e1) },
+      empty: { shown: "default", action: "Use the default colour" },
+      hint: "A hex colour, such as #E8E6E1. Empty uses the default wall colour.",
+      edit: (text) => {
+        if (text.trim() === "")
+          return { ok: true, command: colour === null ? null : finished({ color: null }), said: "default" };
+        const hex = parseHexColour(text);
+        if (hex === null) return { ok: false, message: "Colour needs a hex value, such as #E8E6E1." };
+        return { ok: true, command: hex === colour ? null : finished({ color: hex }), said: hex };
+      },
+    },
+    {
+      group,
+      label: `Finish, ${name}`,
+      caption: "Finish",
+      value: finish,
+      choices: WALL_FINISHES,
+      edit: choiceEdit("Finish", WALL_FINISHES, finish, (value) =>
+        finished({ shininess: SHININESS[value] ?? null }),
+      ),
+    },
   ];
 }
 
