@@ -79,6 +79,17 @@ describe("item matrices", () => {
     // recipes size themselves; a product with no catalog size cannot be placed and is skipped (F-128)
     expect(buildItems(items, { level, sizes: noSizes }).map((i) => i.entityId)).toEqual(["item_zz0005"]);
   });
+
+  it("a recipe item given a size of its own is scaled to it, keeping the recipe's mesh", () => {
+    const own = buildItems([defaultItem("item_zz0009", L, box, { x: 0, y: 0 })], { level, sizes: noSizes });
+    expect([own[0]?.matrix[0], own[0]?.matrix[5], own[0]?.matrix[10]]).toEqual([1, 1, 1]);
+    const resized = defaultItem("item_zz0010", L, box, { x: 0, y: 0 }, { size: { w: 1200, d: 400, h: 250 } });
+    const [inst] = buildItems([resized], { level, sizes: noSizes });
+    expect(inst?.assetKey).toBe("recipe:box:600x400x500");
+    expect(inst?.matrix[0]).toBeCloseTo(2, 9);
+    expect(inst?.matrix[5]).toBeCloseTo(0.5, 9);
+    expect(inst?.matrix[10]).toBeCloseTo(1, 9);
+  });
 });
 
 describe("recipes", () => {

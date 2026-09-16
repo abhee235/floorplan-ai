@@ -1,7 +1,7 @@
 // Item instances (ADR-003 D3 two-stage transform; ledger F-119..F-129). Assets are normalised offline to
 // metres with origin at the footprint centre and base at y = 0 (ADR-010 D3), so the per-item matrix is
 // scale (size / asset bbox, x negated when mirrored) then rotation about y then translation.
-import type { Item, Level, Size3 } from "@fpv/ir";
+import type { Item, Level, PrimitiveRecipe, Size3 } from "@fpv/ir";
 import { derive } from "@fpv/ir";
 import { recipeAssetKey } from "./recipes.js";
 import { type ItemInstance, MM_PER_M } from "./types.js";
@@ -107,6 +107,12 @@ export interface ItemBuildContext {
   assets?: AssetRegistry;
 }
 
+/** A recipe's own size in metres: the box its mesh is built to fill. */
+function recipeBox(recipe: PrimitiveRecipe): { w: number; d: number; h: number } {
+  const s = derive.recipeSize(recipe);
+  return { w: s.w / MM_PER_M, d: s.d / MM_PER_M, h: s.h / MM_PER_M };
+}
+
 /** Instances for the items of one level; items without a resolvable size are skipped. */
 export function buildItems(items: readonly Item[], ctx: ItemBuildContext): ItemInstance[] {
   const assets = ctx.assets ?? noAssets;
@@ -116,7 +122,9 @@ export function buildItems(items: readonly Item[], ctx: ItemBuildContext): ItemI
     const size = derive.itemSize(it, ctx.sizes);
     if (!size) continue;
     const assetKey = assetKeyFor(it, size, assets);
-    const bbox = it.ref.kind === "recipe" ? null : assets.bbox(assetKey);
+    // A recipe mesh is built at the recipe's own size, so it scales only when the item overrides that
+    // size; left at scale 1, a resized box grew on the plan and stayed the same in the view.
+    const bbox = it.ref.kind === "recipe" ? recipeBox(it.ref.recipe) : assets.bbox(assetKey);
     const overrides: ItemInstance["materialOverrides"] = {};
     for (const [slot, f] of Object.entries(it.materials))
       overrides[slot] = { color: f.color, textureId: f.textureId };

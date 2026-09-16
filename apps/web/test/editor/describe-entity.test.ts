@@ -933,3 +933,119 @@ describe("editing a door or a window (ADR-017 D3)", () => {
     });
   });
 });
+
+describe("editing an item (ADR-017 D3)", () => {
+  const BOX = {
+    kind: "recipe",
+    recipe: { kind: "box", size: { w: 600, d: 400, h: 500 }, label: "" },
+  } as const;
+  const CHAIR = "acme-chair";
+  const place = (p: ProjectT, ref: unknown): { p: ProjectT; id: string } => {
+    const { project } = run(p, {
+      type: "item.place",
+      payload: { levelId: L, ref, position: { x: 2000, y: 2000 }, rotation: 0, magnetism: false },
+    });
+    return { p: project, id: (project.items.at(-1) as { id: string }).id };
+  };
+  const itemOf = (p: ProjectT, id: string) => p.items.find((i) => i.id === id) as ProjectT["items"][number];
+  /** A project whose catalogue snapshot holds a chair that comes in one size. */
+  const withChair = (name?: string): ProjectT => {
+    const p = fixture();
+    p.catalogRefs[CHAIR] = {
+      id: CHAIR,
+      snapshotAt: "2026-09-15T00:00:00.000Z",
+      ...(name ? { name } : {}),
+      dims: { w: 600, d: 600, h: 900 },
+      deformable: false,
+    };
+    return p;
+  };
+
+  it("lists an item's room, placement, mirroring and size, and names it by what it is", () => {
+    const { p, id } = place(fixture(), BOX);
+    expect(describeEntity(p, id)?.facts.map((f) => f.label)).toEqual([
+      "Room",
+      "Position X",
+      "Position Y",
+      "Rotation",
+      "Elevation",
+      "Mirrored",
+      "Width",
+      "Depth",
+      "Height",
+    ]);
+    expect(describeEntity(p, id)?.title).toBe("Box");
+    expect(rowOf(p, id, "Room").value).toBe("None");
+    expect(rowOf(p, id, "Position X")).toMatchObject({
+      value: `2${NARROW}000`,
+      caption: "Position",
+      prefix: "X",
+    });
+    const inRoom = place(withRoom(), { ...BOX, recipe: { ...BOX.recipe, label: "Lectern" } });
+    expect(rowOf(inRoom.p, inRoom.id, "Room").value).toBe("Unnamed room");
+    expect(describeEntity(inRoom.p, inRoom.id)?.title).toBe("Lectern");
+    const table = place(fixture(), {
+      kind: "recipe",
+      recipe: { kind: "table", size: { w: 1800, d: 900, h: 750 }, shape: "rect" },
+    });
+    expect(describeEntity(table.p, table.id)?.title).toBe("Table");
+  });
+
+  it("moves an item to exactly the typed point, without snapping", () => {
+    const { p, id } = place(fixture(), BOX);
+    const x = run(p, typed(p, id, "Position X", "2500")).project;
+    expect(itemOf(x, id).position).toEqual({ x: 2500, y: 2000 });
+    // 70 mm from the wall at y = 0 is inside the distance a drag would snap from
+    const y = run(x, typed(x, id, "Position Y", "270")).project;
+    expect(itemOf(y, id).position).toEqual({ x: 2500, y: 270 });
+    expect(typed(p, id, "Position X", "2500").payload).toMatchObject({ dx: 500, dy: 0, magnetism: false });
+  });
+
+  it("turns an item to any typed angle, kept between 0 and 360", () => {
+    const { p, id } = place(fixture(), BOX);
+    expect(itemOf(run(p, typed(p, id, "Rotation", "-90")).project, id).rotation).toBe(270);
+    expect(itemOf(run(p, typed(p, id, "Rotation", "450")).project, id).rotation).toBe(90);
+    expect(outcomeOf(p, id, "Rotation", "360")).toMatchObject({ ok: true, command: null, said: "0 degrees" });
+    expect(outcomeOf(p, id, "Rotation", "a quarter")).toEqual({
+      ok: false,
+      message: "Rotation needs a number of degrees, such as 90.",
+    });
+  });
+
+  it("raises, sinks and mirrors an item", () => {
+    const { p, id } = place(fixture(), BOX);
+    expect(itemOf(run(p, typed(p, id, "Elevation", "750")).project, id).elevation).toBe(750);
+    expect(itemOf(run(p, typed(p, id, "Elevation", "-50")).project, id).elevation).toBe(-50);
+    expect(outcomeOf(p, id, "Elevation", "200000")).toMatchObject({ ok: false });
+    const mirrored = run(p, typed(p, id, "Mirrored", "true")).project;
+    expect(itemOf(mirrored, id).mirrored).toBe(true);
+    expect(outcomeOf(p, id, "Mirrored", "true")).toMatchObject({ said: "mirrored" });
+    expect(outcomeOf(mirrored, id, "Mirrored", "true")).toMatchObject({ ok: true, command: null });
+    expect(itemOf(run(mirrored, typed(mirrored, id, "Mirrored", "false")).project, id).mirrored).toBe(false);
+  });
+
+  it("resizes an item one dimension at a time, keeping its back left corner", () => {
+    const { p, id } = place(fixture(), BOX);
+    const wide = run(p, typed(p, id, "Width", "1200")).project;
+    expect(itemOf(wide, id).size).toEqual({ w: 1200, d: 400, h: 500 });
+    // the back left corner was at x 1700; half the new width from it is 2300
+    expect(itemOf(wide, id).position).toEqual({ x: 2300, y: 2000 });
+    const low = run(wide, typed(wide, id, "Height", "250")).project;
+    expect(itemOf(low, id)).toMatchObject({
+      size: { w: 1200, d: 400, h: 250 },
+      position: { x: 2300, y: 2000 },
+    });
+    expect(rowOf(p, id, "Height").hint).toBeUndefined();
+    expect(outcomeOf(p, id, "Depth", "0")).toMatchObject({ ok: false });
+  });
+
+  it("shows a one-size product's size without letting it be typed, and names it from the catalogue", () => {
+    const { p, id } = place(withChair("Task chair"), { kind: "product", productId: CHAIR });
+    expect(describeEntity(p, id)?.title).toBe("Task chair");
+    const width = rowOf(p, id, "Width");
+    expect(width).toMatchObject({ value: "600", hint: "This product comes in one size." });
+    expect(width.edit).toBeUndefined();
+    const unnamed = place(withChair(), { kind: "product", productId: CHAIR });
+    expect(describeEntity(unnamed.p, unnamed.id)?.title).toBe(CHAIR);
+  });
+});

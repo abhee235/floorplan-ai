@@ -4,13 +4,14 @@
 // from here rather than each working the selection out for themselves.
 
 import { MATERIAL_COLOURS } from "@fpv/engine";
-import type { FinishRef, Item, Level, Opening, Project, Room, Wall } from "@fpv/ir";
+import type { FinishRef, Item, Level, Opening, PrimitiveRecipe, Project, Room, Wall } from "@fpv/ir";
 import {
   blankFinish,
   derive,
   FINISH_SHININESS,
   type FinishName,
   finishNameOf,
+  normalizeDeg,
   SKIRTING_DEPTH,
   SKIRTING_DEPTH_RANGE,
   tidyFinish,
@@ -244,7 +245,7 @@ export function describeEntity(project: Project, id: string): SelectedEntity | n
   }
   if (kind === "item") {
     const it = project.items.find((x) => x.id === id);
-    return it ? { id, kind, title: itemTitle(it), facts: itemFacts(it) } : null;
+    return it ? { id, kind, title: itemTitle(project, it), facts: itemFacts(project, it) } : null;
   }
   const o = project.openings.find((x) => x.id === id);
   return o ? { id, kind, title: openingTitle(o), facts: openingFacts(project, o) } : null;
@@ -727,7 +728,7 @@ function roomFacts(r: Room, level: Level): Fact[] {
       caption: "Show",
       toggle: true,
       value: String(r.floorVisible),
-      edit: toggleEdit(r.floorVisible, (floorVisible) => modify({ floorVisible })),
+      edit: toggleEdit(r.floorVisible, (floorVisible) => modify({ floorVisible }), SHOWN),
     },
     {
       group: "Ceiling",
@@ -768,7 +769,7 @@ function roomFacts(r: Room, level: Level): Fact[] {
       caption: "Show",
       toggle: true,
       value: String(r.ceilingVisible),
-      edit: toggleEdit(r.ceilingVisible, (ceilingVisible) => modify({ ceilingVisible })),
+      edit: toggleEdit(r.ceilingVisible, (ceilingVisible) => modify({ ceilingVisible }), SHOWN),
     },
   ];
 }
@@ -792,26 +793,161 @@ function hexEdit(
   };
 }
 
+/** How a yes-or-no row announces its two states. */
+interface Said {
+  yes: string;
+  no: string;
+}
+const SHOWN: Said = { yes: "shown", no: "hidden" };
+
 /** An edit for a yes-or-no row: the checkbox sends "true" or "false". */
-function toggleEdit(current: boolean, set: (value: boolean) => EditCommand): (text: string) => EditOutcome {
+function toggleEdit(
+  current: boolean,
+  set: (value: boolean) => EditCommand,
+  said: Said,
+): (text: string) => EditOutcome {
   return (text) => {
     if (text !== "true" && text !== "false") return { ok: false, message: "This is a yes or no." };
     const next = text === "true";
-    return { ok: true, command: next === current ? null : set(next), said: next ? "shown" : "hidden" };
+    return { ok: true, command: next === current ? null : set(next), said: next ? said.yes : said.no };
   };
 }
 
-/** An Item carries no name: it is named by what it refers to. ItemRef is a union of a catalogue product
- *  and a generated primitive, so a product item reads as its product id and a recipe item as its kind. */
-function itemTitle(it: Item): string {
-  return it.ref.kind === "product" ? it.ref.productId : it.ref.recipe.kind;
+/** A generated item's kind, as a person would call it. */
+const RECIPE_NAMES: Record<PrimitiveRecipe["kind"], string> = {
+  box: "Box",
+  cylinder: "Cylinder",
+  table: "Table",
+  chair: "Chair",
+  display: "Display",
+  "video-bar": "Video bar",
+  "ceiling-speaker": "Ceiling speaker",
+  "ceiling-mic": "Ceiling microphone",
+};
+
+/**
+ * An Item carries no name: it is named by what it refers to. A product reads as the name its catalogue
+ * snapshot gives it, or its id when the snapshot has none; a generated item as its label, or its kind.
+ */
+function itemTitle(project: Project, it: Item): string {
+  if (it.ref.kind === "product") {
+    const name = (project.catalogRefs[it.ref.productId] as { name?: unknown } | undefined)?.name;
+    return typeof name === "string" && name.trim() !== "" ? name : it.ref.productId;
+  }
+  const recipe = it.ref.recipe;
+  const label = "label" in recipe ? recipe.label.trim() : "";
+  return label !== "" ? label : RECIPE_NAMES[recipe.kind];
 }
 
-function itemFacts(it: Item): Fact[] {
-  return [
-    { label: "Position", value: `${Math.round(it.position.x)}, ${Math.round(it.position.y)} mm` },
-    { label: "Rotation", value: `${Math.round(it.rotation)}°` },
+/** How far above or below its floor an item may sit. Below is allowed, as the model allows it: a sunken floor. */
+const ELEVATION_RANGE = { min: -HEIGHT_RANGE.max, max: HEIGHT_RANGE.max } as const;
+
+/**
+ * An item (ADR-017 D3): which room it counts in, where it stands, which way it faces, how high it sits,
+ * whether it is mirrored and how big it is. A typed position is kept exactly, without the snapping a drag
+ * gets: whoever types a number means that number.
+ *
+ * A product the catalogue marks as coming in one size shows its size without letting it be typed (F-013).
+ * Things stacked on the item move, turn and rise with it, because the commands carry them.
+ */
+function itemFacts(project: Project, it: Item): Fact[] {
+  const ids = [it.id];
+  const room = it.roomId ? project.rooms.find((r) => r.id === it.roomId) : undefined;
+  const size = derive.itemSize(it, derive.snapshotSizeSource(project));
+  const product =
+    it.ref.kind === "product"
+      ? (project.catalogRefs[it.ref.productId] as { deformable?: boolean } | undefined)
+      : undefined;
+  const oneSize = product?.deformable === false;
+  const facts: Fact[] = [
+    { label: "Room", value: room ? (room.name ?? "Unnamed room") : "None" },
+    ...(["x", "y"] as const).map((axis): Fact => {
+      const letter = axis.toUpperCase();
+      return {
+        group: "Placement",
+        label: `Position ${letter}`,
+        caption: axis === "x" ? "Position" : "",
+        prefix: letter,
+        value: formatMm(it.position[axis]),
+        unit: "mm",
+        edit: lengthEdit(`Position ${letter}`, it.position[axis], COORDINATE_RANGE, (mm) => ({
+          type: "item.move",
+          payload: {
+            itemIds: ids,
+            dx: axis === "x" ? mm - it.position.x : 0,
+            dy: axis === "y" ? mm - it.position.y : 0,
+            magnetism: false,
+          },
+        })),
+      };
+    }),
+    {
+      group: "Placement",
+      label: "Rotation",
+      value: formatDegrees(it.rotation),
+      unit: "°",
+      hint: "In degrees, counter-clockwise on the plan. The thick edge on the plan is the front.",
+      edit: (text) => {
+        const deg = parseDegrees(text);
+        if (deg === null) return { ok: false, message: "Rotation needs a number of degrees, such as 90." };
+        // Any turn names an angle the model can keep: -90 is 270, and 360 is none.
+        const angle = normalizeDeg(deg);
+        const same = formatDegrees(angle) === formatDegrees(it.rotation);
+        return {
+          ok: true,
+          command: same ? null : { type: "item.rotate", payload: { itemIds: ids, angle } },
+          said: `${formatDegrees(angle)} degrees`,
+        };
+      },
+    },
+    {
+      group: "Placement",
+      label: "Elevation",
+      value: formatMm(it.elevation),
+      unit: "mm",
+      hint: "How high the bottom of the item is above the floor.",
+      edit: lengthEdit("Elevation", it.elevation, ELEVATION_RANGE, (elevation) => ({
+        type: "item.setElevation",
+        payload: { itemIds: ids, elevation },
+      })),
+    },
+    {
+      group: "Placement",
+      label: "Mirrored",
+      toggle: true,
+      value: String(it.mirrored),
+      hint: "Left and right swapped, for things that are not the same both ways.",
+      edit: toggleEdit(it.mirrored, () => ({ type: "item.mirror", payload: { itemIds: ids } }), {
+        yes: "mirrored",
+        no: "not mirrored",
+      }),
+    },
   ];
+  if (!size) return facts;
+  const dimensions = [
+    { key: "w", label: "Width", range: LENGTH_RANGE },
+    { key: "d", label: "Depth", range: LENGTH_RANGE },
+    { key: "h", label: "Height", range: HEIGHT_RANGE },
+  ] as const;
+  for (const { key, label, range } of dimensions)
+    facts.push({
+      group: "Size",
+      label,
+      value: formatMm(size[key]),
+      unit: "mm",
+      ...(oneSize
+        ? { hint: "This product comes in one size." }
+        : {
+            // item.resize keeps the back left corner by default (F-100), so a desk against a wall stays
+            // against it when it is made deeper.
+            ...(key === "h" ? {} : { hint: "The back left corner stays where it is." }),
+            edit: lengthEdit(label, size[key], range, (mm) => ({
+              type: "item.resize",
+              payload: { itemId: it.id, size: { ...size, [key]: mm } },
+            })),
+          }),
+    });
+  return facts;
 }
 
 function openingTitle(o: Opening): string {
