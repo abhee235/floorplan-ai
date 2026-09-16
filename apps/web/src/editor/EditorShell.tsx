@@ -191,6 +191,20 @@ export function EditorShell(): JSX.Element {
       },
       redraw,
       status: setSnap,
+      preview3d: (points) => {
+        const level = plan.level;
+        if (!level) return;
+        app.binding.setWallPreview(
+          points,
+          points.length >= 2
+            ? {
+                levelId: level,
+                thickness: Number(optionsRef.current["wall.thickness"] ?? 100),
+                kind: String(optionsRef.current["wall.kind"] ?? "interior"),
+              }
+            : null,
+        );
+      },
     });
 
     // One overlay painter: the draft review panel, the wall preview and the compass all draw over the

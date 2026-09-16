@@ -28,6 +28,13 @@ export interface WallDrawingDeps {
   redraw(): void;
   /** A short line for the status bar: what is being drawn, or what a snap caught. */
   status(text: string): void;
+  /**
+   * The chain as it stands, for the 3D view to show while it is being drawn; an empty array clears it.
+   *
+   * A callback rather than the binding itself, so this module still knows nothing about three.js and can
+   * go on being tested without a WebGL context.
+   */
+  preview3d(points: readonly Point[]): void;
 }
 
 export interface WallDrawing {
@@ -134,6 +141,7 @@ export function bindWallDrawing(deps: WallDrawingDeps): WallDrawing {
     aim = null;
     showCard();
     report();
+    pushPreview();
     deps.redraw();
   };
 
@@ -146,11 +154,25 @@ export function bindWallDrawing(deps: WallDrawingDeps): WallDrawing {
     deps.status(aim?.snapNote ? `Snap: ${aim.snapNote}` : `Drawing wall ${segment} of chain`);
   };
 
+  /** The confirmed chain plus the segment under the cursor, so 3D shows what the plan shows. */
+  const pushPreview = (): void => {
+    const t = tool;
+    if (!t?.drawing) {
+      deps.preview3d([]);
+      return;
+    }
+    const pending = aim?.point;
+    deps.preview3d(pending ? [...t.points, pending] : [...t.points]);
+  };
+
   const finish = (): void => {
     const t = tool;
     tool = null;
     aim = null;
     card.hidden = true;
+    // Clear before the command goes out, not after it returns: the committed walls arrive as a patch and
+    // build themselves, and leaving the preview up until then would briefly show every wall twice.
+    deps.preview3d([]);
     if (!t) return;
     const command = t.end();
     deps.redraw();
@@ -193,6 +215,7 @@ export function bindWallDrawing(deps: WallDrawingDeps): WallDrawing {
     aim = t.aim(planPoint(e), aimOptions());
     announcer.say(aim.announcement);
     report();
+    pushPreview();
     deps.redraw();
   };
 
@@ -236,6 +259,7 @@ export function bindWallDrawing(deps: WallDrawingDeps): WallDrawing {
       if (tool.undoSegment()) announcer.say("Last wall taken back.");
       showCard();
       report();
+      pushPreview();
       deps.redraw();
     }
   };
@@ -337,6 +361,7 @@ export function bindWallDrawing(deps: WallDrawingDeps): WallDrawing {
       element.removeEventListener("pointermove", onPointerMove);
       element.removeEventListener("dblclick", onDoubleClick, { capture: true });
       element.removeEventListener("keydown", onKeyDown);
+      deps.preview3d([]); // a torn-down binding must not leave a half-drawn chain standing in the scene
       card.remove();
     },
   };

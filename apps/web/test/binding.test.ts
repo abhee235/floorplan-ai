@@ -32,7 +32,10 @@ function manualFrames() {
 }
 
 describe("scene binding (ADR-003 D1, ADR-015 D3)", () => {
-  it("S-001 S-003 the scene is ordered ground, rooms, walls, items, overlay, lights", () => {
+  // `preview` is the wall chain being drawn, and it is not project content, so S-003's tree order has
+  // nothing to say about it. It sits after overlay because it must paint above the walls it previews,
+  // and before lights because S-001 puts the lights last.
+  it("S-001 S-003 the scene is ordered ground, rooms, walls, items, overlay, preview, lights", () => {
     const b = new SceneBinding();
     expect(b.scene.children.map((c) => c.name)).toEqual([
       "ground",
@@ -40,6 +43,7 @@ describe("scene binding (ADR-003 D1, ADR-015 D3)", () => {
       "walls",
       "items",
       "overlay",
+      "preview",
       "lights",
     ]);
   });

@@ -16,8 +16,8 @@ import {
   snapshotCutOuts,
 } from "@fpv/engine";
 import { wallFootprints } from "@fpv/geometry";
-import type { Item, Level, Point, Project } from "@fpv/ir";
-import { derive } from "@fpv/ir";
+import type { Item, Level, Point, Project, Wall } from "@fpv/ir";
+import { defaultWall, derive } from "@fpv/ir";
 import * as THREE from "three";
 import { MaterialCache } from "./materials.js";
 
@@ -55,6 +55,10 @@ export class SceneBinding {
   readonly walls = new THREE.Group();
   readonly items = new THREE.Group();
   readonly overlay = new THREE.Group();
+  /** The wall chain being drawn right now, before it is committed. Its own group on purpose: overlay is
+   *  emptied and rebuilt from the selection on every flush, so a preview parked there would vanish the
+   *  moment anything was selected or a patch arrived. */
+  readonly preview = new THREE.Group();
   readonly lights = new THREE.Group();
   readonly bounds = new THREE.Box3();
   private readonly objects = new Map<string, THREE.Object3D[]>();
@@ -80,8 +84,9 @@ export class SceneBinding {
     this.walls.name = "walls";
     this.items.name = "items";
     this.overlay.name = "overlay";
+    this.preview.name = "preview";
     this.lights.name = "lights";
-    this.scene.add(this.ground, this.rooms, this.walls, this.items, this.overlay, this.lights);
+    this.scene.add(this.ground, this.rooms, this.walls, this.items, this.overlay, this.preview, this.lights);
     const sun = new THREE.DirectionalLight(0xffffff, 2.2);
     sun.position.set(8, 14, 6);
     sun.castShadow = true;
@@ -250,7 +255,71 @@ export class SceneBinding {
     return g;
   }
 
-  /** Bounds from the visible objects' geometry (S-048 reversed: one visibility rule for bounds and rendering). */
+  /**
+   * The chain being drawn, shown in 3D as it is drawn rather than only once it commits.
+   *
+   * The points go through `defaultWall` and the real `buildWalls`, so what you see growing is the same
+   * geometry the command will produce — mitred joins and all — instead of an approximation that drifts
+   * from the result. Pass null to clear.
+   *
+   * Deliberately NOT routed through replaceParts: that registers meshes in `this.objects`, which is the
+   * map picking, selection and `drop` all work from, and a half-drawn wall is not an entity. It has no
+   * id to select, nothing should pick it, and a patch arriving mid-draw must not be able to delete it.
+   */
+  setWallPreview(
+    points: readonly Point[],
+    options: { levelId: string; thickness: number; kind?: string } | null = null,
+  ): void {
+    this.clearPreview();
+    if (!this.project || !options || points.length < 2) return;
+    const level = this.project.levels.find((l) => l.id === options.levelId);
+    if (!level) return;
+
+    const walls = [];
+    for (let i = 1; i < points.length; i += 1) {
+      const a = points[i - 1] as Point;
+      const b = points[i] as Point;
+      if (a.x === b.x && a.y === b.y) continue; // a zero-length segment builds nothing and warns
+      walls.push(
+        defaultWall(`preview_${i}`, options.levelId, a, b, {
+          thickness: Math.max(1, Math.round(options.thickness)),
+          ...(options.kind ? { kind: options.kind as Wall["kind"] } : {}),
+        }),
+      );
+    }
+    if (walls.length === 0) return;
+
+    const levels = [...this.project.levels].sort(derive.compareLevels);
+    const parts = buildWalls(walls, [], {
+      level,
+      isLowest: levels[0]?.id === level.id,
+      isHighest: levels[levels.length - 1]?.id === level.id,
+    });
+    for (const part of parts) {
+      const mesh = new THREE.Mesh(toGeometry(part), this.materials.get(part.materialKey));
+      mesh.name = `preview:${part.part}`;
+      mesh.castShadow = false; // a wall that is not there yet should not darken the ones that are
+      mesh.receiveShadow = false;
+      mesh.raycast = () => {}; // never pickable: it has no entity to select
+      this.preview.add(mesh);
+    }
+  }
+
+  /** Drop the drawing preview and its geometry. Safe to call when there is none. */
+  clearPreview(): void {
+    for (const o of [...this.preview.children]) {
+      o.removeFromParent();
+      if (o instanceof THREE.Mesh) (o.geometry as THREE.BufferGeometry).dispose();
+    }
+  }
+
+  /**
+   * Bounds from the visible objects' geometry (S-048 reversed: one visibility rule for bounds and rendering).
+   *
+   * The preview group is not among them, and that matters: bounds drive the camera, so counting a growing
+   * preview here would widen the view on every pointer move and the 3D scene would drift outward as you
+   * drew rather than holding still.
+   */
   private updateBounds(): void {
     this.bounds.makeEmpty();
     const box = new THREE.Box3();
