@@ -3,12 +3,22 @@
 import { apply, type ChangeSet } from "@fpv/commands";
 import type { Layer } from "@fpv/engine";
 import { SELECTION_PX, WALL_END_PX, wallFootprintUnjoined } from "@fpv/geometry";
-import type { Project, Wall } from "@fpv/ir";
+import type { Item, Project, Size3, Wall } from "@fpv/ir";
 import { derive, sequentialIdGenerator } from "@fpv/ir";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { BridgeClient, bridgeUrl } from "./bridge/client.js";
+import {
+  footprintOf,
+  type ItemCommand,
+  type ItemHandle,
+  itemHandleAnchors,
+  itemHandleAt,
+  itemHandleCursor,
+  resizeCommands,
+  rotateCommand,
+} from "./editor/item-handles.js";
 import { kindOf, moveCommands, nextSelection } from "./editor/selection.js";
 import {
   handleAnchors,
@@ -307,6 +317,101 @@ export function startApp(el: AppElements): {
     return [...ids].map((id) => ({ type: "wall" as const, id }));
   };
 
+  /**
+   * A press that began on a handle of the selected item: a resize or a turn. Like a wall handle drag, it
+   * runs the real reducer on the project as it was at the press, on every move, and sends one
+   * transaction when the button comes up.
+   */
+  let itemHandling: {
+    item: Item;
+    size: Size3;
+    handle: ItemHandle;
+    from: { x: number; y: number };
+    beforeProject: Project;
+    commands: ItemCommand[];
+  } | null = null;
+
+  /** The item the handles belong to: exactly one item selected, on the level being drawn, with a size. */
+  const handleItem = (): { item: Item; size: Size3; resizable: boolean } | null => {
+    const project = replica.project;
+    if (!project || replica.selection.length !== 1) return null;
+    const id = replica.selection[0] as string;
+    const item = project.items.find((x) => x.id === id && x.levelId === plan.level);
+    if (!item) return null;
+    const size = derive.itemSize(item, derive.snapshotSizeSource(project));
+    if (!size) return null;
+    // a product the catalog says comes in one size can only be turned (F-013)
+    const snap =
+      item.ref.kind === "product"
+        ? (project.catalogRefs[item.ref.productId] as { deformable?: boolean } | undefined)
+        : undefined;
+    return { item, size, resizable: snap?.deformable !== false };
+  };
+
+  /** The item and whatever is stacked on it: everything its resize or turn can move. */
+  const touchedByItem = (project: Project, itemId: string): ChangeSet["updated"] => {
+    const ids = new Set([itemId]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const it of project.items)
+        if (it.parentId && ids.has(it.parentId) && !ids.has(it.id)) {
+          ids.add(it.id);
+          grew = true;
+        }
+    }
+    return [...ids].map((id) => ({ type: "item" as const, id }));
+  };
+
+  /** The handles on the selected item: squares on its corners and edges, and a turn handle off its front. */
+  const drawItemHandles = (
+    ctx: Ctx2D,
+    view: PlanView,
+    target: { item: Item; size: Size3; resizable: boolean },
+  ) => {
+    const anchors = itemHandleAnchors(target.item, target.size, 1 / view.scale, target.resizable);
+    const screen = (p: { x: number; y: number }) => ({
+      x: view.offsetX + p.x * view.scale,
+      y: view.offsetY - p.y * view.scale,
+    });
+    const fp = footprintOf(target.item, target.size);
+    const frontMid = screen({
+      x: ((fp[2]?.x ?? 0) + (fp[3]?.x ?? 0)) / 2,
+      y: ((fp[2]?.y ?? 0) + (fp[3]?.y ?? 0)) / 2,
+    });
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.strokeStyle = HANDLE_COLOUR;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([]);
+    for (const a of anchors) {
+      const p = screen(a.at);
+      if (a.handle.kind === "rotate") {
+        // a stalk from the front edge to a ring: turn the item by its front
+        ctx.beginPath();
+        ctx.moveTo(frontMid.x, frontMid.y);
+        ctx.lineTo(p.x, p.y);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+        ctx.fillStyle = "#ffffff";
+        ctx.fill();
+        ctx.stroke();
+        continue;
+      }
+      ctx.beginPath();
+      ctx.moveTo(p.x - 4, p.y - 4);
+      ctx.lineTo(p.x + 4, p.y - 4);
+      ctx.lineTo(p.x + 4, p.y + 4);
+      ctx.lineTo(p.x - 4, p.y + 4);
+      ctx.closePath();
+      ctx.fillStyle = "#ffffff";
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+  };
+
   /** The wall the handles belong to: exactly one wall selected, on the level being drawn, or null. */
   const handleWall = (): Wall | null => {
     if (replica.selection.length !== 1) return null;
@@ -412,6 +517,25 @@ export function startApp(el: AppElements): {
         return;
       }
     }
+    // Then a handle of the selected item: resize or turn it rather than moving it.
+    const target = handleItem();
+    if (target && replica.project) {
+      const at = planPointOf(e);
+      const handle = itemHandleAt(target.item, target.size, at, 1 / plan.view.scale, target.resizable);
+      if (handle) {
+        itemHandling = {
+          item: target.item,
+          size: target.size,
+          handle,
+          from: at,
+          beforeProject: replica.project,
+          commands: [],
+        };
+        el.plan.style.cursor = handle.kind === "rotate" ? "grabbing" : el.plan.style.cursor;
+        el.plan.setPointerCapture(e.pointerId);
+        return;
+      }
+    }
     // Pressing on an entity that is ALREADY selected moves the selection; pressing anywhere else still
     // pans. Requiring it to be selected first is what keeps panning usable: otherwise every press that
     // happened to land on a wall would drag it.
@@ -429,6 +553,29 @@ export function startApp(el: AppElements): {
     el.plan.setPointerCapture(e.pointerId);
   });
   el.plan.addEventListener("pointermove", (e) => {
+    if (itemHandling) {
+      const active = itemHandling;
+      const to = planPointOf(e);
+      // Alt bypasses snapping, as everywhere else (W-082); Shift keeps a corner's proportions.
+      const commands =
+        active.handle.kind === "rotate"
+          ? [rotateCommand(active.item, to, !e.altKey)].filter((c): c is ItemCommand => c !== null)
+          : resizeCommands(active.item, active.size, active.handle, active.from, to, {
+              snap: !e.altKey,
+              keepRatio: e.shiftKey,
+            });
+      itemHandling = { ...active, commands };
+      const local = commands.length > 0 ? applyLocally(active.beforeProject, commands) : null;
+      replica.applyLocally(local?.project ?? active.beforeProject, {
+        commandType: "local.item-handle",
+        added: [],
+        updated: touchedByItem(active.beforeProject, active.item.id),
+        removed: [],
+      });
+      plan.invalidateOverlay();
+      planDirty = true;
+      return;
+    }
     if (handling) {
       const active = handling;
       // Measured from the wall as it was when the press began, never from the wall as this drag has
@@ -495,9 +642,15 @@ export function startApp(el: AppElements): {
               1 / plan.view.scale,
             )
           : null;
+      const target = hovered ? null : handleItem();
+      const itemHovered = target
+        ? itemHandleAt(target.item, target.size, at, 1 / plan.view.scale, target.resizable)
+        : null;
       if (hovered && shaped && fp) {
         const anchors = handleAnchors(shaped, fp);
         el.plan.style.cursor = anchors ? handleCursor(hovered, anchors[hovered].angleDeg) : "pointer";
+      } else if (itemHovered && target) {
+        el.plan.style.cursor = itemHandleCursor(itemHovered, target.item.rotation);
       } else {
         const over = plan.hitTest(at, SELECTION_PX / plan.view.scale);
         el.plan.style.cursor = over && replica.selection.includes(over) ? "move" : "";
@@ -510,6 +663,27 @@ export function startApp(el: AppElements): {
     planDirty = true;
   });
   el.plan.addEventListener("pointerup", (e) => {
+    if (itemHandling) {
+      const done = itemHandling;
+      itemHandling = null;
+      drag = null;
+      // Back to what the host agreed, then one entry in the history for the whole gesture: a resize that
+      // keeps the far side put is two commands, and undoing it must take both.
+      replica.applyLocally(done.beforeProject, {
+        commandType: "local.item-handle",
+        added: [],
+        updated: touchedByItem(done.beforeProject, done.item.id),
+        removed: [],
+      });
+      const [only] = done.commands;
+      if (done.commands.length > 1)
+        void client.transaction(done.handle.kind === "rotate" ? "Turn item" : "Resize item", done.commands);
+      else if (only) void client.command(only);
+      el.plan.style.cursor = "";
+      plan.invalidateOverlay();
+      planDirty = true;
+      return;
+    }
     if (handling) {
       const done = handling;
       handling = null;
@@ -828,9 +1002,12 @@ export function startApp(el: AppElements): {
       // move, and a dashed copy sitting on top of them would only be in the way.
       if (moving) return;
 
-      // Nothing is being dragged, so show what CAN be: the handles on the one selected wall.
+      // Nothing is being dragged, so show what CAN be: the handles on the one selected wall or item.
+      // An item keeps its handles while one of them is dragged, so the pointer has something to hold.
       const shaped = handleWall();
       if (shaped) drawWallHandles(ctx, view, shaped);
+      const target = handleItem();
+      if (target) drawItemHandles(ctx, view, target);
     },
     destroy: () => sizes.disconnect(),
   };
