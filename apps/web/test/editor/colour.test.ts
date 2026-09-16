@@ -69,18 +69,17 @@ describe("colour models", () => {
 });
 
 describe("the colour guide", () => {
-  it("offers turns of the wheel and shades of the same hue", () => {
+  it("offers neighbours on the wheel, brightness steps, and the wheel split in three and four", () => {
     const rows = harmonies({ h: 0, s: 1, v: 1 });
-    expect(rows.map((r) => r.name)).toEqual(["Analogous", "Shades", "Triad", "Tetrad"]);
-    expect(rows.find((r) => r.name === "Triad")?.colours).toEqual(["#FF0000", "#00FF00", "#0000FF"]);
-    expect(rows.find((r) => r.name === "Tetrad")?.colours).toEqual([
-      "#FF0000",
-      "#80FF00",
-      "#00FFFF",
-      "#8000FF",
-    ]);
-    expect(rows.find((r) => r.name === "Analogous")?.colours[2]).toBe("#FF0000");
-    expect(rows.find((r) => r.name === "Shades")?.colours).toHaveLength(5);
+    expect(rows.map((r) => r.name)).toEqual(["Analogous", "Monochromatic", "Triad", "Tetrad"]);
+    const row = (name: string) => rows.find((r) => r.name === name)?.colours;
+    expect(row("Triad")).toEqual(["#FF0000", "#00FF00", "#0000FF"]);
+    expect(row("Tetrad")).toEqual(["#FF0000", "#80FF00", "#00FFFF", "#8000FF"]);
+    // each row starts from the colour itself; neighbours are 12 degrees apart
+    expect(row("Analogous")).toEqual(["#FF0000", "#FF0066", "#FF0033", "#FF0000", "#FF3300", "#FF6600"]);
+    expect(row("Monochromatic")?.[0]).toBe("#FF0000");
+    expect(row("Monochromatic")).toHaveLength(6);
+    expect(row("Monochromatic")?.[1]).toBe("#2B0000");
   });
 });
 

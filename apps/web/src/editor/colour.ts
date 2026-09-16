@@ -113,13 +113,12 @@ export function hexToHsv(hex: string, hue = 0): Hsv | null {
   return hsv.s === 0 || hsv.v === 0 ? { ...hsv, h: hue } : hsv;
 }
 
-/** The input groups the picker offers, and what each number is called and runs to. */
-export type ColourModel = "hex" | "rgb" | "hsl" | "hsv" | "cmyk";
+/** The numbers shown beside the hex value, and what each is called and runs to. */
+export type ColourModel = "rgb" | "hsl" | "hsv" | "cmyk";
 export const COLOUR_MODELS: readonly { value: ColourModel; label: string }[] = [
-  { value: "hex", label: "Hex" },
   { value: "rgb", label: "RGB" },
   { value: "hsl", label: "HSL" },
-  { value: "hsv", label: "HSB" },
+  { value: "hsv", label: "HSV" },
   { value: "cmyk", label: "CMYK" },
 ];
 
@@ -132,7 +131,7 @@ export interface Channel {
   max: number;
 }
 
-export const CHANNELS: Record<Exclude<ColourModel, "hex">, readonly Channel[]> = {
+export const CHANNELS: Record<ColourModel, readonly Channel[]> = {
   rgb: [
     { key: "r", name: "Red", short: "R", max: 255 },
     { key: "g", name: "Green", short: "G", max: 255 },
@@ -146,7 +145,7 @@ export const CHANNELS: Record<Exclude<ColourModel, "hex">, readonly Channel[]> =
   hsv: [
     { key: "h", name: "Hue", short: "H", max: 360 },
     { key: "s", name: "Saturation", short: "S", max: 100 },
-    { key: "v", name: "Brightness", short: "B", max: 100 },
+    { key: "v", name: "Brightness", short: "V", max: 100 },
   ],
   cmyk: [
     { key: "c", name: "Cyan", short: "C", max: 100 },
@@ -157,7 +156,7 @@ export const CHANNELS: Record<Exclude<ColourModel, "hex">, readonly Channel[]> =
 };
 
 /** The whole numbers a model's inputs show for a colour. */
-export function channelValues(model: Exclude<ColourModel, "hex">, hsv: Hsv): Record<string, number> {
+export function channelValues(model: ColourModel, hsv: Hsv): Record<string, number> {
   const pct = (v: number) => Math.round(v * 100);
   const hue = Math.round(hsv.h) % 360;
   switch (model) {
@@ -179,11 +178,7 @@ export function channelValues(model: Exclude<ColourModel, "hex">, hsv: Hsv): Rec
 }
 
 /** The colour a model's inputs describe once one of them is changed; out-of-range numbers are held in range. */
-export function fromChannels(
-  model: Exclude<ColourModel, "hex">,
-  values: Record<string, number>,
-  hue: number,
-): Hsv {
+export function fromChannels(model: ColourModel, values: Record<string, number>, hue: number): Hsv {
   const get = (key: string, max: number) => clamp(values[key] ?? 0, 0, max);
   switch (model) {
     case "rgb":
@@ -207,14 +202,21 @@ export function fromChannels(
   }
 }
 
-/** Colour-guide rows: colours that sit well with this one. */
+/**
+ * Colour-guide rows: colours that sit well with this one, each row starting from it. Analogous colours
+ * are neighbours 12 degrees apart; monochromatic ones keep the hue and saturation and step the brightness
+ * round in sixths; a triad and a tetrad split the wheel in three and four.
+ */
 export function harmonies(hsv: Hsv): { name: string; colours: string[] }[] {
   const hsl = hsvToHsl(hsv);
   const turn = (deg: number) => hsvToHex(hslToHsv({ ...hsl, h: wrapHue(hsl.h + deg) }));
-  const lightness = (l: number) => hsvToHex(hslToHsv({ ...hsl, l }));
+  const self = hsvToHex(hsv);
   return [
-    { name: "Analogous", colours: [-30, -15, 0, 15, 30].map(turn) },
-    { name: "Shades", colours: [0.2, 0.35, 0.5, 0.65, 0.8].map(lightness) },
+    { name: "Analogous", colours: [self, ...[-24, -12, 0, 12, 24].map(turn)] },
+    {
+      name: "Monochromatic",
+      colours: [0, 1, 2, 3, 4, 5].map((i) => hsvToHex({ ...hsv, v: i === 0 ? hsv.v : (hsv.v + i / 6) % 1 })),
+    },
     { name: "Triad", colours: [0, 120, 240].map(turn) },
     { name: "Tetrad", colours: [0, 90, 180, 270].map(turn) },
   ];

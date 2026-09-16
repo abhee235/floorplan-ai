@@ -524,18 +524,18 @@ describe("a colour field", () => {
     expect(sent).toEqual([]);
   });
 
-  it("offers the project's own colours, and goes back to the colour it opened with", async () => {
+  it("offers the project's own colours beside the interior ones", async () => {
     const { text, swatch, sent, user } = setupColour("#808080", ["#D9A441"]);
     await user.click(swatch);
     const own = screen.getByRole("group", { name: "In this project" });
     expect(own.querySelectorAll("button")).toHaveLength(1);
-    await user.click(screen.getAllByRole("button", { name: "#D9A441" })[0] as HTMLElement);
+    expect(screen.getByRole("group", { name: "Interior colours" }).querySelectorAll("button")).toHaveLength(
+      18,
+    );
+    await user.click(own.querySelector("button") as HTMLElement);
     expect(text.value).toBe("#D9A441");
-    await user.click(screen.getByRole("button", { name: "Back to #808080" }));
-    expect(text.value).toBe("#808080");
     await user.click(swatch);
-    // back where it began: nothing to send
-    expect(sent).toEqual([]);
+    expect(sent).toEqual([{ type: "paint", payload: { color: "#D9A441" } }]);
   });
 
   it("follows a typed colour on its swatch, and sends it on Enter", async () => {

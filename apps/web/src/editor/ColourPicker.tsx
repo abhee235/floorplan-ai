@@ -1,24 +1,20 @@
-// The colour picker behind a colour row's swatch (P3-5 follow-up), laid out as design tools lay theirs out:
-// a saturation and brightness square, a hue slider, the colour in whichever model suits (hex, RGB, HSL,
-// HSB or CMYK), an eyedropper where the browser has one, a guide of colours that go with it, and swatches
-// of the colours the project already uses.
+// The colour picker behind a colour row's swatch (P3-5 follow-up): a saturation and brightness square; a
+// row of tools for the browser's eyedropper, fine sliders, a colour guide and the colour model; a hue bar;
+// the colour as hex and as numbers; and a preview beside swatches to pick from.
 //
 // Every change is shown at once, on the plan and in 3D, through `onPick`; nothing is sent until the picker
 // closes, and Escape closes it without keeping anything.
 //
-// Laid out like the picker in the owner's own design editor (wizzel), which uses the MIT package
-// react-best-gradient-color-picker. Written here without that package or its dependencies: there are no
-// gradients or opacity to pick in the model, and the eyedropper is the browser's own where it has one.
+// Drawn to match the picker in the owner's own design editor (wizzel), which is the MIT package
+// react-best-gradient-color-picker: its sizes, bars, handles, tool row and swatches are followed closely.
+// The code is this project's own and uses no part of that package or its dependencies. There are no
+// gradients or opacity in the model, so neither is offered.
 import { cn } from "cn";
-import { Palette, Pipette } from "lucide-react";
-import { Slider as SliderPrimitive } from "radix-ui";
-import type { JSX, KeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
+import { Palette, Pipette, SlidersVertical, TextCursorInput } from "lucide-react";
+import { DropdownMenu as MenuPrimitive, Slider as SliderPrimitive } from "radix-ui";
+import type { JSX, KeyboardEvent, ReactNode, PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Toggle } from "@/components/ui/toggle";
 import {
   CHANNELS,
   COLOUR_MODELS,
@@ -28,7 +24,9 @@ import {
   type Hsv,
   harmonies,
   hexToHsv,
+  hslToHsv,
   hsvToHex,
+  hsvToHsl,
   INTERIOR_COLOURS,
   isLight,
 } from "./colour.js";
@@ -48,7 +46,7 @@ export interface ColourPickerProps {
 }
 
 /** The model last chosen, so the next picker opens speaking it too. */
-let lastModel: ColourModel = "hex";
+let lastModel: ColourModel = "rgb";
 
 const WHITE: Hsv = { h: 0, s: 0, v: 1 };
 
@@ -61,6 +59,16 @@ const eyeDropper = (): EyeDropperCtor | null =>
     ? ((window as unknown as { EyeDropper: EyeDropperCtor }).EyeDropper ?? null)
     : null;
 
+// The package's palette: a lavender-grey tool row, a blue for what is switched on, dark grey marks.
+const TOOL_ROW = "bg-[#e9e9f5] dark:bg-muted";
+const MARK = "text-[#323136] dark:text-foreground";
+const CAPTION = "text-[#565656] dark:text-muted-foreground";
+const ON =
+  "bg-white text-[#568cf5] shadow-[1px_1px_3px_rgba(0,0,0,0.2)] dark:bg-background dark:text-[#7aa5f8]";
+/** The ring every handle wears. */
+const HANDLE =
+  "block size-[18px] rounded-full border-2 border-white shadow-[0_0_3px_rgba(0,0,0,0.5)] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/60";
+
 export function ColourPicker({
   label,
   value,
@@ -71,8 +79,8 @@ export function ColourPicker({
 }: ColourPickerProps): JSX.Element {
   const [open, setOpen] = useState(false);
   const [hsv, setHsv] = useState<Hsv>(() => hexToHsv(value) ?? WHITE);
-  const [start, setStart] = useState(value);
   const [model, setModelState] = useState<ColourModel>(lastModel);
+  const [advanced, setAdvanced] = useState(false);
   const [guide, setGuide] = useState(false);
   const cancelled = useRef(false);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -108,7 +116,6 @@ export function ColourPicker({
       const panelBox = trigger.current?.closest("aside")?.getBoundingClientRect();
       setOffset(swatchBox && panelBox ? Math.max(4, swatchBox.left - panelBox.left + 8) : 4);
       cancelled.current = false;
-      setStart(value);
       setHsv(hexToHsv(value, hsv.h) ?? WHITE);
       setOpen(true);
       return;
@@ -119,6 +126,7 @@ export function ColourPicker({
   };
 
   const Dropper = eyeDropper();
+  const hsl = hsvToHsl(hsv);
 
   return (
     <Popover open={open} onOpenChange={openChange}>
@@ -129,7 +137,7 @@ export function ColourPicker({
           aria-label={`${label}, picker`}
           style={{ background: value }}
           className={cn(
-            "size-4 shrink-0 cursor-pointer rounded-sm border border-input outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+            "size-4 shrink-0 cursor-pointer rounded-sm border border-black/15 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
             className,
           )}
         />
@@ -139,78 +147,200 @@ export function ColourPicker({
         side="left"
         align="start"
         sideOffset={offset}
-        className="w-60 p-3"
+        collisionPadding={8}
+        className="w-[288px] rounded-lg p-3"
         onEscapeKeyDown={() => {
           cancelled.current = true;
         }}
       >
-        <div className="flex flex-col gap-3 select-none">
+        <div className="flex flex-col select-none">
           <SaturationSquare hsv={hsv} onChange={choose} />
-          <div className="flex items-center gap-1">
-            {Dropper ? (
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label="Pick a colour from the screen"
-                title="Pick a colour from the screen"
-                onClick={() => {
-                  new Dropper()
-                    .open()
-                    .then((r) => chooseHex(r.sRGBHex))
-                    .catch(() => undefined);
-                }}
-              >
-                <Pipette aria-hidden />
-              </Button>
-            ) : null}
-            <Select value={model} onValueChange={(next) => setModel(next as ColourModel)}>
-              <SelectTrigger size="sm" aria-label="Colour model" className="h-7 grow data-[size=sm]:h-7">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {COLOUR_MODELS.map((m) => (
-                  <SelectItem key={m.value} value={m.value}>
-                    {m.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Toggle
-              size="sm"
-              aria-label="Colour guide"
-              title="Colour guide"
-              pressed={guide}
-              onPressedChange={setGuide}
-              className="size-7 min-w-7"
+
+          <div className="mt-3 flex h-7 items-center justify-end">
+            <div
+              role="group"
+              aria-label="Picker tools"
+              className={cn("flex h-7 items-center rounded-md p-0.5", TOOL_ROW)}
             >
-              <Palette aria-hidden />
-            </Toggle>
+              {Dropper ? (
+                <Tool
+                  label="Pick a colour from the screen"
+                  onClick={() => {
+                    new Dropper()
+                      .open()
+                      .then((r) => chooseHex(r.sRGBHex))
+                      .catch(() => undefined);
+                  }}
+                >
+                  <Pipette aria-hidden />
+                </Tool>
+              ) : null}
+              <Tool label="Fine sliders" pressed={advanced} onClick={() => setAdvanced(!advanced)}>
+                <SlidersVertical aria-hidden />
+              </Tool>
+              <Tool label="Colour guide" pressed={guide} onClick={() => setGuide(!guide)}>
+                <Palette aria-hidden />
+              </Tool>
+              <ModelMenu model={model} onChange={setModel} />
+            </div>
           </div>
-          <HueSlider hsv={hsv} onChange={choose} />
-          <ColourInputs model={model} hsv={hsv} hex={hex} onChange={choose} onHex={chooseHex} />
-          {guide ? <Guide hsv={hsv} current={hex} onPick={chooseHex} /> : null}
-          <div className="flex gap-2">
-            <div className="flex h-12 w-9 shrink-0 flex-col overflow-hidden rounded-md border">
-              <div className="grow" style={{ background: hex }} title={`Now ${hex}`} />
-              <button
-                type="button"
-                className="grow cursor-pointer"
-                style={{ background: start }}
-                aria-label={`Back to ${start}`}
-                title={`Back to ${start}`}
-                onClick={() => chooseHex(start)}
+
+          {advanced ? (
+            <div className="mt-4 flex flex-col gap-4">
+              <Bar
+                label="Saturation"
+                value={Math.round(hsl.s * 100)}
+                max={100}
+                track={`linear-gradient(to right, hsl(${hsl.h} 0% ${hsl.l * 100}%), hsl(${hsl.h} 100% ${hsl.l * 100}%))`}
+                thumb={hex}
+                text={`${Math.round(hsl.s * 100)} percent`}
+                named
+                onChange={(n) => choose(hslToHsv({ ...hsl, h: hsv.h, s: n / 100 }))}
+              />
+              <Bar
+                label="Lightness"
+                value={Math.round(hsl.l * 100)}
+                max={100}
+                track={`linear-gradient(to right, hsl(${hsl.h} ${hsl.s * 100}% 0%), hsl(${hsl.h} ${hsl.s * 100}% 50%), hsl(${hsl.h} ${hsl.s * 100}% 100%))`}
+                thumb={hex}
+                text={`${Math.round(hsl.l * 100)} percent`}
+                named
+                onChange={(n) => choose(hslToHsv({ ...hsl, h: hsv.h, l: n / 100 }))}
+              />
+              <Bar
+                label="Brightness"
+                value={Math.round(hsv.v * 100)}
+                max={100}
+                track={`linear-gradient(to right, #000, ${hsvToHex({ ...hsv, v: 1 })})`}
+                thumb={hex}
+                text={`${Math.round(hsv.v * 100)} percent`}
+                named
+                onChange={(n) => choose({ ...hsv, v: n / 100 })}
               />
             </div>
-            <div className="flex min-w-0 grow flex-col gap-1.5">
-              {swatches.length > 0 ? (
-                <Swatches name="In this project" colours={swatches} current={hex} onPick={chooseHex} />
-              ) : null}
-              <Swatches name="Interior colours" colours={INTERIOR_COLOURS} current={hex} onPick={chooseHex} />
-            </div>
+          ) : null}
+
+          {guide ? <Guide hsv={hsv} current={hex} onPick={chooseHex} /> : null}
+
+          <div className="mt-4">
+            <Bar
+              label="Hue"
+              value={Math.round(hsv.h)}
+              max={359}
+              track={HUE_TRACK}
+              thumb={`hsl(${hsv.h} 100% 50%)`}
+              text={`${Math.round(hsv.h)} degrees`}
+              onChange={(h) => choose({ ...hsv, h })}
+            />
           </div>
+
+          <ColourInputs model={model} hsv={hsv} hex={hex} onChange={choose} onHex={chooseHex} />
+
+          <div className="mt-3.5 flex justify-between gap-1.5">
+            <div
+              aria-hidden
+              className={cn(
+                "size-[50px] shrink-0 rounded-md",
+                isLight(hex) ? "border border-[#96959c]/60" : "",
+              )}
+              style={{ background: hex }}
+            />
+            <Swatches name="Interior colours" colours={INTERIOR_COLOURS} current={hex} onPick={chooseHex} />
+          </div>
+          {swatches.length > 0 ? (
+            <div className="mt-2.5 flex flex-col gap-1">
+              <span aria-hidden className={cn("text-[11px] font-bold", CAPTION)}>
+                In this project
+              </span>
+              <Swatches name="In this project" colours={swatches} current={hex} onPick={chooseHex} />
+            </div>
+          ) : null}
         </div>
       </PopoverContent>
     </Popover>
+  );
+}
+
+function Tool({
+  label,
+  pressed,
+  onClick,
+  children,
+}: {
+  label: string;
+  pressed?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={pressed}
+      title={label}
+      onClick={onClick}
+      className={cn(
+        "flex h-6 w-[30px] cursor-pointer items-center justify-center rounded-[4px] outline-none transition-all duration-150 focus-visible:ring-2 focus-visible:ring-ring/60 [&_svg]:size-4",
+        pressed ? ON : cn(MARK, "hover:bg-white/60 dark:hover:bg-background/60"),
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** Which numbers sit beside the hex value: a small menu off the tool row, as the package has it. */
+function ModelMenu({
+  model,
+  onChange,
+}: {
+  model: ColourModel;
+  onChange: (m: ColourModel) => void;
+}): JSX.Element {
+  return (
+    <MenuPrimitive.Root>
+      <MenuPrimitive.Trigger
+        aria-label="Colour model"
+        title="Colour model"
+        className={cn(
+          "flex h-6 w-[30px] cursor-pointer items-center justify-center rounded-[4px] outline-none transition-all duration-150 focus-visible:ring-2 focus-visible:ring-ring/60 [&_svg]:size-4",
+          MARK,
+          "hover:bg-white/60 data-[state=open]:bg-white data-[state=open]:text-[#568cf5] data-[state=open]:shadow-[1px_1px_3px_rgba(0,0,0,0.2)] dark:hover:bg-background/60 dark:data-[state=open]:bg-background",
+        )}
+      >
+        <TextCursorInput aria-hidden />
+      </MenuPrimitive.Trigger>
+      <MenuPrimitive.Portal>
+        <MenuPrimitive.Content
+          align="end"
+          sideOffset={6}
+          className={cn(
+            "z-50 flex min-w-[76px] flex-col gap-0.5 rounded-md p-[5px] shadow-[1px_1px_14px_1px_rgba(0,0,0,0.25)] data-[state=open]:animate-in data-[state=open]:fade-in-0",
+            TOOL_ROW,
+          )}
+        >
+          <MenuPrimitive.RadioGroup
+            value={model}
+            onValueChange={(next) => onChange(next as ColourModel)}
+            className="flex flex-col gap-0.5"
+          >
+            {COLOUR_MODELS.map((m) => (
+              <MenuPrimitive.RadioItem
+                key={m.value}
+                value={m.value}
+                className={cn(
+                  "flex h-7 cursor-pointer items-center justify-center rounded-[4px] px-2 text-xs font-bold outline-none transition-all duration-150",
+                  CAPTION,
+                  "data-[highlighted]:bg-white/60 data-[state=checked]:bg-white data-[state=checked]:text-[#568cf5] data-[state=checked]:shadow-[1px_1px_3px_rgba(0,0,0,0.2)] dark:data-[highlighted]:bg-background/60 dark:data-[state=checked]:bg-background",
+                )}
+              >
+                {m.label}
+              </MenuPrimitive.RadioItem>
+            ))}
+          </MenuPrimitive.RadioGroup>
+        </MenuPrimitive.Content>
+      </MenuPrimitive.Portal>
+    </MenuPrimitive.Root>
   );
 }
 
@@ -253,7 +383,7 @@ function SaturationSquare({ hsv, onChange }: { hsv: Hsv; onChange: (next: Hsv) =
       aria-valuemax={100}
       aria-valuenow={pct(hsv.s)}
       aria-valuetext={`Saturation ${pct(hsv.s)} percent, brightness ${pct(hsv.v)} percent`}
-      className="relative h-36 w-full cursor-crosshair touch-none rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+      className="relative h-[200px] w-full cursor-crosshair touch-none rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
       style={{
         background: `linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, hsl(${hsv.h} 100% 50%))`,
       }}
@@ -268,10 +398,15 @@ function SaturationSquare({ hsv, onChange }: { hsv: Hsv; onChange: (next: Hsv) =
       }}
       onKeyDown={onKeyDown}
     >
+      {/* Kept inside the square, as the package keeps its handle: a ring half out of the corner is hard
+          to take hold of again. */}
       <span
         aria-hidden
-        className="pointer-events-none absolute size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.35)]"
-        style={{ left: `${hsv.s * 100}%`, top: `${(1 - hsv.v) * 100}%`, background: hsvToHex(hsv) }}
+        className={cn(HANDLE, "pointer-events-none absolute -translate-x-1/2 -translate-y-1/2")}
+        style={{
+          left: `calc(9px + ${hsv.s} * (100% - 18px))`,
+          top: `calc(9px + ${1 - hsv.v} * (100% - 18px))`,
+        }}
       />
     </div>
   );
@@ -280,31 +415,57 @@ function SaturationSquare({ hsv, onChange }: { hsv: Hsv; onChange: (next: Hsv) =
 const HUE_TRACK =
   "linear-gradient(to right, #f00 0%, #ff0 16.66%, #0f0 33.33%, #0ff 50%, #00f 66.66%, #f0f 83.33%, #f00 100%)";
 
-function HueSlider({ hsv, onChange }: { hsv: Hsv; onChange: (next: Hsv) => void }): JSX.Element {
-  const hue = Math.round(hsv.h);
+/** A 14 px bar with a ring handle; `named` prints the label inside the bar, as the fine sliders do. */
+function Bar({
+  label,
+  value,
+  max,
+  track,
+  thumb,
+  text,
+  named = false,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  max: number;
+  track: string;
+  thumb: string;
+  text: string;
+  named?: boolean;
+  onChange: (value: number) => void;
+}): JSX.Element {
   return (
     <SliderPrimitive.Root
       min={0}
-      max={359}
+      max={max}
       step={1}
-      value={[hue]}
-      onValueChange={([h]) => onChange({ ...hsv, h: h ?? 0 })}
-      className="relative flex h-3 w-full touch-none items-center"
+      value={[value]}
+      onValueChange={([v]) => onChange(v ?? 0)}
+      className="relative flex h-[18px] w-full cursor-ew-resize touch-none items-center select-none"
     >
-      <SliderPrimitive.Track className="relative h-3 grow rounded-full" style={{ background: HUE_TRACK }}>
+      <SliderPrimitive.Track className="relative h-3.5 grow rounded-full" style={{ background: track }}>
         <SliderPrimitive.Range className="absolute h-full" />
       </SliderPrimitive.Track>
+      {named ? (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs leading-none font-medium text-white [text-shadow:1px_1px_1px_rgba(0,0,0,0.6)]"
+        >
+          {label}
+        </span>
+      ) : null}
       <SliderPrimitive.Thumb
-        aria-label="Hue"
-        aria-valuetext={`${hue} degrees`}
-        className="block size-3.5 rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.35)] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-        style={{ background: `hsl(${hsv.h} 100% 50%)` }}
+        aria-label={label}
+        aria-valuetext={text}
+        className={HANDLE}
+        style={{ background: thumb }}
       />
     </SliderPrimitive.Root>
   );
 }
 
-/** The colour as numbers: one hex field, or one field per channel of the chosen model. */
+/** The colour as numbers: hex always, then the chosen model's channels, each captioned underneath. */
 function ColourInputs({
   model,
   hsv,
@@ -321,23 +482,20 @@ function ColourInputs({
   // What is being typed into one input, until it leaves; the others follow the colour.
   const [typing, setTyping] = useState<{ key: string; text: string } | null>(null);
   const shown = (key: string, fallback: string) => (typing?.key === key ? typing.text : fallback);
+  const channels = CHANNELS[model];
+  const values = channelValues(model, hsv);
+  const set = (key: string, n: number): void => onChange(fromChannels(model, { ...values, [key]: n }, hsv.h));
 
-  if (model === "hex")
-    return (
-      <div className="relative">
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-y-0 left-2 flex items-center text-muted-foreground"
-        >
-          #
-        </span>
-        <Input
+  return (
+    <div className="mt-3.5 flex gap-1.5">
+      <NumberBox caption="HEX" className="w-[76px] shrink-0">
+        <input
           aria-label="Hex colour"
           value={shown("hex", hex.slice(1))}
           maxLength={7}
           spellCheck={false}
           autoComplete="off"
-          className="h-7 pl-5 font-mono uppercase"
+          className={cn(BOX, "uppercase")}
           onChange={(e) => {
             setTyping({ key: "hex", text: e.target.value });
             if (/^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.test(e.target.value.trim())) onHex(e.target.value);
@@ -345,22 +503,15 @@ function ColourInputs({
           onBlur={() => setTyping(null)}
           onFocus={(e) => e.currentTarget.select()}
         />
-      </div>
-    );
-
-  const channels = CHANNELS[model];
-  const values = channelValues(model, hsv);
-  const set = (key: string, n: number): void => onChange(fromChannels(model, { ...values, [key]: n }, hsv.h));
-  return (
-    <div className="flex gap-1">
+      </NumberBox>
       {channels.map((c) => (
-        <label key={c.key} className="flex min-w-0 flex-1 flex-col items-center gap-0.5" title={c.name}>
-          <Input
+        <NumberBox key={c.key} caption={c.short} title={c.name} className="min-w-0 flex-1">
+          <input
             aria-label={c.name}
             inputMode="numeric"
             autoComplete="off"
             value={shown(c.key, String(values[c.key] ?? 0))}
-            className="h-7 px-1 text-center tabular-nums"
+            className={BOX}
             onChange={(e) => {
               setTyping({ key: c.key, text: e.target.value });
               const n = Number(e.target.value);
@@ -376,11 +527,33 @@ function ColourInputs({
             onBlur={() => setTyping(null)}
             onFocus={(e) => e.currentTarget.select()}
           />
-          <span aria-hidden className="text-[10px] text-muted-foreground">
-            {c.short}
-          </span>
-        </label>
+        </NumberBox>
       ))}
+    </div>
+  );
+}
+
+const BOX =
+  "h-8 w-full min-w-0 rounded-md border border-[#bebebe] bg-transparent p-0.5 text-center text-[15px] text-black outline-none focus-visible:border-[#568cf5] focus-visible:ring-2 focus-visible:ring-[#568cf5]/30 dark:border-input dark:text-foreground";
+
+/** An input with its caption underneath; the input carries its own name, the caption is only printed. */
+function NumberBox({
+  caption,
+  title,
+  className,
+  children,
+}: {
+  caption: string;
+  title?: string;
+  className?: string;
+  children: ReactNode;
+}): JSX.Element {
+  return (
+    <div className={cn("flex flex-col items-center", className)} title={title}>
+      {children}
+      <span aria-hidden className={cn("text-[11px] leading-[1.2] font-bold", CAPTION)}>
+        {caption}
+      </span>
     </div>
   );
 }
@@ -395,23 +568,26 @@ function Guide({
   onPick: (hex: string) => void;
 }): JSX.Element {
   return (
-    <div className="flex flex-col gap-1.5">
+    <div role="group" aria-label="Colour guide" className="relative mt-2.5">
+      <span aria-hidden className={cn("absolute top-0 left-0.5 text-[13px] font-semibold", MARK)}>
+        Colour guide
+      </span>
       {harmonies(hsv).map((row) => (
-        <div key={row.name} role="group" aria-label={row.name} className="flex flex-col gap-0.5">
-          <span aria-hidden className="text-[11px] text-muted-foreground">
+        <div key={row.name} role="group" aria-label={row.name} className="flex flex-col">
+          <span aria-hidden className={cn("mt-1 text-center text-xs leading-5 font-medium", MARK)}>
             {row.name}
           </span>
-          <div className="flex overflow-hidden rounded-md border">
+          <div className="flex h-[30px] overflow-hidden rounded-[5px]">
             {row.colours.map((c, i) => (
               <button
-                // a harmony can name one colour twice (a grey turned is still that grey), so the place counts
+                // a row can name one colour twice (a grey turned is still that grey), so the place counts
                 key={`${c}-${i}`}
                 type="button"
                 aria-label={c}
                 aria-pressed={c === current}
                 title={c}
                 onClick={() => onPick(c)}
-                className="h-6 flex-1 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                className="flex-1 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-inset"
                 style={{ background: c }}
               />
             ))}
@@ -434,31 +610,23 @@ function Swatches({
   onPick: (hex: string) => void;
 }): JSX.Element {
   return (
-    <div role="group" aria-label={name} className="flex flex-col gap-0.5">
-      <span aria-hidden className="text-[11px] text-muted-foreground">
-        {name}
-      </span>
-      <div className="grid grid-cols-9 gap-1">
-        {colours.map((c) => (
-          <button
-            key={c}
-            type="button"
-            aria-label={c}
-            aria-pressed={c === current}
-            title={c}
-            onClick={() => onPick(c)}
-            className={cn(
-              "relative aspect-square cursor-pointer rounded-sm border border-black/10 outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              c === current
-                ? isLight(c)
-                  ? "ring-1 ring-black/60 ring-inset"
-                  : "ring-1 ring-white ring-inset"
-                : "",
-            )}
-            style={{ background: c }}
-          />
-        ))}
-      </div>
+    <div role="group" aria-label={name} className="grid min-w-0 flex-1 grid-cols-9 content-start gap-[3px]">
+      {colours.map((c) => (
+        <button
+          key={c}
+          type="button"
+          aria-label={c}
+          aria-pressed={c === current}
+          title={c}
+          onClick={() => onPick(c)}
+          className={cn(
+            "h-[23.5px] cursor-pointer rounded-[4px] outline-none transition-shadow focus-visible:ring-2 focus-visible:ring-[#568cf5]",
+            isLight(c) ? "border border-[#96959c]" : "",
+            c === current ? "ring-2 ring-[#568cf5] ring-offset-1 ring-offset-popover" : "",
+          )}
+          style={{ background: c }}
+        />
+      ))}
     </div>
   );
 }

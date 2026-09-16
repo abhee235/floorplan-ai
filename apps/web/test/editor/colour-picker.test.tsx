@@ -69,11 +69,9 @@ describe("the colour picker", () => {
     expect(picked.at(-1)).toBe("#3E5C76");
   });
 
-  it("speaks RGB, HSL, HSB and CMYK, and steps a number with the arrow keys", async () => {
+  it("shows hex with RGB first, switches to HSL, HSV or CMYK from its menu, and steps a number", async () => {
     const { trigger, user, picked } = setup();
     await user.click(trigger);
-    await user.click(screen.getByRole("combobox", { name: "Colour model" }));
-    await user.click(await screen.findByRole("option", { name: "RGB" }));
     const red = screen.getByRole("textbox", { name: "Red" }) as HTMLInputElement;
     expect(red.value).toBe("201");
     await user.clear(red);
@@ -83,9 +81,32 @@ describe("the colour picker", () => {
     await user.click(blue);
     await user.keyboard("{Shift>}{ArrowUp}{/Shift}");
     expect(picked.at(-1)).toBe("#FFA288");
-    await user.click(screen.getByRole("combobox", { name: "Colour model" }));
-    await user.click(await screen.findByRole("option", { name: "CMYK" }));
+    await user.click(screen.getByRole("button", { name: "Colour model" }));
+    const models = await screen.findAllByRole("menuitemradio");
+    expect(models.map((m) => m.textContent)).toEqual(["RGB", "HSL", "HSV", "CMYK"]);
+    expect(models[0]?.getAttribute("aria-checked")).toBe("true");
+    await user.click(models[3] as HTMLElement);
     expect(screen.getByRole("textbox", { name: "Black" })).toBeDefined();
+    // the hex value stays whatever the model
+    expect(screen.getByRole("textbox", { name: "Hex colour" })).toBeDefined();
+    // and the picker is still open: choosing a model is not closing the picker
+    expect(screen.getByRole("dialog", { name: "Colour of top, picker" })).toBeDefined();
+  });
+
+  it("adjusts saturation, lightness and brightness from its fine sliders", async () => {
+    const { trigger, user, picked } = setup("#C9A27E");
+    await user.click(trigger);
+    const tools = screen.getByRole("button", { name: "Fine sliders" });
+    expect(tools.getAttribute("aria-pressed")).toBe("false");
+    await user.click(tools);
+    expect(tools.getAttribute("aria-pressed")).toBe("true");
+    const brightness = screen.getByRole("slider", { name: "Brightness" });
+    expect(brightness.getAttribute("aria-valuetext")).toBe("79 percent");
+    brightness.focus();
+    await user.keyboard("{Home}");
+    expect(picked.at(-1)).toBe("#000000");
+    expect(screen.getByRole("slider", { name: "Saturation" })).toBeDefined();
+    expect(screen.getByRole("slider", { name: "Lightness" })).toBeDefined();
   });
 
   it("turns the hue from its slider, and keeps the hue of a grey", async () => {
