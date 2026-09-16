@@ -76,6 +76,8 @@ export function EditorShell(): JSX.Element {
   const [panelTab, setPanelTab] = useState<PanelTab>("properties");
   const [selectionKey, setSelectionKey] = useState("");
   const [textures, setTextures] = useState<readonly TextureChoice[]>([]);
+  // what the item tool places, for the catalog to say so; a ref alone would not re-render the tab
+  const [pieceName, setPieceName] = useState<string | null>(null);
   // The piece the item tool places, picked in the catalog. Kept after the tool is left, so pressing I
   // again carries on with it.
   const pieceRef = useRef<Placeable | null>(null);
@@ -117,12 +119,15 @@ export function EditorShell(): JSX.Element {
     (id: ToolId) => {
       const next = toolById(id);
       if (!next) return;
-      if (next.id === "item" && !pieceRef.current) {
-        // Nothing to place yet: the catalog is where a piece is picked, so go there instead.
+      if (next.id === "item") {
+        // The catalog is where a piece is picked, so it opens with the tool every time: with a piece already
+        // picked it shows what is being placed and lets another be picked; with none, the tool waits there.
         setPanelTab("catalog");
-        requestAnimationFrame(() => catalogInputRef.current?.focus());
-        announcer.say("Pick a piece in the catalog, then place it on the plan.");
-        return;
+        if (!pieceRef.current) {
+          requestAnimationFrame(() => catalogInputRef.current?.focus());
+          announcer.say("Pick a piece in the catalog, then place it on the plan.");
+          return;
+        }
       }
       if (next.id !== toolRef.current) for (const end of endGestures.current) end();
       // the ref first: the canvas bindings read it before React has rendered the change
@@ -454,6 +459,7 @@ export function EditorShell(): JSX.Element {
   const placePiece = useCallback(
     (piece: Placeable) => {
       pieceRef.current = piece;
+      setPieceName(piece.name);
       // A new piece starts as placed, turned by the wall it meets; a turn asked for the last one is not
       // this one's.
       optionsRef.current = { ...optionsRef.current, "item.rotation": 0 };
@@ -687,6 +693,8 @@ export function EditorShell(): JSX.Element {
                     onPlace={placePiece}
                     onReplace={replaceWith}
                     replacing={replacing}
+                    placing={toolId === "item" ? pieceName : null}
+                    onStopPlacing={() => setTool("select")}
                   />
                 </TabsContent>
               </Tabs>

@@ -202,7 +202,17 @@ describe("switching what is on screen (ADR-017 D1)", () => {
     expect(plan.dataset.tool).toBe("item");
     // the catalog stays open while placing
     expect(screen.getByRole("tab", { name: "Catalog" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("status").textContent).toContain("Placing Acme chair");
     await user.keyboard("{Escape}");
     expect(plan.dataset.tool).toBe("select");
+    // choosing the tool again, from another tab, opens the catalog with the same piece ready to place
+    await user.click(screen.getByRole("tab", { name: "Properties" }));
+    await user.click(screen.getByRole("radio", { name: "Place item, I" }));
+    expect(plan.dataset.tool).toBe("item");
+    expect(screen.getByRole("tab", { name: "Catalog" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("status").textContent).toContain("Placing Acme chair");
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    expect(plan.dataset.tool).toBe("select");
+    expect(screen.queryByRole("status")).toBeNull();
   });
 });
