@@ -51,9 +51,10 @@ describe("the tools on the rail (ADR-017 D2)", () => {
 
   it("states which tools actually do something, so the rail cannot pretend", () => {
     // this list is the promise the UI makes; extend it as each tool's gestures land
-    expect(TOOLS.filter((t) => toolReady(t)).map((t) => t.id)).toEqual(["select", "wall", "pan"]);
-    expect(toolReady("room")).toBe(false);
+    expect(TOOLS.filter((t) => toolReady(t)).map((t) => t.id)).toEqual(["select", "wall", "room", "pan"]);
+    expect(toolReady("opening")).toBe(false);
     expect(toolReady("wall")).toBe(true);
+    expect(toolReady("room")).toBe(true);
   });
 
   it("finds a tool by id", () => {
