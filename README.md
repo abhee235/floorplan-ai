@@ -7,3 +7,8 @@ Floor plans and briefs become editable 3D office models and a traceable bill of 
 - Commands: `pnpm install`, `pnpm check` (lint, boundaries, typecheck, tests, ledger coverage).
 
 Run pnpm through corepack if it is not installed: `corepack pnpm install`.
+
+## Licence
+
+Apache License 2.0; see `LICENSE`. The third-party drawings used as test fixtures keep their own
+licences, listed in the `SOURCES.md` beside them under `tools/fixtures/`.
