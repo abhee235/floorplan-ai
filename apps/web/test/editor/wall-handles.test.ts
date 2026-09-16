@@ -159,6 +159,79 @@ describe("wall handles", () => {
     expect(previewWall(w, "start", { x: 4000, y: 0 })).toBeNull();
   });
 
+  it("W-081 a dragged end welds onto another wall's free end", () => {
+    const dragged = wall({ x: 0, y: 0 }, { x: 4000, y: 0 });
+    const neighbour = defaultWall(
+      "wall_000002",
+      LEVEL,
+      { x: 6000, y: 900 },
+      { x: 9000, y: 900 },
+      {
+        thickness: 200,
+      },
+    );
+    // Dropped near the neighbour's free start, but not on it.
+    const moved = previewWall(
+      dragged,
+      "end",
+      { x: 5950, y: 860 },
+      {
+        walls: [dragged, neighbour],
+        weldToleranceMm: 200,
+      },
+    );
+    expect(moved?.end).toEqual({ x: 6000, y: 900 });
+  });
+
+  it("W-081 a dragged end never welds onto its own wall", () => {
+    const dragged = wall({ x: 0, y: 0 }, { x: 4000, y: 0 });
+    // Dragging the end back towards its own start: without the exclusion this would weld to itself.
+    const moved = previewWall(
+      dragged,
+      "end",
+      { x: 40, y: 30 },
+      {
+        walls: [dragged],
+        weldToleranceMm: 500,
+      },
+    );
+    expect(moved?.end).toEqual({ x: 40, y: 30 });
+  });
+
+  it("a weld beats an angle step, because two ends in one place is the stronger intent", () => {
+    const dragged = wall({ x: 0, y: 0 }, { x: 4000, y: 0 });
+    const neighbour = defaultWall(
+      "wall_000002",
+      LEVEL,
+      { x: 5000, y: 137 },
+      { x: 9000, y: 137 },
+      {
+        thickness: 200,
+      },
+    );
+    const welded = previewWall(
+      dragged,
+      "end",
+      { x: 5010, y: 150 },
+      {
+        snap: true,
+        walls: [dragged, neighbour],
+        weldToleranceMm: 300,
+      },
+    );
+    // 137 is not on any 15 degree ray from the opposite end; the weld took it exactly anyway.
+    expect(welded?.end).toEqual({ x: 5000, y: 137 });
+  });
+
+  it("with nothing to weld to, magnetism steps the angle from the opposite end", () => {
+    const dragged = wall({ x: 0, y: 0 }, { x: 4000, y: 0 });
+    const free = previewWall(dragged, "end", { x: 4000, y: 60 }, { snap: false });
+    const stepped = previewWall(dragged, "end", { x: 4000, y: 60 }, { snap: true });
+    expect(free?.end).toEqual({ x: 4000, y: 60 });
+    // A shallow angle off horizontal snaps back onto the axis through the start (W-077).
+    expect(stepped?.end?.y).toBe(0);
+  });
+
   it("a drag that changes nothing commits no command", () => {
     const w = wall({ x: 0, y: 0 }, { x: 4000, y: 0 });
     const same = previewWall(w, "end", { x: 4000, y: 0 }) as Wall;

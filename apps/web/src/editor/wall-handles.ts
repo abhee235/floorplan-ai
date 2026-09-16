@@ -9,7 +9,7 @@
 // begins. The alternative — returning {id, partIndex} from every hit test — would complicate the common
 // case to serve a rare one.
 
-import { INDICATOR_PX } from "@fpv/geometry";
+import { INDICATOR_PX, magnetizePoint, snapToFreeWallEnd } from "@fpv/geometry";
 import type { Point, Wall } from "@fpv/ir";
 import { derive, normalizeDeg, poly } from "@fpv/ir";
 
@@ -200,19 +200,51 @@ export function arcExtentThrough(start: Point, end: Point, through: Point, snap 
   return out === 0 ? null : out;
 }
 
+export interface PreviewOptions {
+  /** Magnetism: angle steps and rounded lengths for an end, whole degrees for an arc. */
+  snap?: boolean;
+  /** Other walls on the level, so a dragged end can weld onto a free end of one of them. */
+  walls?: readonly Wall[];
+  /** How close a free end has to be to catch the drag, in plan millimetres. */
+  weldToleranceMm?: number;
+}
+
 /**
- * The wall as it would be after this drag, for drawing a live preview.
+ * The wall as it would be after this drag.
  *
- * Returned as a whole Wall so the caller can hand it straight to the footprint routines and draw the
- * real shape rather than an approximation of it. Endpoint drags change the shape, not the position, so
- * the translated outline a move uses cannot serve here.
+ * Returned as a whole Wall so the caller can hand it straight to the footprint routines and to the
+ * reducer, and get the real shape rather than an approximation of it.
+ *
+ * The order of the three adjustments is the whole design. A free end of another wall wins outright,
+ * because putting two ends in the same place is a stronger intention than any angle — it is how walls
+ * are joined, and a 15 degree step that lands a millimetre short leaves a corner that only looks shut.
+ * Failing that, magnetism works from the OPPOSITE end, since that is the end staying put and the one an
+ * angle is meaningful against. Rounding comes last of the three because Mm is an integer and a snap
+ * computed after it would be pulled back off the target.
+ *
+ * The dragged wall is excluded from its own snap targets (W-081): without that, an end coming within
+ * tolerance of its own far end would weld the wall to itself.
  *
  * Null when the drag would produce a wall the host will refuse: the two ends may not coincide.
  */
-export function previewWall(w: Wall, handle: WallHandle, to: Point, snap = false): Wall | null {
-  if (handle === "arc") return { ...w, arcExtent: arcExtentThrough(w.start, w.end, to, snap) };
-  const at = { x: Math.round(to.x), y: Math.round(to.y) };
+export function previewWall(
+  w: Wall,
+  handle: WallHandle,
+  to: Point,
+  options: PreviewOptions | boolean = {},
+): Wall | null {
+  // A bare boolean used to be the whole argument. Kept working because it reads well at the call site
+  // for an arc, which has nothing to snap to but whole degrees.
+  const opts: PreviewOptions = typeof options === "boolean" ? { snap: options } : options;
+  if (handle === "arc") {
+    return { ...w, arcExtent: arcExtentThrough(w.start, w.end, to, opts.snap ?? false) };
+  }
+
   const other = handle === "start" ? w.end : w.start;
+  const weld = opts.walls ? snapToFreeWallEnd(to, opts.walls, opts.weldToleranceMm ?? 0, w.id) : null;
+  const aimed = weld ? weld.point : opts.snap ? magnetizePoint(other, to, 1) : to;
+
+  const at = { x: Math.round(aimed.x), y: Math.round(aimed.y) };
   if (at.x === other.x && at.y === other.y) return null;
   return handle === "start" ? { ...w, start: at } : { ...w, end: at };
 }

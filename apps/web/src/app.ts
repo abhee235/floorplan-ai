@@ -2,7 +2,7 @@
 // the binding, the plan renderer and the bridge client are testable without it.
 import { apply, type ChangeSet } from "@fpv/commands";
 import type { Layer } from "@fpv/engine";
-import { SELECTION_PX, wallFootprintUnjoined } from "@fpv/geometry";
+import { SELECTION_PX, WALL_END_PX, wallFootprintUnjoined } from "@fpv/geometry";
 import type { Project, Wall } from "@fpv/ir";
 import { derive, sequentialIdGenerator } from "@fpv/ir";
 import * as THREE from "three";
@@ -368,7 +368,15 @@ export function startApp(el: AppElements): {
       // shape would run away from the pointer.
       // Alt bypasses snapping, which is what the tool options bar promises; for a bend, snapping means
       // whole degrees of arc (W-062).
-      const next = previewWall(active.before, active.handle, planPointOf(e), !e.altKey);
+      // A dragged end welds onto another wall's free end within the same 2 px the drawing tool uses to
+      // join a new chain (W-068, W-069) — the same gesture should mean the same thing however the wall
+      // got there. Alt turns magnetism off, as the tool options bar promises.
+      const level = plan.level;
+      const next = previewWall(active.before, active.handle, planPointOf(e), {
+        snap: !e.altKey,
+        walls: replica.project?.walls.filter((x) => x.levelId === level) ?? [],
+        weldToleranceMm: e.altKey ? 0 : WALL_END_PX / plan.view.scale,
+      });
       handling = { ...active, preview: next };
       // The whole point: edit the real wall now, so the plan and the 3D scene both show the result while
       // the button is still down. One command goes to the host at the end, not one per pointer move.
