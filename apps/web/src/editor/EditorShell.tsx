@@ -17,6 +17,7 @@ import { CommandPalette } from "./CommandPalette.js";
 import { CommandRegistry } from "./commands.js";
 import { isTypingTarget } from "./keys.js";
 import { PropertiesPanel } from "./PropertiesPanel.js";
+import { bindRoomDrawing } from "./room-drawing.js";
 import { StatusBar } from "./StatusBar.js";
 import { scaleLabel } from "./status.js";
 import { ToolOptionsBar } from "./ToolOptionsBar.js";
@@ -87,10 +88,17 @@ export function EditorShell(): JSX.Element {
 
   const tool = (toolById(toolId) ?? TOOLS[0]) as ToolDefinition;
 
+  // Ending a live gesture when the tool changes. Both drawing adapters only go inactive when `active()`
+  // turns false — nothing told them to finish — so a half-drawn chain or ring stayed alive with its 3D
+  // preview still in the scene, and the status bar went on reporting it under a different tool. The
+  // comment below has claimed W-090 does this since P3-1; until now it did not.
+  const endGestures = useRef<(() => void)[]>([]);
+
   const setTool = useCallback(
     (id: ToolId) => {
       const next = toolById(id);
       if (!next) return;
+      if (next.id !== toolRef.current) for (const end of endGestures.current) end();
       setToolId(next.id);
       announcer.say(
         // phraseText, not the Phrase itself: keyboard is an array of parts now, and interpolating it
@@ -207,12 +215,45 @@ export function EditorShell(): JSX.Element {
       },
     });
 
-    // One overlay painter: the draft review panel, the wall preview and the compass all draw over the
+    const roomDrawing = bindRoomDrawing({
+      plan,
+      element: planRef.current as HTMLElement,
+      announcer,
+      project: () => replica.project,
+      settings: () => ({ magnetism: optionsRef.current["room.snapWalls"] !== false }),
+      active: () => toolRef.current === "room",
+      send: async (command) => {
+        // Same as the wall path: the bridge resolves with a result either way, so a refusal has to be
+        // read out of it. room.create can refuse with room.not-enclosed, and without this a click on
+        // open ground would announce a room that was never made.
+        const result = await client.command(command);
+        if (!result.ok)
+          throw new Error(
+            result.error
+              ? `${result.error.message}${result.error.hint ? ` (${result.error.hint})` : ""}`
+              : "the host refused the command",
+          );
+      },
+      redraw,
+      status: setSnap,
+      preview3d: (polygon) => {
+        const level = plan.level;
+        if (!level) return;
+        app.binding.setRoomPreview(polygon, polygon.length >= 3 ? { levelId: level } : null);
+      },
+    });
+
+    // Leaving a tool finishes what it was drawing (W-090): what is already down is kept and committed,
+    // rather than abandoned half drawn with its preview left standing in the 3D scene.
+    endGestures.current = [() => wallDrawing.finish(), () => roomDrawing.finish()];
+
+    // One overlay painter: the draft review panel, both drawing tools and the compass all draw over the
     // plan. setOverlayExtra takes a single function, so anything new joins this composition rather than
     // replacing it — registering a second painter would silently drop the first.
     plan.setOverlayExtra((ctx, view2) => {
       review.draw(ctx, view2);
       wallDrawing.draw(ctx, view2);
+      roomDrawing.draw(ctx, view2);
       const north = replica.project?.meta.north;
       if (north !== undefined) drawCompass(ctx, view2, north);
     });
@@ -295,6 +336,7 @@ export function EditorShell(): JSX.Element {
     return () => {
       unsubscribe();
       wallDrawing.destroy();
+      roomDrawing.destroy();
     };
   }, [app, announcer, commands, setTool]);
 
