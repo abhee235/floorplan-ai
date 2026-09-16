@@ -109,7 +109,7 @@ describe("describing a selected entity", () => {
     expect(d?.facts.find((f) => f.label === "Length")?.value).toBe(`8${NARROW}000`);
   });
 
-  it("groups a wall's rows as position, shape, size and height, with its kind and pattern ahead (ADR-017 D3)", () => {
+  it("groups a wall's rows as position, shape and size, and its sides, with its kind and pattern ahead (ADR-017 D3)", () => {
     const p = fixture();
     const d = describeEntity(p, (p.walls[0] as { id: string }).id);
     expect(d?.facts.map((f) => f.group ?? null)).toEqual([
@@ -119,19 +119,19 @@ describe("describing a selected entity", () => {
       "Position",
       "Position",
       "Position",
-      "Shape",
-      "Size",
-      "Size",
-      "Height",
-      "Height",
+      "Shape and size",
+      "Shape and size",
+      "Shape and size",
+      "Shape and size",
+      "Shape and size",
       "Left side, facing north",
       "Left side, facing north",
       "Left side, facing north",
-      "Baseboard, left side",
+      "Left side, facing north",
       "Right side, facing south",
       "Right side, facing south",
       "Right side, facing south",
-      "Baseboard, right side",
+      "Right side, facing south",
     ]);
   });
 
@@ -657,7 +657,12 @@ describe("giving a wall's sides a baseboard (ADR-014 D8)", () => {
 
   it("shows no baseboard as an empty height standing for none, with no depth to set", () => {
     const row = rowOf(fixture(), W1, "Height of baseboard, left side");
-    expect(row).toMatchObject({ value: "", caption: "Height", unit: "mm", group: "Baseboard, left side" });
+    expect(row).toMatchObject({
+      value: "",
+      caption: "Height of baseboard",
+      unit: "mm",
+      group: "Left side, facing north",
+    });
     expect(row.empty).toEqual({ shown: "none", action: "Remove the baseboard" });
     expect(labelsOf(fixture())).not.toContain("Depth of baseboard, left side");
   });
@@ -681,7 +686,7 @@ describe("giving a wall's sides a baseboard (ADR-014 D8)", () => {
     expect(labelsOf(project)).toContain("Depth of baseboard, left side");
     expect(rowOf(project, W1, "Depth of baseboard, left side")).toMatchObject({
       value: "12",
-      caption: "Depth",
+      caption: "Depth of baseboard",
     });
   });
 
@@ -727,7 +732,11 @@ describe("giving a wall's sides a baseboard (ADR-014 D8)", () => {
   it("gives a baseboard a colour of its own, and hands it back to its side when emptied", () => {
     const p = run(fixture(), typed(fixture(), W1, "Height of baseboard, left side", "100")).project;
     const colour = rowOf(p, W1, "Colour of baseboard, left side");
-    expect(colour).toMatchObject({ value: "", caption: "Colour", group: "Baseboard, left side" });
+    expect(colour).toMatchObject({
+      value: "",
+      caption: "Colour of baseboard",
+      group: "Left side, facing north",
+    });
     // unpainted side: the swatch shows the baseboard off-white
     expect(colour.colour).toEqual({ effective: "#F6F5F1" });
     expect(colour.empty).toEqual({ shown: "as side", action: "Use the side's colour" });

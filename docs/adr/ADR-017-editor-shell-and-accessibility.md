@@ -52,6 +52,17 @@ number in millimetres, right-aligned, tabular; degrees for angles. Problems for
 the selection are stated in words, not codes. The panel is also where the
 catalog and the level list live, as sibling tabs.
 
+Amendment 2026-09-17 (P3-5): the panel is laid out as design tools lay out
+theirs, to keep a selection on one screen. Under a title bar, each group is a
+band with a small heading over a six-column grid. Each value is a compact field
+under a short caption, with a leading letter or icon that is also the handle to
+drag a number by. Short values share a line (a coordinate pair, a size in
+thirds), names and long text take the whole line, and a surface's material and
+colour are one field with the material list at its end. Lengths are
+left-aligned and tabular. "mm" is printed once in each band's heading rather
+than in every field; every field's accessible name still says "in
+millimetres". The level's own values show only while nothing is selected.
+
 ### D4. Every gesture has a keyboard equal
 
 The tab sequence is the shell: app bar, tool options, tool rail, canvas,

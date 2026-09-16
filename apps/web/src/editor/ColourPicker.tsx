@@ -38,6 +38,8 @@ export interface ColourPickerProps {
   value: string;
   /** Colours the project already uses. */
   swatches?: readonly string[] | undefined;
+  /** A texture the surface wears instead of a colour, shown on the swatch. */
+  image?: string | undefined;
   /** Called with every colour picked while the picker is open. */
   onPick: (hex: string) => void;
   /** The picker closed: keep what was picked, or (Escape) put it all back. */
@@ -73,6 +75,7 @@ export function ColourPicker({
   label,
   value,
   swatches = [],
+  image,
   onPick,
   onClose,
   className,
@@ -135,7 +138,9 @@ export function ColourPicker({
           ref={trigger}
           type="button"
           aria-label={`${label}, picker`}
-          style={{ background: value }}
+          style={
+            image ? { backgroundImage: `url("${image}")`, backgroundSize: "cover" } : { background: value }
+          }
           className={cn(
             "size-4 shrink-0 cursor-pointer rounded-sm border border-black/15 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
             className,

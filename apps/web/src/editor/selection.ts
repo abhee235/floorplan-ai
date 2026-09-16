@@ -354,7 +354,7 @@ function materialFact(
     caption: "Material",
     value,
     choices: list,
-    hint: "Paint takes the colour below. A material shows its own colours.",
+    hint: "Paint takes the colour. A material shows its own colours, and a colour replaces it.",
     edit: choiceEdit("Material", list, value, (v) => set(v === PAINT ? null : v)),
   };
 }
@@ -385,7 +385,7 @@ function wallFacts(w: Wall, level: Level, north: number, materials: MaterialChoi
     ...endFacts(w, "start"),
     ...endFacts(w, "end"),
     {
-      group: "Shape",
+      group: SHAPE_AND_SIZE,
       label: "Curve",
       value: w.arcExtent === null ? "" : formatDegrees(w.arcExtent),
       unit: "°",
@@ -397,9 +397,9 @@ function wallFacts(w: Wall, level: Level, north: number, materials: MaterialChoi
       ? // Along the curve, which is the length anyone means by a curved wall's length. Not typed: a new
         // length could keep the chord and deepen the curve, or keep the curve and move an end, and neither
         // is obviously what was meant. The arc's own extent is the control for its shape.
-        { group: "Size", label: "Length", value: formatMm(derive.wallArcLength(w)), unit: "mm" }
+        { group: SHAPE_AND_SIZE, label: "Length", value: formatMm(derive.wallArcLength(w)), unit: "mm" }
       : {
-          group: "Size",
+          group: SHAPE_AND_SIZE,
           label: "Length",
           value: formatMm(derive.wallLength(w)),
           unit: "mm",
@@ -408,7 +408,7 @@ function wallFacts(w: Wall, level: Level, north: number, materials: MaterialChoi
           ),
         },
     {
-      group: "Size",
+      group: SHAPE_AND_SIZE,
       label: "Thickness",
       value: formatMm(w.thickness),
       unit: "mm",
@@ -421,6 +421,12 @@ function wallFacts(w: Wall, level: Level, north: number, materials: MaterialChoi
     ...sideFacts(w, "right", level, north, materials),
   ];
 }
+
+/**
+ * One band for a wall's curve, length, thickness and heights: each is a single number, and a band each
+ * spent more of the panel on headings than on values.
+ */
+const SHAPE_AND_SIZE = "Shape and size";
 
 /** How the plan fills a wall's cut (W-121), as a person picks it, each with a picture of itself. */
 export const WALL_PATTERNS: readonly Choice[] = [
@@ -487,7 +493,7 @@ function sideFacts(
         finished({ shininess: FINISH_SHININESS[value as FinishName] ?? null }),
       ),
     },
-    ...skirtingFacts(w, side, level),
+    ...skirtingFacts(w, side, level, group),
   ];
 }
 
@@ -502,11 +508,9 @@ export { SKIRTING_DEPTH, SKIRTING_DEPTH_RANGE };
  * A height above the wall is refused rather than stored (W-100): the view would cut it at the wall's top
  * anyway, and a panel should not keep a number the drawing does not show.
  */
-function skirtingFacts(w: Wall, side: "left" | "right", level: Level): Fact[] {
+function skirtingFacts(w: Wall, side: "left" | "right", level: Level, group: string): Fact[] {
   const name = `${side} side`;
-  // A band of its own, so its rows can be called Height, Depth and Colour without meeting the side's
-  // own Colour in the band above.
-  const group = `Baseboard, ${name}`;
+  // In its side's band, so its captions say "of baseboard" to stand apart from the side's own Colour.
   const current = w.skirting[side];
   const tallest = Math.round(derive.wallMaxHeight(w, level));
   const withSkirting = (value: Wall["skirting"]["left"]): EditCommand =>
@@ -515,7 +519,7 @@ function skirtingFacts(w: Wall, side: "left" | "right", level: Level): Fact[] {
     {
       group,
       label: `Height of baseboard, ${name}`,
-      caption: "Height",
+      caption: "Height of baseboard",
       value: current ? formatMm(current.height) : "",
       unit: "mm",
       empty: { shown: "none", action: "Remove the baseboard" },
@@ -538,7 +542,7 @@ function skirtingFacts(w: Wall, side: "left" | "right", level: Level): Fact[] {
     {
       group,
       label: `Depth of baseboard, ${name}`,
-      caption: "Depth",
+      caption: "Depth of baseboard",
       value: formatMm(current.thickness),
       unit: "mm",
       hint: "How far the baseboard stands out from the wall.",
@@ -549,7 +553,7 @@ function skirtingFacts(w: Wall, side: "left" | "right", level: Level): Fact[] {
     {
       group,
       label: `Colour of baseboard, ${name}`,
-      caption: "Colour",
+      caption: "Colour of baseboard",
       value: current.color ?? "",
       // what it looks like while it has no colour of its own: its side's, or the baseboard off-white
       colour: {
@@ -598,7 +602,7 @@ function heightFacts(w: Wall, level: Level): Fact[] {
   const followsLevel = `follows the level, ${describeLength(level.height)}`;
   return [
     {
-      group: "Height",
+      group: SHAPE_AND_SIZE,
       label: "Height",
       value: w.height === null ? "" : formatMm(w.height),
       unit: "mm",
@@ -625,7 +629,7 @@ function heightFacts(w: Wall, level: Level): Fact[] {
       ),
     },
     {
-      group: "Height",
+      group: SHAPE_AND_SIZE,
       label: "Height at end",
       value: w.heightAtEnd === null ? "" : formatMm(w.heightAtEnd),
       unit: "mm",
@@ -1106,7 +1110,8 @@ function itemFacts(project: Project, it: Item, materials: (prefer: string) => Ma
       payload: { itemId: it.id, size: { ...size, [key]: mm } },
     }));
     facts.push({
-      group: "Size",
+      // with where the item stands: a size is three numbers, and a band of its own cost a heading
+      group: "Placement",
       label,
       value: formatMm(size[key]),
       unit: "mm",
