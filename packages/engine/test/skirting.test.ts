@@ -2,9 +2,9 @@
 // both ends, with a 900 mm door centred in it; its left side is the room side, y = 50 from x = 50 to 7950.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { defaultWall, type Level, Project, type Wall } from "@fpv/ir";
+import { defaultWall, type Level, Project, poly, type Wall } from "@fpv/ir";
 import { describe, expect, it } from "vitest";
-import { buildWalls, type GeometryPart, partArea, partBounds } from "../src/index.js";
+import { buildWalls, type GeometryPart, partArea, partBounds, skirtingOutlines } from "../src/index.js";
 
 const fixtureDir = fileURLToPath(new URL("../../../tools/fixtures/six-wall-room.fpviz/", import.meta.url));
 const project = Project.parse(JSON.parse(readFileSync(`${fixtureDir}project.json`, "utf8")));
@@ -138,5 +138,18 @@ describe("baseboards (ADR-014 D8)", () => {
     );
     const parts = buildWalls(walls, project.openings, ctx);
     expect(partOf(parts, SOUTH, "skirting-left")?.materialKey).toBe("wall-skirting|#FFFFFF|0.6");
+  });
+
+  it("W-107 W-113 gives the plan the same strips the model builds: one ring per unbroken stretch", () => {
+    const walls = withSkirting(SOUTH, { left: board, right: null });
+    const outlines = skirtingOutlines(walls, project.openings, ctx);
+    expect(outlines.map((o) => [o.wallId, o.side, o.rings.length])).toEqual([[SOUTH, "left", 2]]);
+    // the two rings together are the top of the 3D strip: trapezoids 3500 and 3480 long, 20 deep, twice
+    const area = (outlines[0]?.rings ?? []).reduce((sum, ring) => sum + Math.abs(poly.area(ring)), 0);
+    expect(area).toBeCloseTo(2 * ((3500 + 3480) / 2) * 20, 6);
+    // and nothing crosses the door
+    for (const ring of outlines[0]?.rings ?? [])
+      expect(ring.some((p) => p.x > 3550.01 && p.x < 4449.99)).toBe(false);
+    expect(skirtingOutlines(project.walls, project.openings, ctx)).toEqual([]);
   });
 });

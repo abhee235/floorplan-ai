@@ -2,7 +2,7 @@
 // transform (scale, translate, y flip), all drawing in IR millimetres. The drawing context is an
 // interface so tests can record calls without a DOM.
 import type { ChangeSet } from "@fpv/commands";
-import { emptyRebuildSet, expand, type Layer, type RebuildSet } from "@fpv/engine";
+import { emptyRebuildSet, expand, type Layer, type RebuildSet, skirtingOutlines } from "@fpv/engine";
 import { type PolyWithHoles, unionRings, wallFootprints } from "@fpv/geometry";
 import type { Item, Opening, Point, Project, Room, Wall } from "@fpv/ir";
 import { derive, poly } from "@fpv/ir";
@@ -51,6 +51,8 @@ const COLOURS = {
   gridMajor: "#d3cfc7",
   wall: "#3a3a3a",
   wallGlass: "#7fb3d5",
+  // a mid grey against the near-black wall: a baseboard is a thin second edge, not more wall
+  skirting: "#9b958c",
   room: "rgba(214, 226, 240, 0.55)",
   roomEdge: "#8fa6bf",
   opening: "#ffffff",
@@ -319,6 +321,28 @@ export class PlanRenderer {
       this.multi(ctx, unionRings(rings));
       ctx.fillStyle = kind === "glass" ? COLOURS.wallGlass : COLOURS.wall;
       ctx.fill("evenodd");
+    }
+    // Baseboards, from the outlines the 3D faces are built from. A baseboard is a centimetre or two deep, a
+    // fraction of a pixel at most plan scales, so each is stroked a pixel wide as well as filled: it shows as
+    // a line along the face at a distance and as a strip close up.
+    const level = project.levels.find((l) => l.id === levelId);
+    if (level) {
+      const lowest = derive.lowestLevel(project);
+      const boards = skirtingOutlines(project.walls, project.openings, {
+        level,
+        isLowest: lowest.id === level.id,
+        isHighest: true,
+        footprints: fps,
+      });
+      if (boards.length > 0) {
+        ctx.beginPath();
+        for (const board of boards) for (const ring of board.rings) this.ring(ctx, ring);
+        ctx.fillStyle = COLOURS.skirting;
+        ctx.fill();
+        ctx.strokeStyle = COLOURS.skirting;
+        ctx.lineWidth = 1 / this.view.scale;
+        ctx.stroke();
+      }
     }
     // openings: a gap through the wall plus the door swing
     for (const o of project.openings) {

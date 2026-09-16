@@ -40,4 +40,11 @@ export {
 export { buildRecipe, recipeAssetKey } from "./recipes.js";
 export { buildRooms, ceilingElevation, type RoomBuildContext } from "./rooms.js";
 export * from "./types.js";
-export { buildWalls, type WallBuildContext, type WallElevations, wallElevations } from "./walls.js";
+export {
+  buildWalls,
+  type SkirtingOutline,
+  skirtingOutlines,
+  type WallBuildContext,
+  type WallElevations,
+  wallElevations,
+} from "./walls.js";

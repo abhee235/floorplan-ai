@@ -144,6 +144,31 @@ describe("plan renderer (ADR-003 D6)", () => {
     expect(plan.draws.overlay).toBe(2);
   });
 
+  it("W-107 draws baseboards on the structure layer, stroked so a thin one still shows", () => {
+    const count = (p: ProjectT) => {
+      const { layers: ctxs, rec } = layers();
+      const plan = new PlanRenderer(ctxs, 800, 600);
+      plan.setProject(p);
+      plan.flush();
+      return {
+        fills: rec.structure.calls.filter((c) => c === "fill").length,
+        strokes: rec.structure.calls.filter((c) => c === "stroke").length,
+      };
+    };
+    const plain = fixture();
+    const boarded = {
+      ...plain,
+      walls: plain.walls.map((w) => ({
+        ...w,
+        skirting: { left: { thickness: 15, height: 100, color: null }, right: null },
+      })),
+    };
+    const before = count(plain);
+    const after = count(boarded);
+    expect(after.fills).toBe(before.fills + 1);
+    expect(after.strokes).toBe(before.strokes + 1);
+  });
+
   it("hit tests items before walls before rooms in plan millimetres", () => {
     const { layers: ctxs } = layers();
     const plan = new PlanRenderer(ctxs, 800, 600);

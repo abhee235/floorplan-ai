@@ -384,6 +384,34 @@ function buildOpeningFaces(
   if (!jambs.isEmpty) out.push(jambs.toPart(oid, "opening-jamb", revealKey));
 }
 
+/** A wall's two sides, path length, elevations and opening cuts: what every builder here starts from. */
+interface WallFrame {
+  left: Side;
+  right: Side;
+  len: number;
+  el: WallElevations;
+  cutList: Cut[];
+}
+
+function frameOf(
+  w: Wall,
+  fps: Map<string, Point[]>,
+  openings: readonly Opening[],
+  ctx: WallBuildContext,
+): WallFrame | null {
+  const fp = fps.get(w.id);
+  const len = pathLength(w);
+  if (!fp || fp.length < 4 || len === 0) return null;
+  const n = fp.length / 2;
+  return {
+    left: makeSide(fp.slice(0, n), w),
+    right: makeSide([...fp.slice(n)].reverse(), w),
+    len,
+    el: wallElevations(w, ctx),
+    cutList: cuts(w, openings, ctx.level, ctx.cutOuts),
+  };
+}
+
 /** Build every part for the walls of one level. */
 export function buildWalls(
   walls: readonly Wall[],
@@ -395,14 +423,9 @@ export function buildWalls(
   const out: GeometryPart[] = [];
   const planUv = (p: P3): [number, number] => [p.x / MM_PER_M, p.y / MM_PER_M];
   for (const w of onLevel) {
-    const fp = fps.get(w.id);
-    const len = pathLength(w);
-    if (!fp || fp.length < 4 || len === 0) continue;
-    const n = fp.length / 2;
-    const left = makeSide(fp.slice(0, n), w);
-    const right = makeSide([...fp.slice(n)].reverse(), w);
-    const el = wallElevations(w, ctx);
-    const cutList = cuts(w, openings, ctx.level, ctx.cutOuts);
+    const frame = frameOf(w, fps, openings, ctx);
+    if (!frame) continue;
+    const { left, right, len, el, cutList } = frame;
     // Each side wears its own finish (W-106); the end caps and reveals keep the plain wall material. A glass
     // wall is glass on both faces and aluminium everywhere it has an edge: its top, its ends and the reveals
     // of anything set into it, which is how a glazed partition is actually built.
@@ -482,6 +505,62 @@ export function buildWalls(
   return out;
 }
 
+type Stop = { p: Point; u: number };
+
+/** One unbroken stretch of a baseboard: the side's face and the offset line, each start to end. */
+interface SkirtingRun {
+  inner: Stop[];
+  skin: Stop[];
+}
+
+interface SkirtingPlan {
+  runs: SkirtingRun[];
+  bottom: number;
+  topAt: (u: number) => number;
+  side: Side;
+  outer: Side;
+}
+
+/** Where a baseboard lies on the plan: one ring per unbroken stretch, the face out to the offset line. */
+export interface SkirtingOutline {
+  wallId: string;
+  side: "left" | "right";
+  rings: Point[][];
+}
+
+/**
+ * The plan outline of every baseboard on a level, from the same runs the 3D faces are built from, so the
+ * plan and the model cannot disagree about where a baseboard stops.
+ */
+export function skirtingOutlines(
+  walls: readonly Wall[],
+  openings: readonly Opening[],
+  ctx: WallBuildContext,
+): SkirtingOutline[] {
+  const onLevel = walls.filter((w) => w.levelId === ctx.level.id);
+  if (!onLevel.some((w) => w.skirting.left || w.skirting.right)) return [];
+  const fps = ctx.footprints ?? wallFootprints(onLevel);
+  const out: SkirtingOutline[] = [];
+  for (const w of onLevel) {
+    if (!w.skirting.left && !w.skirting.right) continue;
+    const frame = frameOf(w, fps, openings, ctx);
+    if (!frame) continue;
+    for (const [name, side] of [
+      ["left", frame.left],
+      ["right", frame.right],
+    ] as const) {
+      const plan = planSkirting(w, name, side, frame.len, frame.cutList, frame.el, ctx.level);
+      if (!plan || plan.runs.length === 0) continue;
+      out.push({
+        wallId: w.id,
+        side: name,
+        rings: plan.runs.map((r) => [...r.inner.map((s) => s.p), ...[...r.skin].reverse().map((s) => s.p)]),
+      });
+    }
+  }
+  return out;
+}
+
 /**
  * A baseboard along one side (ADR-014 D8): a strip standing out from the side's face by its thickness, from
  * the floor up to its height.
@@ -495,7 +574,7 @@ export function buildWalls(
  * - Any opening that starts below the baseboard's top breaks it (W-113), leaving an end face each side.
  * - On the inside of a curve the offset never passes the arc's centre (W-057 reversed).
  */
-function buildSkirting(
+function planSkirting(
   w: Wall,
   name: "left" | "right",
   side: Side,
@@ -503,12 +582,10 @@ function buildSkirting(
   cutList: readonly Cut[],
   el: WallElevations,
   level: Level,
-  key: string,
-  out: GeometryPart[],
-): void {
+): SkirtingPlan | null {
   const sk = w.skirting[name];
   const pts = side.points;
-  if (!sk || pts.length < 2) return;
+  if (!sk || pts.length < 2) return null;
 
   // outward normal of each segment: left of the start-to-end direction for the left side, right for the right
   const segNormals: Point[] = [];
@@ -564,7 +641,7 @@ function buildSkirting(
 
   const bottom = level.elevation;
   const topAt = (u: number): number => Math.min(bottom + sk.height, el.top(len === 0 ? 0 : u / len));
-  if (topAt(side.start) <= bottom && topAt(side.end) <= bottom) return;
+  if (topAt(side.start) <= bottom && topAt(side.end) <= bottom) return null;
 
   // runs of the side not broken by an opening that starts below the baseboard's top
   const breaks = cutList
@@ -579,7 +656,6 @@ function buildSkirting(
   }
   if (side.end > from) runs.push([from, side.end]);
 
-  type Stop = { p: Point; u: number };
   // A clamped end can repeat a vertex; a zero-length edge would only make degenerate triangles.
   const distinct = (stops: Stop[]): Stop[] =>
     stops.filter(
@@ -587,14 +663,35 @@ function buildSkirting(
         k === 0 || Math.hypot(s.p.x - (stops[k - 1] as Stop).p.x, s.p.y - (stops[k - 1] as Stop).p.y) > 1e-6,
     );
 
-  const mb = new MeshBuilder();
+  const pieces: SkirtingRun[] = [];
   for (const [ua, ub] of runs) {
     if (ub - ua < 0.5) continue;
     // The face and the offset line are walked separately: on a straight wall the offset line starts and ends
     // a little further along than the face (it stops on the corner lines), so their vertices do not pair up.
     const inner = distinct(strip(side, ua, ub));
     const skin = distinct(strip(outer, ua, ub));
-    if (inner.length < 2 || skin.length < 2) continue;
+    if (inner.length >= 2 && skin.length >= 2) pieces.push({ inner, skin });
+  }
+  return { runs: pieces, bottom, topAt, side, outer };
+}
+
+/** The faces of one side's baseboard: front, top and an end wherever a run stops. */
+function buildSkirting(
+  w: Wall,
+  name: "left" | "right",
+  side: Side,
+  len: number,
+  cutList: readonly Cut[],
+  el: WallElevations,
+  level: Level,
+  key: string,
+  out: GeometryPart[],
+): void {
+  const plan = planSkirting(w, name, side, len, cutList, el, level);
+  if (!plan) return;
+  const { bottom, topAt, outer } = plan;
+  const mb = new MeshBuilder();
+  for (const { inner, skin } of plan.runs) {
     // front: the offset line, bottom to top, facing away from the wall
     for (let k = 0; k + 1 < skin.length; k += 1) {
       const a = skin[k] as Stop;
