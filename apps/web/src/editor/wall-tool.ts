@@ -304,7 +304,14 @@ export class WallTool {
    */
   seed(): { lengthMm: number; angleDeg: number } {
     if (!this.drawing || this.lastLength === 0) return { lengthMm: 3000, angleDeg: 0 };
-    return { lengthMm: this.lastLength, angleDeg: (((this.lastAngle - 90) % 360) + 360) % 360 };
+    // 270 flat, NOT lastAngle - 90. What seed offers is fed straight back into typedPoint, and typedPoint
+    // reads an angle as RELATIVE to the previous wall once there are two points (W-076). Returning an
+    // absolute bearing here meant the turn was applied twice: after a wall at 270 the seed offered 180,
+    // typedPoint computed 270 + 180 = 90, and the next wall doubled back along the one before it.
+    //
+    // The first side hides this, which is why it survived: lastAngle is 0 there, so 0 - 90 and the
+    // relative 270 are the same number. Only the third side and beyond go wrong.
+    return { lengthMm: this.lastLength, angleDeg: 270 };
   }
 
   /**

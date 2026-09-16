@@ -195,6 +195,28 @@ describe("drawing by typing (ADR-017 D4)", () => {
     expect(t.seed()).toEqual({ lengthMm: 3000, angleDeg: 270 });
   });
 
+  it("W-074 walks a rectangle when each seeded wall is taken as offered", () => {
+    // This is the test the two above could not be. One checks what seed returns, the other checks what
+    // typedPoint does with an angle — but nothing fed one into the other, and that gap hid a real bug:
+    // seed returned an absolute bearing while typedPoint reads a relative turn, so the third wall
+    // doubled back along the second. The first side hides it, because there lastAngle is 0 and the two
+    // readings agree.
+    const t = tool();
+    const free = opts({ magnetism: false });
+    t.place({ x: 0, y: 0 }, free);
+    t.place({ x: 4000, y: 0 }, free);
+    for (let i = 0; i < 2; i += 1) {
+      const seed = t.seed();
+      t.place(t.typedPoint(seed.lengthMm, seed.angleDeg) as { x: number; y: number }, free);
+    }
+    expect(t.points).toEqual([
+      { x: 0, y: 0 },
+      { x: 4000, y: 0 },
+      { x: 4000, y: -4000 },
+      { x: 0, y: -4000 },
+    ]);
+  });
+
   it("reads a typed angle as absolute for the first wall and relative after it (W-076)", () => {
     const t = tool();
     t.place({ x: 0, y: 0 }, opts());
