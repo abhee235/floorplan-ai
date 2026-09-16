@@ -221,8 +221,9 @@ export function bindWallDrawing(deps: WallDrawingDeps): WallDrawing {
   capture.addEventListener("pointerdown", onPointerDown, { capture: true });
   element.addEventListener("pointermove", onPointerMove);
   element.addEventListener("dblclick", onDoubleClick, { capture: true });
+  // The card sits inside the plan, so its key events reach this listener by bubbling. Giving the card one
+  // of its own as well ran the handler twice, placing two segments for every Enter.
   element.addEventListener("keydown", onKeyDown);
-  card.addEventListener("keydown", onKeyDown);
 
   // ---- the preview -------------------------------------------------------
   const draw = (ctx: Ctx2D, view: PlanView): void => {
