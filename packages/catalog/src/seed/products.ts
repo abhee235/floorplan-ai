@@ -1,7 +1,8 @@
 // Seed products (ADR-008 D5): common meeting-room AV and furniture so a fresh install can furnish a
 // room. Dimensions and specs come from general product knowledge, not from fetched spec sheets, so
 // every real product starts `unverified`; verify_product upgrades a record with sources (ADR-008 D3).
-// The two Generic entries are parametric placeholders and are `manual`.
+// The Generic entries are parametric placeholders and are `manual`: a door, a window, and furniture that
+// can be drawn at any size, where every branded piece comes in the one size it is sold in (F-013).
 import type { ProductInput } from "../schema.js";
 
 const AT = "2026-09-15T00:00:00.000Z";
@@ -382,6 +383,56 @@ export const SEED_PRODUCTS: ProductInput[] = [
     lifecycle: "active",
     tags: ["storage", "credenza", "boardroom"],
     aliases: ["credenza", "sideboard", "cabinet"],
+  }),
+  seed({
+    id: "generic-table-1800x900",
+    make: "Generic",
+    model: "Table",
+    name: "Generic table, any size",
+    category: "table",
+    dims: { w: 1800, d: 900, h: 740 },
+    mount: { kinds: ["floor"], vesa: null, defaultHeight: null },
+    mountPoints: [{ name: "top", kind: "surface", dropRatio: 1, offset: null }],
+    clearance: { front: 900, back: 900, left: 900, right: 900 },
+    deformable: true,
+    specs: { seats: 6, shape: "rect" },
+    verification: MANUAL,
+    lifecycle: "active",
+    tags: ["table", "meeting", "generic"],
+    aliases: ["table", "meeting table", "custom table"],
+  }),
+  seed({
+    id: "generic-desk-1600x800",
+    make: "Generic",
+    model: "Desk",
+    name: "Generic desk, any size",
+    category: "desk",
+    dims: { w: 1600, d: 800, h: 740 },
+    mount: { kinds: ["floor"], vesa: null, defaultHeight: null },
+    mountPoints: [{ name: "top", kind: "surface", dropRatio: 1, offset: null }],
+    clearance: { front: 1000, back: 0, left: 0, right: 0 },
+    deformable: true,
+    specs: { seats: 1 },
+    verification: MANUAL,
+    lifecycle: "active",
+    tags: ["desk", "workstation", "generic"],
+    aliases: ["desk", "workstation", "custom desk"],
+  }),
+  seed({
+    id: "generic-chair",
+    make: "Generic",
+    model: "Chair",
+    name: "Generic chair, any size",
+    category: "chair",
+    dims: { w: 600, d: 600, h: 900 },
+    mount: { kinds: ["floor"], vesa: null, defaultHeight: null },
+    mountPoints: [],
+    deformable: true,
+    specs: {},
+    verification: MANUAL,
+    lifecycle: "active",
+    tags: ["chair", "generic"],
+    aliases: ["chair", "seat", "custom chair"],
   }),
   seed({
     id: "generic-door-900",

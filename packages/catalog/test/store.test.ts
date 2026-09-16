@@ -7,6 +7,7 @@ import {
   normaliseMeshRotation,
   type ProductInput,
   ProductSnapshot,
+  SEED_LIBRARY,
   SEED_PRODUCTS,
   validateProduct,
 } from "../src/index.js";
@@ -62,6 +63,39 @@ describe("seed library (ADR-008 D5)", () => {
     expect(store.texture("generated/oak")).toMatchObject({ image: "generated:oak", widthMm: 880 });
     expect(store.textureOrigin("generated/oak")).toMatchObject({ library: "generated", version: "1.0.0" });
     expect(store.textureOrigin("generated/nothing")).toBeNull();
+    store.close();
+  });
+
+  it("offers a table, a desk and a chair that can be any size, while branded furniture keeps its own", () => {
+    const store = seeded();
+    for (const id of ["generic-table-1800x900", "generic-desk-1600x800", "generic-chair"])
+      expect(store.get(id)?.deformable, id).toBe(true);
+    const branded = store
+      .all()
+      .filter((p) => ["table", "chair"].includes(p.category) && p.make !== "Generic");
+    expect(branded.length).toBeGreaterThan(0);
+    for (const p of branded) expect(p.deformable, p.id).toBe(false);
+    // a search for a table finds the one that can be sized
+    expect(store.search({ query: "table" }).hits.map((h) => h.id)).toContain("generic-table-1800x900");
+    store.close();
+  });
+
+  it("brings an older installed seed up to date, so a data folder in use gets the new products", () => {
+    const store = CatalogStore.open(":memory:");
+    store.installLibrary(
+      {
+        ...SEED_LIBRARY,
+        version: "1.0.0",
+        products: SEED_PRODUCTS.filter(
+          (p) => !["table", "desk", "chair"].includes(p.category) || p.make !== "Generic",
+        ),
+      },
+      AT,
+    );
+    expect(store.get("generic-chair")).toBeNull();
+    expect(ensureSeed(store, AT)).toBe(true);
+    expect(store.get("generic-chair")?.deformable).toBe(true);
+    expect(store.count()).toBe(SEED_PRODUCTS.length);
     store.close();
   });
 });

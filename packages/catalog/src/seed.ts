@@ -6,7 +6,7 @@ import type { LibraryManifestInput } from "./schema.js";
 import { SEED_PRODUCTS } from "./seed/products.js";
 
 export const SEED_LIBRARY_ID = "seed";
-export const SEED_VERSION = "1.0.0";
+export const SEED_VERSION = "1.1.0";
 
 export const SEED_LIBRARY: LibraryManifestInput = {
   id: SEED_LIBRARY_ID,
