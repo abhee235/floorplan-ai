@@ -61,7 +61,16 @@ vi.mock("../../src/app.js", () => ({
     started.push({ replica });
     return {
       replica,
-      client: { close() {}, command: ok, undo: ok, redo: ok, select: ok, tool },
+      client: {
+        close() {},
+        command: ok,
+        undo: ok,
+        redo: ok,
+        select: ok,
+        tool,
+        // the texture list the material rows offer
+        request: async () => ({ id: "x", type: "result" as const, ok: true, result: { textures: [] } }),
+      },
       plan: {
         level: null,
         view: { scale: 1, offsetX: 0, offsetY: 0, width: 100, height: 100 },

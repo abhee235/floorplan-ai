@@ -29,6 +29,8 @@ export interface ServeOptions {
   /** Directory with the built web app (apps/web/dist by default). */
   webDir?: string;
   projectPath?: () => string | null;
+  /** Texture images by id, served at /textures/<id> for the viewer (P3-5). */
+  textures?: (id: string) => { bytes: Uint8Array; type: string } | null;
 }
 
 export interface Served {
@@ -73,6 +75,24 @@ function serveStatic(webDir: string, req: IncomingMessage, res: ServerResponse):
   createReadStream(file).pipe(res);
 }
 
+/** A texture image: `/textures/<library>/<slug>`, the texture's catalog id after the prefix. */
+function serveTexture(textures: ServeOptions["textures"], req: IncomingMessage, res: ServerResponse): void {
+  const url = new URL(req.url ?? "/", "http://localhost");
+  const id = decodeURIComponent(url.pathname.slice("/textures/".length));
+  const image = /^[a-z0-9-]+\/[a-z0-9-]+$/.test(id) ? textures?.(id) : null;
+  if (!image) {
+    res.writeHead(404, { "content-type": "text/plain" }).end(`no texture ${id}`);
+    return;
+  }
+  res
+    .writeHead(200, {
+      "content-type": image.type,
+      "content-length": image.bytes.byteLength,
+      "cache-control": "no-cache",
+    })
+    .end(image.bytes);
+}
+
 /** Start serving the session: static web app plus `/bridge`. Resolves once listening. */
 export function serve(session: Session, options: ServeOptions = {}): Promise<Served> {
   const webDir = resolve(options.webDir ?? defaultWebDir());
@@ -81,6 +101,10 @@ export function serve(session: Session, options: ServeOptions = {}): Promise<Ser
   const server = createServer((req, res) => {
     if (req.url?.startsWith("/bridge")) {
       res.writeHead(426, { "content-type": "text/plain" }).end("websocket only");
+      return;
+    }
+    if (req.url?.startsWith("/textures/")) {
+      serveTexture(options.textures, req, res);
       return;
     }
     serveStatic(webDir, req, res);

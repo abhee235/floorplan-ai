@@ -7,6 +7,7 @@ import {
   materialLook,
   materialRoughness,
   roughnessForShininess,
+  textureSourceOf,
 } from "../src/index.js";
 
 describe("finished material keys (ADR-003 D4)", () => {
@@ -55,6 +56,8 @@ describe("finished material keys (ADR-003 D4)", () => {
       metalness: 0,
       opacity: 0.3,
       reflective: true,
+      texture: null,
+      plainColour: MATERIAL_COLOURS["wall-glass"],
     });
     expect(materialLook("wall-glass-frame")).toMatchObject({ opacity: 1, metalness: 0.6, reflective: true });
     expect(materialLook("wall-side")).toMatchObject({ opacity: 1, metalness: 0, reflective: false });
@@ -67,5 +70,36 @@ describe("finished material keys (ADR-003 D4)", () => {
       roughness: 0.05,
     });
     expect(materialLook("wall-glass||0.6").roughness).toBeGreaterThan(materialLook("wall-glass").roughness);
+  });
+});
+
+describe("textured materials (P3-5)", () => {
+  const textures = textureSourceOf({
+    textures: {
+      "generated/oak": { id: "generated/oak", widthMm: 880, heightMm: 1800 },
+      "bad/one": { id: "bad/one" },
+    },
+  });
+  const oak = { color: null, shininess: null, textureId: "generated/oak" };
+
+  it("carries a texture and the size one copy of it covers, after the colour and shininess", () => {
+    expect(finishedMaterialKey("floor", oak, textures)).toBe("floor|||generated/oak@880x1800");
+    expect(finishedMaterialKey("floor", { ...oak, shininess: 0.25 }, textures)).toBe(
+      "floor||0.25|generated/oak@880x1800",
+    );
+    // a texture whose size is not known, or no source to ask, leaves the texture off
+    expect(finishedMaterialKey("floor", { ...oak, textureId: "bad/one" }, textures)).toBe("floor");
+    expect(finishedMaterialKey("floor", oak)).toBe("floor");
+    expect(textures("generated/nothing")).toBeNull();
+  });
+
+  it("draws a textured surface white under its image, and knows its plain colour", () => {
+    const look = materialLook("floor|#123456||generated/oak@880x1800");
+    expect(look.texture).toEqual({ id: "generated/oak", widthMm: 880, heightMm: 1800 });
+    expect(look.colour).toBe(0xffffff);
+    expect(look.plainColour).toBe(0x123456);
+    expect(materialLook("floor").texture).toBeNull();
+    expect(materialLook("floor").plainColour).toBe(MATERIAL_COLOURS.floor);
+    expect(materialLook("floor||0.6|generated/oak@880x1800").roughness).toBeLessThan(0.85);
   });
 });

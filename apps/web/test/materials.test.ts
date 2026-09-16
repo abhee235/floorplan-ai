@@ -28,3 +28,33 @@ describe("viewer materials (ADR-003 D4)", () => {
     expect(wall.envMap).toBeNull();
   });
 });
+
+describe("textured materials (P3-5)", () => {
+  it("wears the texture's image in white, repeated so one copy covers its size, loading each image once", () => {
+    const loaded: string[] = [];
+    const cache = new MaterialCache((id) => {
+      loaded.push(id);
+      return new THREE.Texture();
+    });
+    const floor = standard(cache.get("floor|||generated/oak@880x1800"));
+    expect(floor.map).not.toBeNull();
+    expect(floor.color.getHex()).toBe(0xffffff);
+    expect(floor.map?.wrapS).toBe(THREE.RepeatWrapping);
+    expect(floor.map?.repeat.x).toBeCloseTo(1000 / 880, 9);
+    expect(floor.map?.repeat.y).toBeCloseTo(1000 / 1800, 9);
+    expect(floor.map?.colorSpace).toBe(THREE.SRGBColorSpace);
+    // a glossier floor in the same wood is another material with the same image
+    const glossy = standard(cache.get("floor||0.6|generated/oak@880x1800"));
+    expect(glossy).not.toBe(floor);
+    expect(glossy.map).toBe(floor.map);
+    expect(loaded).toEqual(["generated/oak"]);
+    expect(standard(cache.get("floor")).map).toBeNull();
+  });
+
+  it("draws the plain surface when there is nowhere to load images from", () => {
+    const cache = new MaterialCache(() => null);
+    const floor = standard(cache.get("floor|||generated/oak@880x1800"));
+    expect(floor.map).toBeNull();
+    expect(floor.color.getHex()).toBe(standard(cache.get("floor")).color.getHex());
+  });
+});

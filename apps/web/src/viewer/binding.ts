@@ -16,12 +16,13 @@ import {
   type ItemInstance,
   type RebuildSet,
   snapshotCutOuts,
+  textureSourceOf,
 } from "@fpv/engine";
 import { wallFootprints } from "@fpv/geometry";
 import type { Item, Level, Point, Project, Wall } from "@fpv/ir";
 import { defaultRoom, defaultWall, derive } from "@fpv/ir";
 import * as THREE from "three";
-import { MaterialCache } from "./materials.js";
+import { MaterialCache, type TextureLoad } from "./materials.js";
 
 /** Schedules one flush per frame; the browser uses requestAnimationFrame, tests call flush themselves. */
 export interface Scheduler {
@@ -50,6 +51,8 @@ export interface BindingOptions {
   sizes?: derive.SizeSource;
   /** Model assets for products; without one a product is drawn as its category's recipe. */
   assets?: AssetRegistry;
+  /** Where texture images come from; the host's, in a browser. */
+  loadTexture?: TextureLoad;
 }
 
 export class SceneBinding {
@@ -67,7 +70,7 @@ export class SceneBinding {
   readonly bounds = new THREE.Box3();
   private readonly objects = new Map<string, THREE.Object3D[]>();
   private readonly geometries = new Map<string, THREE.BufferGeometry>();
-  private readonly materials = new MaterialCache();
+  private readonly materials: MaterialCache;
   private readonly scheduler: Scheduler;
   private dirty: RebuildSet = emptyRebuildSet();
   private full = false;
@@ -84,6 +87,7 @@ export class SceneBinding {
     this.scheduler = options.scheduler ?? immediateScheduler;
     this.sizes = options.sizes ?? null;
     this.assets = options.assets;
+    this.materials = new MaterialCache(options.loadTexture);
     // S-001, S-003: ground, then rooms, walls, items, overlay; lights last.
     this.ground.name = "ground";
     this.rooms.name = "rooms";
@@ -151,9 +155,10 @@ export class SceneBinding {
     const highest = levels[levels.length - 1];
     const sizes = this.sizes ?? derive.snapshotSizeSource(p);
     const cutOuts = snapshotCutOuts(p);
+    const textures = textureSourceOf(p);
 
     for (const level of levels) {
-      const ctx = { level, isLowest: level === lowest, isHighest: level === highest };
+      const ctx = { level, isLowest: level === lowest, isHighest: level === highest, textures };
       // walls: footprints for the whole level (joins need neighbours), parts only for dirty walls
       const wallsOnLevel = p.walls.filter((w) => w.levelId === level.id);
       const dirtyWalls = full ? wallsOnLevel : wallsOnLevel.filter((w) => dirty.walls.has(w.id));
@@ -178,6 +183,7 @@ export class SceneBinding {
         const instances = buildItems(dirtyItems, {
           level,
           sizes,
+          textures,
           ...(this.assets ? { assets: this.assets } : {}),
         });
         this.replaceItems(dirtyItems, instances, level, sizes);

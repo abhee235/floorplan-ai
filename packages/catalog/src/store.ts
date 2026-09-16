@@ -615,6 +615,27 @@ export class CatalogStore implements VerifyStore {
     return t;
   }
 
+  /** The same as getTexture, under the name the tools' catalog interface uses. */
+  texture(id: string): Texture | null {
+    return this.getTexture(id);
+  }
+
+  /**
+   * Where a texture comes from: its library and the version of it in use, for finding its file under
+   * the data directory; null for a texture written directly or one not in the catalog.
+   */
+  textureOrigin(id: string): { texture: Texture; library: string; version: string } | null {
+    const row = this.db.prepare("select library, json from textures where id = ?").get(id) as
+      | { library: string | null; json: string }
+      | undefined;
+    if (!row?.library) return null;
+    const versions = (
+      this.db.prepare("select version from libraries where id = ?").all(row.library) as { version: string }[]
+    ).map((r) => r.version);
+    const version = versions.sort(compareVersions).at(-1);
+    return version ? { texture: JSON.parse(row.json) as Texture, library: row.library, version } : null;
+  }
+
   removeTexture(id: string): boolean {
     return this.db.prepare("delete from textures where id = ?").run(id).changes > 0;
   }

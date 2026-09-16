@@ -56,7 +56,12 @@ describe("seed library (ADR-008 D5)", () => {
       ).not.toContain("specs.missing");
       expect(p.verification.status === "verified", p.id).toBe(false); // nothing is claimed verified without a source
     }
-    expect(store.libraries().map((l) => l.id)).toEqual(["seed"]);
+    expect(store.libraries().map((l) => l.id)).toEqual(["generated", "seed"]);
+    // P3-5: the drawn textures come with it, and say where they come from
+    expect(store.textures().map((t) => t.id)).toContain("generated/oak");
+    expect(store.texture("generated/oak")).toMatchObject({ image: "generated:oak", widthMm: 880 });
+    expect(store.textureOrigin("generated/oak")).toMatchObject({ library: "generated", version: "1.0.0" });
+    expect(store.textureOrigin("generated/nothing")).toBeNull();
     store.close();
   });
 });

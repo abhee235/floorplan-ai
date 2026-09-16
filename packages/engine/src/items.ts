@@ -4,7 +4,7 @@
 import { entryFor, resolveAssetKey } from "@fpv/assets";
 import type { Item, Level, PrimitiveRecipe, Size3 } from "@fpv/ir";
 import { derive } from "@fpv/ir";
-import { finishedMaterialKey } from "./palette.js";
+import { finishedMaterialKey, type TextureSource } from "./palette.js";
 import { fallbackRecipe, recipeAssetKey, recipeSlotKey } from "./recipes.js";
 import { type ItemInstance, MM_PER_M } from "./types.js";
 
@@ -132,16 +132,26 @@ export interface ItemBuildContext {
   level: Level;
   sizes: derive.SizeSource;
   assets?: AssetRegistry;
+  /** Texture sizes, for parts that wear a texture; without it a texture is left off. */
+  textures?: TextureSource;
 }
 
 /**
  * The material of each of a recipe's parts, in slot order: the part's own finish on the item, else the
  * item's finish, else the part's plain material.
  */
-function slotMaterials(item: Item, recipe: PrimitiveRecipe): ItemInstance["materials"] {
+function slotMaterials(
+  item: Item,
+  recipe: PrimitiveRecipe,
+  textures?: TextureSource,
+): ItemInstance["materials"] {
   return derive.recipeSlots(recipe.kind).map((slot) => ({
     slot,
-    materialKey: finishedMaterialKey(recipeSlotKey(recipe.kind, slot), item.materials[slot] ?? item.finish),
+    materialKey: finishedMaterialKey(
+      recipeSlotKey(recipe.kind, slot),
+      item.materials[slot] ?? item.finish,
+      textures,
+    ),
   }));
 }
 
@@ -168,7 +178,7 @@ export function buildItems(items: readonly Item[], ctx: ItemBuildContext): ItemI
       assetKey,
       recipe,
       matrix: itemMatrix(it, size, ctx.level, bbox),
-      materials: recipe ? slotMaterials(it, recipe) : [],
+      materials: recipe ? slotMaterials(it, recipe, ctx.textures) : [],
       visible: it.visible,
     });
   }

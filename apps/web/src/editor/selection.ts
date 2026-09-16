@@ -181,6 +181,28 @@ export interface Choice {
   label: string;
   /** A plan pattern to draw beside the label, for a list of them. */
   swatch?: WallPattern;
+  /** An image to show beside the label: a texture's. */
+  image?: string;
+}
+
+/** A texture the panel can offer, as the host lists them (P3-5). */
+export interface TextureChoice {
+  id: string;
+  name: string;
+  tags: readonly string[];
+}
+
+export interface DescribeOptions {
+  /** The catalog's textures, for the material rows. The project's own copies are offered as well. */
+  textures?: readonly TextureChoice[];
+}
+
+/** A material row's value while the surface is painted rather than wearing a texture. */
+export const PAINT = "paint";
+
+/** Where the viewer finds a texture's image: the host serves it (P3-5). */
+export function textureUrl(id: string): string {
+  return `/textures/${id.split("/").map(encodeURIComponent).join("/")}`;
 }
 
 /** One row of the properties panel. */
@@ -249,24 +271,30 @@ export const HEIGHT_RANGE = { min: 1, max: 100_000 } as const;
 export const CURVE_LIMIT = 270;
 
 /** Everything the panel needs about one selected id, or null when the id is not in the project. */
-export function describeEntity(project: Project, id: string): SelectedEntity | null {
+export function describeEntity(
+  project: Project,
+  id: string,
+  options: DescribeOptions = {},
+): SelectedEntity | null {
   const kind = kindOf(id);
   if (!kind) return null;
+  const materials = (prefer: string) => (current: string | null) =>
+    materialChoices(project, options.textures ?? [], prefer, current);
   if (kind === "wall") {
     const w = project.walls.find((x) => x.id === id);
     if (!w) return null;
     const level = derive.levelOf(project, w.levelId) ?? derive.lowestLevel(project);
-    return { id, kind, title: "Wall", facts: wallFacts(w, level, project.meta.north) };
+    return { id, kind, title: "Wall", facts: wallFacts(w, level, project.meta.north, materials("wall")) };
   }
   if (kind === "room") {
     const r = project.rooms.find((x) => x.id === id);
     if (!r) return null;
     const level = derive.levelOf(project, r.levelId) ?? derive.lowestLevel(project);
-    return { id, kind, title: r.name ?? "Room", facts: roomFacts(r, level) };
+    return { id, kind, title: r.name ?? "Room", facts: roomFacts(r, level, materials) };
   }
   if (kind === "item") {
     const it = project.items.find((x) => x.id === id);
-    return it ? { id, kind, title: itemTitle(project, it), facts: itemFacts(project, it) } : null;
+    return it ? { id, kind, title: itemTitle(project, it), facts: itemFacts(project, it, materials) } : null;
   }
   const o = project.openings.find((x) => x.id === id);
   return o ? { id, kind, title: openingTitle(o), facts: openingFacts(project, o) } : null;
@@ -278,7 +306,67 @@ const COORDINATE_RANGE = { min: -MAX_LENGTH_MM, max: MAX_LENGTH_MM } as const;
 /** A typed wall length: a whole millimetre at least, since Mm is an integer, up to that same kilometre. */
 export const LENGTH_RANGE = { min: 1, max: MAX_LENGTH_MM } as const;
 
-function wallFacts(w: Wall, level: Level, north: number): Fact[] {
+/** The material choices for a surface, those tagged `prefer` first, given the texture it wears now. */
+type MaterialChoices = (current: string | null) => Choice[];
+
+function materialChoices(
+  project: Project,
+  textures: readonly TextureChoice[],
+  prefer: string,
+  current: string | null,
+): Choice[] {
+  const byId = new Map<string, TextureChoice>();
+  for (const t of textures) byId.set(t.id, t);
+  // what the project already wears is offered whether or not the list has arrived
+  for (const [id, snap] of Object.entries(project.textures)) {
+    if (byId.has(id)) continue;
+    const name = (snap as { name?: unknown }).name;
+    byId.set(id, { id, name: typeof name === "string" ? name : id, tags: [] });
+  }
+  if (current && !byId.has(current)) byId.set(current, { id: current, name: current, tags: [] });
+  const list = [...byId.values()].sort(
+    (a, b) =>
+      Number(b.tags.includes(prefer)) - Number(a.tags.includes(prefer)) || a.name.localeCompare(b.name),
+  );
+  return [
+    { value: PAINT, label: "Paint" },
+    ...list.map((t) => ({ value: t.id, label: t.name, image: textureUrl(t.id) })),
+  ];
+}
+
+/**
+ * The material a surface is made of (P3-5): paint, which takes the colour row below it, or a texture,
+ * which shows its own colours. Picking a texture clears the colour, and typing a colour clears the
+ * texture, so the rows never say one thing while the view shows another.
+ */
+function materialFact(
+  group: string,
+  label: string,
+  current: FinishRef | null,
+  choices: MaterialChoices,
+  set: (textureId: string | null) => EditCommand,
+): Fact {
+  const value = current?.textureId ?? PAINT;
+  const list = choices(current?.textureId ?? null);
+  return {
+    group,
+    label,
+    caption: "Material",
+    value,
+    choices: list,
+    hint: "Paint takes the colour below. A material shows its own colours.",
+    edit: choiceEdit("Material", list, value, (v) => set(v === PAINT ? null : v)),
+  };
+}
+
+/** A finish change that sets a texture or a colour, never both. */
+function paintOrTexture(change: { color?: string | null; textureId?: string | null }): Partial<FinishRef> {
+  if (change.textureId) return { textureId: change.textureId, color: null };
+  if (change.color) return { color: change.color, textureId: null };
+  return change;
+}
+
+function wallFacts(w: Wall, level: Level, north: number, materials: MaterialChoices): Fact[] {
   const arc = derive.isArc(w);
   return [
     {
@@ -329,8 +417,8 @@ function wallFacts(w: Wall, level: Level, north: number): Fact[] {
       ),
     },
     ...heightFacts(w, level),
-    ...sideFacts(w, "left", level, north),
-    ...sideFacts(w, "right", level, north),
+    ...sideFacts(w, "left", level, north, materials),
+    ...sideFacts(w, "right", level, north, materials),
   ];
 }
 
@@ -358,7 +446,13 @@ const hexOf = (rgb: number): string => `#${rgb.toString(16).padStart(6, "0").toU
  * Every label names its side as well as its field: two "Colour" rows in one wall would otherwise share an id,
  * and a screen reader jumping between fields would hear the same name twice.
  */
-function sideFacts(w: Wall, side: "left" | "right", level: Level, north: number): Fact[] {
+function sideFacts(
+  w: Wall,
+  side: "left" | "right",
+  level: Level,
+  north: number,
+  materials: MaterialChoices,
+): Fact[] {
   const name = `${side} side`;
   const group = `${side === "left" ? "Left" : "Right"} side, facing ${derive.wallCompassSide(w, side, north)}`;
   const current = w.finishes[side];
@@ -368,16 +462,20 @@ function sideFacts(w: Wall, side: "left" | "right", level: Level, north: number)
   };
   const colour = current?.color ?? null;
   const finish = finishNameOf(current?.shininess ?? null);
+  const textured = Boolean(current?.textureId);
   return [
+    materialFact(group, `Material, ${name}`, current, materials, (textureId) =>
+      finished(paintOrTexture({ textureId })),
+    ),
     {
       group,
       label: `Colour, ${name}`,
       caption: "Colour",
       value: colour ?? "",
       colour: { effective: colour ?? hexOf(MATERIAL_COLOURS["wall-side"] ?? 0xe8e6e1) },
-      empty: { shown: "default", action: "Use the default colour" },
-      hint: "A hex colour, such as #E8E6E1. Empty uses the default wall colour.",
-      edit: hexEdit(colour, (color) => finished({ color }), "default", "#E8E6E1"),
+      empty: { shown: textured ? "material" : "default", action: "Use the default colour" },
+      hint: "A hex colour, such as #E8E6E1. Empty uses the default wall colour. A colour replaces a material.",
+      edit: hexEdit(colour, (color) => finished(paintOrTexture({ color })), "default", "#E8E6E1"),
     },
     {
       group,
@@ -675,14 +773,17 @@ export const NAME_LIMIT = 80;
  * A room (ADR-017 D3): what it is called and for, how many it seats, how big it is, and its floor and
  * ceiling. Area and corners are read, not typed: a room's shape changes by its corners on the plan.
  */
-function roomFacts(r: Room, level: Level): Fact[] {
+function roomFacts(r: Room, level: Level, materials: (prefer: string) => MaterialChoices): Fact[] {
   const modify = (changes: Record<string, unknown>): EditCommand => ({
     type: "room.modify",
     payload: { roomId: r.id, changes },
   });
-  const surface = (which: "floor" | "ceiling", color: string | null): EditCommand =>
+  const surface = (which: "floor" | "ceiling", change: Partial<FinishRef>): EditCommand =>
     modify({
-      finishes: { ...r.finishes, [which]: tidyFinish({ ...(r.finishes[which] ?? blankFinish()), color }) },
+      finishes: {
+        ...r.finishes,
+        [which]: tidyFinish({ ...(r.finishes[which] ?? blankFinish()), ...paintOrTexture(change) }),
+      },
     });
   // Square metres: square millimetres is a number nobody reads. roomArea is already absolute and already
   // subtracts the holes (R-006), so there is nothing to correct for here.
@@ -744,16 +845,22 @@ function roomFacts(r: Room, level: Level): Fact[] {
     },
     { group: "Size", label: "Area", value: `${areaM2.toFixed(2)} m²` },
     { group: "Size", label: "Corners", value: String(r.polygon.length) },
+    materialFact("Floor", "Material of floor", r.finishes.floor, materials("floor"), (textureId) =>
+      surface("floor", { textureId }),
+    ),
     {
       group: "Floor",
       label: "Colour of floor",
       caption: "Colour",
       value: r.finishes.floor?.color ?? "",
       colour: { effective: r.finishes.floor?.color ?? plain("floor", 0xc9c2b8) },
-      empty: { shown: "default", action: "Use the default floor colour" },
+      empty: {
+        shown: r.finishes.floor?.textureId ? "material" : "default",
+        action: "Use the default floor colour",
+      },
       edit: hexEdit(
         r.finishes.floor?.color ?? null,
-        (color) => surface("floor", color),
+        (color) => surface("floor", { color }),
         "default",
         "#C9C2B8",
       ),
@@ -785,16 +892,22 @@ function roomFacts(r: Room, level: Level): Fact[] {
         }),
       ),
     },
+    materialFact("Ceiling", "Material of ceiling", r.finishes.ceiling, materials("ceiling"), (textureId) =>
+      surface("ceiling", { textureId }),
+    ),
     {
       group: "Ceiling",
       label: "Colour of ceiling",
       caption: "Colour",
       value: r.finishes.ceiling?.color ?? "",
       colour: { effective: r.finishes.ceiling?.color ?? plain("ceiling", 0xfafafa) },
-      empty: { shown: "default", action: "Use the default ceiling colour" },
+      empty: {
+        shown: r.finishes.ceiling?.textureId ? "material" : "default",
+        action: "Use the default ceiling colour",
+      },
       edit: hexEdit(
         r.finishes.ceiling?.color ?? null,
-        (color) => surface("ceiling", color),
+        (color) => surface("ceiling", { color }),
         "default",
         "#FAFAFA",
       ),
@@ -886,7 +999,7 @@ const ELEVATION_RANGE = { min: -HEIGHT_RANGE.max, max: HEIGHT_RANGE.max } as con
  * A product the catalogue marks as coming in one size shows its size without letting it be typed (F-013).
  * Things stacked on the item move, turn and rise with it, because the commands carry them.
  */
-function itemFacts(project: Project, it: Item): Fact[] {
+function itemFacts(project: Project, it: Item, materials: (prefer: string) => MaterialChoices): Fact[] {
   const ids = [it.id];
   const room = it.roomId ? project.rooms.find((r) => r.id === it.roomId) : undefined;
   const size = derive.itemSize(it, derive.snapshotSizeSource(project));
@@ -1006,7 +1119,7 @@ function itemFacts(project: Project, it: Item): Fact[] {
           }),
     });
   }
-  facts.push(...materialFacts(project, it, size));
+  facts.push(...materialFacts(project, it, size, materials));
   return facts;
 }
 
@@ -1080,7 +1193,12 @@ function productFacts(project: Project, it: Item): Fact[] {
  * The colour and finish of each part an item is drawn in (P3-5): a chair's fabric and frame, a table's top
  * and legs. Each part gets a band of its own, named by the part, as a wall's sides do.
  */
-function materialFacts(project: Project, it: Item, size: { w: number; d: number; h: number }): Fact[] {
+function materialFacts(
+  project: Project,
+  it: Item,
+  size: { w: number; d: number; h: number },
+  materials: (prefer: string) => MaterialChoices,
+): Fact[] {
   const slots = itemMaterialSlots(project, it) ?? [];
   const recipe = drawnAs(it, size, derive.snapshotSizeSource(project), noAssets).recipe;
   return slots.flatMap((slot): Fact[] => {
@@ -1090,7 +1208,7 @@ function materialFacts(project: Project, it: Item, size: { w: number; d: number;
       type: "item.setFinish",
       payload: {
         itemIds: [it.id],
-        materials: { [slot]: tidyFinish({ ...(current ?? blankFinish()), ...change }) },
+        materials: { [slot]: tidyFinish({ ...(current ?? blankFinish()), ...paintOrTexture(change) }) },
       },
     });
     // what the part shows while it has no colour of its own: the item's colour, else the part's plain one
@@ -1099,7 +1217,12 @@ function materialFacts(project: Project, it: Item, size: { w: number; d: number;
     const colour = current?.color ?? null;
     const finish = finishNameOf(current?.shininess ?? null);
     const itemColoured = it.finish?.color != null;
+    // fabric and upholstery textures first for a seat, wood and stone for a top, and so on by tag
+    const prefer = slot === "fabric" ? "upholstery" : slot === "top" ? "wood" : slot;
     return [
+      materialFact(group, `Material of ${slot}`, current, materials(prefer), (textureId) =>
+        finished({ textureId }),
+      ),
       {
         group,
         label: `Colour of ${slot}`,
@@ -1107,7 +1230,7 @@ function materialFacts(project: Project, it: Item, size: { w: number; d: number;
         value: colour ?? "",
         colour: { effective },
         empty: {
-          shown: itemColoured ? "item's" : "default",
+          shown: current?.textureId ? "material" : itemColoured ? "item's" : "default",
           action: itemColoured ? `Use the item's colour for the ${slot}` : `Use the default ${slot} colour`,
         },
         edit: hexEdit(

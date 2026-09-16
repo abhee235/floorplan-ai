@@ -1,7 +1,7 @@
 // Reducer context, change-set builder, and lookup helpers shared by all reducers.
 import type { IdGenerator, Item, Level, Opening, Project, Room, Size3, Wall, Zone } from "@fpv/ir";
 import { derive } from "@fpv/ir";
-import { missingRef } from "./errors.js";
+import { missingRef, precondition } from "./errors.js";
 
 export type EntityType = "level" | "wall" | "opening" | "room" | "item" | "zone" | "annotation" | "meta";
 
@@ -25,6 +25,8 @@ export interface ChangeSet {
 /** Product snapshot lookup used by commands to copy a snapshot into catalogRefs on first use. */
 export interface CatalogSource {
   product(productId: string): Record<string, unknown> | null;
+  /** A texture record by id, to copy into a project the first time a finish uses it (spec 02 section 2). */
+  texture?(textureId: string): Record<string, unknown> | null;
 }
 
 export interface Ctx {
@@ -137,6 +139,31 @@ export function sizeOf(p: Project, item: Item): Size3 {
 }
 
 /** Copy a product snapshot into catalogRefs on first use (ADR-008 D5). */
+/**
+ * Copy into the project every texture these finishes name that it does not hold yet, as products are
+ * copied on first use; refuse a texture the catalog does not have either, since validation would.
+ */
+export function requireTextures(
+  p: Project,
+  ctx: Ctx,
+  finishes: readonly ({ textureId: string | null } | null | undefined)[],
+  entityId: string | null,
+): void {
+  for (const f of finishes) {
+    const id = f?.textureId;
+    if (!id || id in p.textures) continue;
+    const snap = ctx.catalog?.texture?.(id);
+    if (!snap)
+      throw precondition(
+        "catalog.missing-texture",
+        `texture "${id}" is not in the catalog`,
+        entityId,
+        "pick one of the catalog's textures",
+      );
+    p.textures[id] = { ...snap, id };
+  }
+}
+
 export function ensureSnapshot(p: Project, ctx: Ctx, productId: string): boolean {
   if (productId in p.catalogRefs) return true;
   const snap = ctx.catalog?.product(productId);

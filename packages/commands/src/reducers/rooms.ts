@@ -3,7 +3,7 @@
 import { detectEnclosures, detectRoomAt, wallFootprints } from "@fpv/geometry";
 import type { Point, Project, Room } from "@fpv/ir";
 import { defaultRoom, derive, normalizeRoom, poly } from "@fpv/ir";
-import { type Changes, type Ctx, levelById, roomById } from "../context.js";
+import { type Changes, type Ctx, levelById, requireTextures, roomById } from "../context.js";
 import { precondition } from "../errors.js";
 import type { PayloadOf } from "../types.js";
 
@@ -142,8 +142,10 @@ export function roomDetectAll(
   return out;
 }
 
-export function roomModify(p: Project, payload: PayloadOf<"room.modify">, _ctx: Ctx, changes: Changes): Room {
+export function roomModify(p: Project, payload: PayloadOf<"room.modify">, ctx: Ctx, changes: Changes): Room {
   const r = roomById(p, payload.roomId);
+  const f = payload.changes.finishes;
+  if (f) requireTextures(p, ctx, [f.floor, f.ceiling], r.id);
   Object.assign(r, payload.changes);
   Object.assign(r, normalizeRoom(r));
   changes.update("room", r.id);

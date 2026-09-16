@@ -27,6 +27,7 @@ import {
   HEIGHT_RANGE,
   NAME_LIMIT,
   OPENING_KINDS,
+  PAINT,
   ROOM_PURPOSES,
   SKIRTING_DEPTH,
   SKIRTING_DEPTH_RANGE,
@@ -95,9 +96,11 @@ describe("describing a selected entity", () => {
       "Thickness",
       "Height",
       "Height at end",
+      "Material, left side",
       "Colour, left side",
       "Finish, left side",
       "Height of baseboard, left side",
+      "Material, right side",
       "Colour, right side",
       "Finish, right side",
       "Height of baseboard, right side",
@@ -123,7 +126,9 @@ describe("describing a selected entity", () => {
       "Height",
       "Left side, facing north",
       "Left side, facing north",
+      "Left side, facing north",
       "Baseboard, left side",
+      "Right side, facing south",
       "Right side, facing south",
       "Right side, facing south",
       "Baseboard, right side",
@@ -156,9 +161,11 @@ describe("describing a selected entity", () => {
       "Capacity",
       "Area",
       "Corners",
+      "Material of floor",
       "Colour of floor",
       "Show floor",
       "Height of ceiling",
+      "Material of ceiling",
       "Colour of ceiling",
       "Show ceiling",
     ]);
@@ -997,6 +1004,7 @@ describe("editing an item (ADR-017 D3)", () => {
       "Width",
       "Depth",
       "Height",
+      "Material of body",
       "Colour of body",
       "Finish of body",
     ]);
@@ -1074,8 +1082,10 @@ describe("editing an item (ADR-017 D3)", () => {
       ?.facts.filter((f) => f.label.includes(" of "))
       .map((f) => [f.group, f.caption]);
     expect(groups).toEqual([
+      ["Fabric", "Material"],
       ["Fabric", "Colour"],
       ["Fabric", "Finish"],
+      ["Frame", "Material"],
       ["Frame", "Colour"],
       ["Frame", "Finish"],
     ]);
@@ -1158,5 +1168,110 @@ describe("editing an item (ADR-017 D3)", () => {
     expect(width.edit).toBeUndefined();
     const unnamed = place(withChair(), { kind: "product", productId: CHAIR });
     expect(describeEntity(unnamed.p, unnamed.id)?.title).toBe(CHAIR);
+  });
+});
+
+describe("choosing what a surface is made of (P3-5)", () => {
+  const OAK = { id: "generated/oak", name: "Oak planks", tags: ["wood", "floor"] };
+  const BRICK = { id: "generated/brick-red", name: "Red brick", tags: ["brick", "wall"] };
+  const FABRIC = { id: "generated/fabric-grey", name: "Grey woven fabric", tags: ["fabric", "upholstery"] };
+  const textures = [OAK, BRICK, FABRIC];
+  const snapshot = (t: { id: string; name: string }, w: number, h: number) => ({
+    ...t,
+    image: `generated:${t.id.split("/")[1]}`,
+    widthMm: w,
+    heightMm: h,
+    transparent: false,
+    creator: null,
+    licence: { id: "generated", author: null, sourceUrl: null, attribution: null },
+  });
+  const catalogCtx: Ctx = {
+    ...ctx,
+    catalog: {
+      product: () => null,
+      texture: (id) =>
+        id === OAK.id ? snapshot(OAK, 880, 1800) : id === BRICK.id ? snapshot(BRICK, 450, 300) : null,
+    },
+  };
+  const runWith = (p: ProjectT, command: EditCommand) => {
+    const r = apply(p, command, catalogCtx);
+    if (!r.ok) throw new Error(r.error.message);
+    return r.project;
+  };
+  const rowWith = (p: ProjectT, id: string, label: string) => {
+    const fact = describeEntity(p, id, { textures })?.facts.find((f) => f.label === label);
+    if (!fact?.edit) throw new Error(`no editable ${label}`);
+    return fact;
+  };
+  const pick = (p: ProjectT, id: string, label: string, value: string) => {
+    const outcome = rowWith(p, id, label).edit?.(value);
+    if (!outcome?.ok || !outcome.command) throw new Error(JSON.stringify(outcome));
+    return runWith(p, outcome.command);
+  };
+
+  it("offers paint and the catalog's textures, those that suit the surface first, each with its picture", () => {
+    const p = fixture();
+    const wall = rowWith(p, W1, "Material, left side");
+    expect(wall).toMatchObject({ value: PAINT, caption: "Material", group: "Left side, facing north" });
+    expect(wall.choices?.map((c) => c.value)).toEqual([PAINT, BRICK.id, FABRIC.id, OAK.id]);
+    expect(wall.choices?.[1]).toEqual({
+      value: BRICK.id,
+      label: "Red brick",
+      image: "/textures/generated/brick-red",
+    });
+    const room = withRoom();
+    const floor = rowWith(room, (room.rooms[0] as { id: string }).id, "Material of floor");
+    expect(floor.choices?.[1]?.value).toBe(OAK.id);
+    // without the list, paint alone, until the project wears something
+    expect(describeEntity(p, W1)?.facts.find((f) => f.label === "Material, left side")?.choices).toEqual([
+      { value: PAINT, label: "Paint" },
+    ]);
+  });
+
+  it("puts a texture on a wall side in place of its colour, and paint back in place of the texture", () => {
+    const red = runWith(fixture(), typed(fixture(), W1, "Colour, left side", "#AA3333"));
+    const brick = pick(red, W1, "Material, left side", BRICK.id);
+    expect(wallOf(brick, W1).finishes.left).toMatchObject({ textureId: BRICK.id, color: null });
+    expect(brick.textures[BRICK.id]).toMatchObject({ widthMm: 450 });
+    expect(rowWith(brick, W1, "Material, left side").value).toBe(BRICK.id);
+    expect(rowWith(brick, W1, "Colour, left side").empty?.shown).toBe("material");
+    // the project's copy is offered even when the list is not there
+    expect(
+      describeEntity(brick, W1)
+        ?.facts.find((f) => f.label === "Material, left side")
+        ?.choices?.map((c) => c.value),
+    ).toEqual([PAINT, BRICK.id]);
+    // a colour typed now replaces the texture
+    const outcome = rowWith(brick, W1, "Colour, left side").edit?.("#224466");
+    if (!outcome?.ok || !outcome.command) throw new Error("no colour command");
+    const painted = runWith(brick, outcome.command);
+    expect(wallOf(painted, W1).finishes.left).toMatchObject({ textureId: null, color: "#224466" });
+    // paint on a textured side with no colour leaves no finish at all
+    const bare = pick(pick(fixture(), W1, "Material, left side", BRICK.id), W1, "Material, left side", PAINT);
+    expect(wallOf(bare, W1).finishes.left).toBeNull();
+  });
+
+  it("puts a texture on a floor and on an item's part", () => {
+    const room = withRoom();
+    const roomId = (room.rooms[0] as { id: string }).id;
+    const oak = pick(room, roomId, "Material of floor", OAK.id);
+    expect(oak.rooms[0]?.finishes.floor?.textureId).toBe(OAK.id);
+    const placed = run(oak, {
+      type: "item.place",
+      payload: {
+        levelId: L,
+        ref: { kind: "recipe", recipe: { kind: "table", size: { w: 1800, d: 900, h: 740 }, shape: "rect" } },
+        position: { x: 2000, y: 2000 },
+        rotation: 0,
+        magnetism: false,
+      },
+    }).project;
+    const tableId = (placed.items.at(-1) as { id: string }).id;
+    expect(rowWith(placed, tableId, "Material of top").choices?.[1]?.value).toBe(OAK.id);
+    const wooden = pick(placed, tableId, "Material of top", OAK.id);
+    expect(wooden.items.at(-1)?.materials.top?.textureId).toBe(OAK.id);
+    // a texture the catalog does not have is refused by the host, not by the row
+    const unknown = rowWith(wooden, tableId, "Material of top").edit?.("generated/marble");
+    expect(unknown).toMatchObject({ ok: false });
   });
 });

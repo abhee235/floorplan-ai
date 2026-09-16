@@ -12,6 +12,7 @@ import {
   ensureSnapshot,
   itemById,
   levelById,
+  requireTextures,
   roomById,
   sizeOf,
   wallById,
@@ -504,11 +505,12 @@ export function itemMirror(
 export function itemSetFinish(
   p: Project,
   payload: PayloadOf<"item.setFinish">,
-  _ctx: Ctx,
+  ctx: Ctx,
   changes: Changes,
 ): Item[] {
   return payload.itemIds.map((id) => {
     const it = itemById(p, id);
+    requireTextures(p, ctx, [payload.finish, ...Object.values(payload.materials ?? {})], it.id);
     if (payload.finish !== undefined) it.finish = payload.finish;
     if (payload.materials) {
       const slots = itemMaterialSlots(p, it);

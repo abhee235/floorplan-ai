@@ -339,7 +339,7 @@ Hello        = { id, type: "hello", clientVersion: string, capabilities: ("rende
 CommandMsg   = { id, type: "command", command: Command }
 TransactionMsg = { id, type: "transaction", label: string, commands: Command[] }
 UndoMsg      = { id, type: "undo" } ; RedoMsg = { id, type: "redo" }
-GetMsg       = { id, type: "get", what: "snapshot" | "history" | "selection" | "problems" }
+GetMsg       = { id, type: "get", what: "snapshot" | "history" | "selection" | "problems" | "textures" }   // textures: { textures: { id, name, widthMm, heightMm, tags }[] } (P3-5)
 SelectMsg    = { id, type: "select", ids: string[] }
 RenderResult = { id, type: "render.result", requestId: string, images: [{ view: string, pngBase64: string, width, height }] }
 ToolMsg      = { id, type: "tool", name: string, args: object }        // the in-app UI may call registry tools too

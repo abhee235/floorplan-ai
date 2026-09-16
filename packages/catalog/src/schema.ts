@@ -177,8 +177,11 @@ export const Texture = z.object({
   /** "<library>/<slug>" */
   id: TextureId.regex(/^[a-z0-9-]+\/[a-z0-9-]+$/, "texture ids are <library>/<slug>"),
   name: z.string().min(1),
-  /** Asset file reference by hash: "sha256:<hex>". */
-  image: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+  /**
+   * The image: a library file by its hash, "sha256:<hex>", or "generated:<name>" for one the app draws
+   * itself (@fpv/assets GENERATED_TEXTURES), which has no file.
+   */
+  image: z.string().regex(/^(sha256:[0-9a-f]{64}|generated:[a-z0-9-]+)$/),
   widthMm: MmPositive,
   heightMm: MmPositive,
   transparent: z.boolean().default(false),

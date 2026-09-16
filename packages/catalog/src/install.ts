@@ -49,6 +49,8 @@ export function verifyLibraryFiles(manifest: LibraryManifest, dir: string): void
       );
   }
   for (const t of manifest.textures) {
+    // a drawn texture has no file to check
+    if (!t.image.startsWith("sha256:")) continue;
     const hex = t.image.slice("sha256:".length);
     const path = join(dir, "textures", `${hex}${extensionOf(dir, hex)}`);
     if (!existsSync(path))

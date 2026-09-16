@@ -121,7 +121,7 @@ Rules in spec 07 read these keys.
 export const Texture = z.object({
   id: TextureId,                           // "<library>/<slug>"
   name: z.string().min(1),
-  image: z.string(),                       // asset file reference by hash: "sha256:<hex>"
+  image: z.string(),                       // a library file by hash, "sha256:<hex>", or "generated:<name>" for one the app draws
   widthMm: MmPositive,
   heightMm: MmPositive,
   transparent: z.boolean(),
@@ -131,6 +131,20 @@ export const Texture = z.object({
 });
 export const TextureSnapshot = Texture;  // whole record, small
 ```
+
+The app draws a set of textures itself (`@fpv/assets` GENERATED_TEXTURES: wood,
+carpet, concrete, tiles, brick, fabric, felt), seeded and tiling, installed as
+the library `generated` beside the seed products; they have no files and so
+no licence to track. The host serves every texture's image at
+`/textures/<library>/<slug>`: a drawn one rendered and encoded on first use, a
+library one from the installed copy. A finish that names a texture copies its
+record into the project's `textures` on first use, as a product is copied
+into `catalogRefs`; a texture the catalog does not have is refused with
+`catalog.missing-texture`. A textured surface is drawn white under its image,
+repeated every `widthMm` by `heightMm` (engine UVs are metres); picking a
+texture clears the surface's colour and typing a colour clears its texture.
+The glTF export does not embed images yet and writes a textured surface in
+its plain colour.
 
 ## 3. Asset manifest
 

@@ -20,7 +20,7 @@ import type { Level, Opening, Point, Wall } from "@fpv/ir";
 import { derive } from "@fpv/ir";
 import type { CutOutSource } from "./cutouts.js";
 import { MeshBuilder } from "./mesh.js";
-import { finishedMaterialKey } from "./palette.js";
+import { finishedMaterialKey, type TextureSource } from "./palette.js";
 import { type GeometryPart, MM_PER_M, type P3 } from "./types.js";
 
 export interface WallBuildContext {
@@ -30,6 +30,8 @@ export interface WallBuildContext {
   footprints?: Map<string, Point[]>;
   /** Cut-out shapes by opening (ADR-014 D7 step 3); without it every opening is a rectangle. */
   cutOuts?: CutOutSource;
+  /** Texture sizes, for sides that wear a texture; without it a texture is left off. */
+  textures?: TextureSource;
 }
 
 /** Length of the wall centreline path: the chord for straight walls, the arc length for arcs (W-111). */
@@ -433,8 +435,8 @@ export function buildWalls(
     const sideBase = glass ? "wall-glass" : "wall-side";
     const edgeKey = glass ? "wall-glass-frame" : "wall-side";
     const revealKey = glass ? "wall-glass-frame" : "opening-reveal";
-    const leftKey = finishedMaterialKey(sideBase, w.finishes.left);
-    const rightKey = finishedMaterialKey(sideBase, w.finishes.right);
+    const leftKey = finishedMaterialKey(sideBase, w.finishes.left, ctx.textures);
+    const rightKey = finishedMaterialKey(sideBase, w.finishes.right, ctx.textures);
     out.push(buildSide(left, right, len, cutList, el).toPart(w.id, "wall-left", leftKey));
     out.push(buildSide(right, left, len, cutList, el).toPart(w.id, "wall-right", rightKey));
     // top: full footprint ring with per-vertex top elevation (W-093 sloped tops)

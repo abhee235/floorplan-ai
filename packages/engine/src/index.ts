@@ -32,11 +32,15 @@ export {
   finishedMaterialKey,
   MATERIAL_COLOURS,
   type MaterialLook,
+  type MaterialTexture,
   materialColour,
   materialKeyOf,
   materialLook,
   materialRoughness,
   roughnessForShininess,
+  type TextureSize,
+  type TextureSource,
+  textureSourceOf,
 } from "./palette.js";
 export { buildRecipe, buildRecipeParts, fallbackRecipe, recipeAssetKey, recipeSlotKey } from "./recipes.js";
 export { buildRooms, ceilingElevation, type RoomBuildContext } from "./rooms.js";

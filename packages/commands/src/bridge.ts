@@ -36,7 +36,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   z.object({
     id: Id,
     type: z.literal("get"),
-    what: z.enum(["snapshot", "history", "selection", "problems"]),
+    what: z.enum(["snapshot", "history", "selection", "problems", "textures"]),
   }),
   z.object({ id: Id, type: z.literal("select"), ids: z.array(z.string()) }),
   z.object({

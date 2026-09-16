@@ -18,6 +18,7 @@ import { FilePlanReader } from "./plans.js";
 import { createReader, loadReaderConfig } from "./reader.js";
 import { DEFAULT_PORT, serve } from "./server.js";
 import { createSession } from "./session.js";
+import { TextureImages } from "./textures.js";
 import { createVerifier, loadHostConfig } from "./verifier.js";
 
 export interface CliArgs {
@@ -138,7 +139,12 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   });
   files.startAutosave();
   if (args.serve) {
-    const served = await serve(session, { port: args.port, projectPath: () => files.path() });
+    const images = new TextureImages(catalog.store, catalog.dir);
+    const served = await serve(session, {
+      port: args.port,
+      projectPath: () => files.path(),
+      textures: (id) => images.image(id),
+    });
     // stdout may be the MCP transport, so the URL goes to stderr
     process.stderr.write(`floorplan-ai viewer: ${served.url}\n`);
     await files.writeSession(served.port, PROTOCOL_VERSION);

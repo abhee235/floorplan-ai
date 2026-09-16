@@ -207,7 +207,9 @@ export class Bridge implements ViewerRenderer {
               ? { ids: store.selection }
               : msg.what === "problems"
                 ? { problems: this.session.registry.problems() }
-                : { seq: this.seq };
+                : msg.what === "textures"
+                  ? { textures: textureList(this.session) }
+                  : { seq: this.seq };
         this.reply(state, msg.id, true, { result });
         return;
       }
@@ -304,4 +306,33 @@ export class Bridge implements ViewerRenderer {
     this.clients.clear();
     if (this.session.ctx.viewer === this) this.session.ctx.viewer = null;
   }
+}
+
+/** What the editor's texture pickers need to know about each texture the catalog has (P3-5). */
+function textureList(
+  session: Session,
+): { id: string; name: string; widthMm: number; heightMm: number; tags: string[] }[] {
+  const all = (session.ctx.catalog.textures?.() ?? []) as {
+    id?: unknown;
+    name?: unknown;
+    widthMm?: unknown;
+    heightMm?: unknown;
+    tags?: unknown;
+  }[];
+  return all.flatMap((t) =>
+    typeof t.id === "string" &&
+    typeof t.name === "string" &&
+    typeof t.widthMm === "number" &&
+    typeof t.heightMm === "number"
+      ? [
+          {
+            id: t.id,
+            name: t.name,
+            widthMm: t.widthMm,
+            heightMm: t.heightMm,
+            tags: Array.isArray(t.tags) ? t.tags.filter((x): x is string => typeof x === "string") : [],
+          },
+        ]
+      : [],
+  );
 }

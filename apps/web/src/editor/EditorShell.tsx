@@ -25,7 +25,7 @@ import { isInsidePopup, isTypingTarget } from "./keys.js";
 import { PropertiesPanel } from "./PropertiesPanel.js";
 import { bindRoomDrawing } from "./room-drawing.js";
 import { StatusBar } from "./StatusBar.js";
-import { deleteCommands, describeEntity, kindOf } from "./selection.js";
+import { deleteCommands, describeEntity, kindOf, type TextureChoice } from "./selection.js";
 import { scaleLabel } from "./status.js";
 import { ToolOptionsBar } from "./ToolOptionsBar.js";
 import { ToolRail } from "./ToolRail.js";
@@ -75,6 +75,7 @@ export function EditorShell(): JSX.Element {
   const [app, setApp] = useState<ReturnType<typeof startApp> | null>(null);
   const [panelTab, setPanelTab] = useState<PanelTab>("properties");
   const [selectionKey, setSelectionKey] = useState("");
+  const [textures, setTextures] = useState<readonly TextureChoice[]>([]);
   // The piece the item tool places, picked in the catalog. Kept after the tool is left, so pressing I
   // again carries on with it.
   const pieceRef = useRef<Placeable | null>(null);
@@ -399,11 +400,30 @@ export function EditorShell(): JSX.Element {
       run: () => setPaletteOpen(true),
     });
 
+    // The catalog's textures, for the material rows. Asked once the first snapshot is in, which is after
+    // the hello: a request sent while the socket was still connecting was refused, and the rows then
+    // offered paint alone for the whole session. The catalog does not change under a session.
+    let texturesAsked = false;
+    const askTextures = (): void => {
+      if (texturesAsked || !replica.project) return;
+      texturesAsked = true;
+      void client
+        .request({ type: "get", what: "textures" })
+        .then((reply) => {
+          const list = (reply.result as { textures?: unknown } | undefined)?.textures;
+          if (Array.isArray(list)) setTextures(list as TextureChoice[]);
+        })
+        .catch(() => {
+          // an older host has no texture list; the rows still offer paint and what the project wears
+        });
+    };
     const unsubscribe = replica.subscribe(() => {
       setScale(plan.view.scale);
       setLevel(plan.level);
       setSelectionKey(replica.selection.join(","));
+      askTextures();
     });
+    askTextures();
     setScale(plan.view.scale);
     return () => {
       unsubscribe();
@@ -657,6 +677,7 @@ export function EditorShell(): JSX.Element {
                     replica={app.replica}
                     level={level}
                     send={(command) => sendOrThrow(app.client, command)}
+                    textures={textures}
                   />
                 </TabsContent>
                 <TabsContent value="catalog" forceMount className="min-h-0 data-[state=inactive]:hidden">

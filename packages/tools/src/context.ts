@@ -46,6 +46,10 @@ export interface CatalogSearch {
   byCategory?(category: string): readonly unknown[];
   /** The strict snapshot for a project's catalogRefs, when the catalog can make one (spec 02 section 1.1). */
   snapshot?(ids: readonly string[], snapshotAt: string): Record<string, Record<string, unknown>>;
+  /** A texture record, for a project's texture snapshots (spec 02 section 2). */
+  texture?(id: string): object | null;
+  /** Every texture the catalog has, for the editor's pickers. */
+  textures?(): readonly object[];
 }
 
 export interface RenderRequest {
@@ -289,8 +293,12 @@ export function searchRecipes(
 }
 
 /** An in-memory catalog: enough for tests and for a session without the SQLite catalog (phase 1). */
-export function memoryCatalog(products: readonly CatalogProduct[] = []): CatalogSearch {
+export function memoryCatalog(
+  products: readonly CatalogProduct[] = [],
+  textures: readonly { id: string }[] = [],
+): CatalogSearch {
   const byId = new Map(products.map((p) => [p.id, p]));
+  const textureById = new Map(textures.map((t) => [t.id, t]));
   const toHit = (p: CatalogProduct): CatalogHit => ({
     id: p.id,
     name: p.name,
@@ -328,6 +336,12 @@ export function memoryCatalog(products: readonly CatalogProduct[] = []): Catalog
     byCategory(category) {
       return products.filter((p) => p.category === category);
     },
+    texture(id) {
+      return textureById.get(id) ?? null;
+    },
+    textures() {
+      return textures;
+    },
   };
 }
 
@@ -338,6 +352,10 @@ export function catalogSourceOf(catalog: CatalogSearch, now: () => string) {
       if (catalog.snapshot) return catalog.snapshot([productId], now())[productId] ?? null;
       const p = catalog.product(productId);
       return p ? { ...p, snapshotAt: now() } : null;
+    },
+    texture(textureId: string): Record<string, unknown> | null {
+      const t = catalog.texture?.(textureId);
+      return t ? { ...t } : null;
     },
   };
 }

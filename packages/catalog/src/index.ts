@@ -109,7 +109,16 @@ export {
   tokens,
 } from "./search.js";
 export { SEED_PRODUCTS } from "./seed/products.js";
-export { ensureSeed, SEED_LIBRARY, SEED_LIBRARY_ID, SEED_VERSION, type SeedTarget } from "./seed.js";
+export {
+  ensureSeed,
+  GENERATED_LIBRARY,
+  GENERATED_LIBRARY_ID,
+  GENERATED_VERSION,
+  SEED_LIBRARY,
+  SEED_LIBRARY_ID,
+  SEED_VERSION,
+  type SeedTarget,
+} from "./seed.js";
 export { type CatalogProblem, DISPLAY_MAX_DEPTH_MM, hasErrors, validateProduct } from "./validate.js";
 export {
   canonicalMake,

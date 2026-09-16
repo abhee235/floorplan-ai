@@ -371,6 +371,15 @@ function ChoiceField({
           {choices.map((choice) => (
             <SelectItem key={choice.value} value={choice.value}>
               {choice.swatch ? <PatternSwatch pattern={choice.swatch} /> : null}
+              {choice.image ? (
+                // decoration: the name beside it says what it is
+                <img
+                  src={choice.image}
+                  alt=""
+                  aria-hidden="true"
+                  className="size-4 shrink-0 rounded-sm border object-cover"
+                />
+              ) : null}
               {choice.label}
             </SelectItem>
           ))}

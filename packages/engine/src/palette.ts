@@ -45,32 +45,73 @@ export const MATERIAL_COLOURS: Readonly<Record<string, number>> = {
 export interface FinishLike {
   color: string | null;
   shininess: number | null;
+  textureId?: string | null;
+}
+
+/** How much of a surface one copy of a texture covers, in millimetres. */
+export interface TextureSize {
+  widthMm: number;
+  heightMm: number;
+}
+
+/** The size of a texture by id, or null when it is not known, as a project's texture snapshots give it. */
+export type TextureSource = (textureId: string) => TextureSize | null;
+
+/** A texture a material wears, with the size one copy of it covers. */
+export interface MaterialTexture extends TextureSize {
+  id: string;
 }
 
 /**
  * The material key for a surface that may carry a finish: the base key alone, or
- * `<base>|<colour>|<shininess>` with either part empty.
+ * `<base>|<colour>|<shininess>` with either part empty, and `|<texture>@<width>x<height>` after them when
+ * the finish names a texture whose size `textures` knows.
  *
  * The finish rides in the key rather than beside it because the key is the one thing both consumers already
  * group by: the viewer caches a material per key and the glTF export writes one per key. A wall painted red
- * is then a different material everywhere, with no second lookup that one of them could forget.
+ * is then a different material everywhere, with no second lookup that one of them could forget. The
+ * texture's size rides along for the same reason: it decides how often the image repeats.
  */
-export function finishedMaterialKey(base: string, finish: FinishLike | null): string {
-  if (!finish || (finish.color === null && finish.shininess === null)) return base;
-  return `${base}|${finish.color ?? ""}|${finish.shininess ?? ""}`;
+export function finishedMaterialKey(
+  base: string,
+  finish: FinishLike | null,
+  textures?: TextureSource,
+): string {
+  const size = finish?.textureId && textures ? textures(finish.textureId) : null;
+  const texture = size && finish?.textureId ? `${finish.textureId}@${size.widthMm}x${size.heightMm}` : null;
+  if (!finish || (finish.color === null && finish.shininess === null && !texture)) return base;
+  const plain = `${base}|${finish.color ?? ""}|${finish.shininess ?? ""}`;
+  return texture ? `${plain}|${texture}` : plain;
+}
+
+/** Texture sizes from a project's snapshots (spec 02 section 2). */
+export function textureSourceOf(project: { textures: Record<string, unknown> }): TextureSource {
+  return (id) => {
+    const t = project.textures[id] as { widthMm?: unknown; heightMm?: unknown } | undefined;
+    return typeof t?.widthMm === "number" && typeof t.heightMm === "number" && t.widthMm > 0 && t.heightMm > 0
+      ? { widthMm: t.widthMm, heightMm: t.heightMm }
+      : null;
+  };
 }
 
 interface KeyParts {
   base: string;
   colour: number | null;
   shininess: number | null;
+  texture: MaterialTexture | null;
 }
 
 function splitKey(key: string): KeyParts {
-  const [base = key, colour = "", shininess = ""] = key.split("|");
+  const [base = key, colour = "", shininess = "", texture = ""] = key.split("|");
   const hex = /^#[0-9A-Fa-f]{6}$/.test(colour) ? Number.parseInt(colour.slice(1), 16) : null;
   const shine = shininess === "" ? null : Number(shininess);
-  return { base, colour: hex, shininess: shine !== null && Number.isFinite(shine) ? shine : null };
+  const t = /^(.+)@(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)$/.exec(texture);
+  return {
+    base,
+    colour: hex,
+    shininess: shine !== null && Number.isFinite(shine) ? shine : null,
+    texture: t ? { id: t[1] as string, widthMm: Number(t[2]), heightMm: Number(t[3]) } : null,
+  };
 }
 
 /** Recipe keys carry size and shape ("recipe:table:boat:3600x1400x750"); materials go by kind. */
@@ -90,6 +131,13 @@ export interface MaterialLook {
   /** Takes the environment map, when there is one: glass and its frame. Nothing else does, so the rest of
    *  the scene keeps its flat office look. */
   reflective: boolean;
+  /**
+   * The image the surface wears, repeated every `widthMm` by `heightMm`; `colour` is then white, so the
+   * image shows its own colours.
+   */
+  texture: MaterialTexture | null;
+  /** The colour the surface has without its texture: what to draw where the image cannot be. */
+  plainColour: number;
 }
 
 /** How a kind of surface differs from the flat, matt, solid default. */
@@ -104,11 +152,14 @@ const LOOKS: Readonly<Record<string, Partial<MaterialLook>>> = {
 };
 
 export function materialLook(key: string): MaterialLook {
-  const { base, colour, shininess } = splitKey(key);
+  const { base, colour, shininess, texture } = splitKey(key);
   const kind = materialKeyOf(base);
   const look = LOOKS[kind] ?? {};
+  const plainColour = colour ?? MATERIAL_COLOURS[kind] ?? MATERIAL_COLOURS.item ?? 0x8f9aa6;
   return {
-    colour: colour ?? MATERIAL_COLOURS[kind] ?? MATERIAL_COLOURS.item ?? 0x8f9aa6,
+    colour: texture ? 0xffffff : plainColour,
+    plainColour,
+    texture,
     // A finish's shininess replaces the kind's roughness: satin or gloss on glass reads as frosted.
     roughness: shininess !== null ? roughnessForShininess(shininess) : (look.roughness ?? 0.85),
     metalness: look.metalness ?? 0,

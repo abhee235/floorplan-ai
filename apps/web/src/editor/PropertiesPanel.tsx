@@ -10,7 +10,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import type { Replica } from "../replica.js";
 import { Keyed } from "./Phrase.js";
 import { PropertyField } from "./PropertyField.js";
-import { describeEntity, type EditCommand, type Fact, type SelectedEntity } from "./selection.js";
+import {
+  describeEntity,
+  type EditCommand,
+  type Fact,
+  type SelectedEntity,
+  type TextureChoice,
+} from "./selection.js";
 import { countsText, formatMm } from "./status.js";
 import { k, t } from "./tools.js";
 import { useProject, useSelectionKey } from "./useReplica.js";
@@ -19,9 +25,12 @@ export function PropertiesPanel({
   replica,
   level,
   send,
+  textures = [],
 }: {
   replica: Replica;
   level: string | null;
+  /** The catalog's textures, for the material rows (P3-5). */
+  textures?: readonly TextureChoice[];
   /** Sends an edit to the host; throws with the host's reason when it is refused. */
   send: (command: EditCommand) => Promise<void>;
 }): JSX.Element {
@@ -33,7 +42,7 @@ export function PropertiesPanel({
   // this render — so anything describeEntity cannot find is dropped rather than shown as a blank band.
   const entities: SelectedEntity[] = project
     ? selected.flatMap((id) => {
-        const found = describeEntity(project, id);
+        const found = describeEntity(project, id, { textures });
         return found ? [found] : [];
       })
     : [];

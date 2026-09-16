@@ -3,7 +3,7 @@
 import { intersectLines, snapToFreeWallEnd } from "@fpv/geometry";
 import type { Join, Point, Project, Wall } from "@fpv/ir";
 import { DEFAULTS, defaultWall, derive, normalizeWall } from "@fpv/ir";
-import { type Changes, type Ctx, levelById, wallById } from "../context.js";
+import { type Changes, type Ctx, levelById, requireTextures, wallById } from "../context.js";
 import { precondition } from "../errors.js";
 import type { PayloadOf } from "../types.js";
 
@@ -176,9 +176,10 @@ function moveEndpoint(p: Project, w: Wall, end: End, to: Point, moved: Set<strin
 /** Wall fields only the plan draws: changing nothing else rebuilds nothing in 3D (W-121, S-011). */
 const PLAN_ONLY: ReadonlySet<string> = new Set(["pattern"]);
 
-export function wallModify(p: Project, payload: PayloadOf<"wall.modify">, _ctx: Ctx, changes: Changes): Wall {
+export function wallModify(p: Project, payload: PayloadOf<"wall.modify">, ctx: Ctx, changes: Changes): Wall {
   const w = wallById(p, payload.wallId);
   const c = payload.changes;
+  if (c.finishes) requireTextures(p, ctx, [c.finishes.left, c.finishes.right, c.finishes.top], w.id);
   const keys = Object.keys(c);
   if (keys.length > 0 && keys.every((k) => PLAN_ONLY.has(k))) {
     if (c.pattern !== undefined) w.pattern = c.pattern;
