@@ -1,13 +1,56 @@
 // Mounts the editor shell, starts the app inside it, and registers the commands that need the bridge.
 import { startApp } from "./app.js";
 import { mountShell } from "./editor/shell.js";
+import { bindWallDrawing } from "./editor/wall-drawing.js";
 
 const root = document.getElementById("app");
 if (!root) throw new Error("missing #app");
 
 const shell = mountShell(root);
 const app = startApp(shell.slots);
-const { client, plan, replica } = app;
+const { client, plan, replica, review } = app;
+
+// The app's frame loop only flushes when it has marked the plan dirty itself, so the editor asks for its
+// own repaint, coalesced to one a frame.
+let overlayPending = false;
+const redraw = (): void => {
+  plan.invalidateOverlay();
+  if (overlayPending) return;
+  overlayPending = true;
+  requestAnimationFrame(() => {
+    overlayPending = false;
+    plan.flush();
+  });
+};
+
+const wallDrawing = bindWallDrawing({
+  plan,
+  element: shell.slots.plan,
+  announcer: shell.announcer,
+  project: () => replica.project,
+  settings: () => ({
+    thickness: Number(shell.option("wall", "thickness") ?? 100),
+    kind: String(shell.option("wall", "kind") ?? "interior"),
+    magnetism: shell.option("wall", "snapWalls") !== false,
+  }),
+  active: () => shell.tool().id === "wall",
+  send: async (command) => {
+    await client.command(command);
+  },
+  redraw,
+  status: (text) => shell.setSnap(text),
+});
+
+// One overlay painter: the draft review panel and the wall preview both draw over the plan.
+plan.setOverlayExtra((ctx, view) => {
+  review.draw(ctx, view);
+  wallDrawing.draw(ctx, view);
+});
+
+// Leaving the wall tool ends the chain rather than abandoning it half drawn (W-090).
+shell.onTool((tool) => {
+  if (tool.id !== "wall") wallDrawing.finish();
+});
 
 shell.commands.add(
   {

@@ -123,6 +123,11 @@ export class PlanRenderer {
     this.full = true;
   }
 
+  /** The level being drawn; chosen from the project when none was set. */
+  get level(): string | null {
+    return this.levelId;
+  }
+
   setLevel(levelId: string): void {
     this.levelId = levelId;
     this.full = true;

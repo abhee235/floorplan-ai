@@ -52,6 +52,19 @@ export {
   toolById,
   toolForKey,
 } from "./editor/tools.js";
+export {
+  type Aim,
+  type AimOptions,
+  angleOf,
+  clampLength,
+  MAX_LENGTH_MM,
+  MIN_LENGTH_MM,
+  pointAt,
+  type SnapKind,
+  type WallChainCommand,
+  WallTool,
+  type WallToolOptions,
+} from "./editor/wall-tool.js";
 export { type Ctx2D, type PlanLayers, PlanRenderer, type PlanView } from "./plan/plan.js";
 export { Replica, type ReplicaListener } from "./replica.js";
 export {
