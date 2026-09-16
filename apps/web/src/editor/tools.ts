@@ -16,6 +16,23 @@ export interface ToolOption {
   unit?: string;
 }
 
+/** A run of a sentence: either words, or the name of a key to be drawn as a key.
+ *
+ *  The sentences used to be plain strings, which meant the chrome could only ever render them as prose —
+ *  "Hold Shift to add to the selection" put Shift in the same grey as the word "to". Marking the keys up
+ *  needs to be a property of the DATA, not something the view rediscovers: a regex over the sentence would
+ *  have to know that "Shift" and "Tab" are keys while "Hold" and "Type" are not, and would quietly mangle
+ *  "Space picks up and drops" the first time someone reworded it. */
+export type Phrase = readonly ({ text: string } | { key: string })[];
+
+export const t = (text: string): { text: string } => ({ text });
+export const k = (key: string): { key: string } => ({ key });
+
+/** The words of a phrase, for a plain-text context (an aria-label, a test, a title attribute). */
+export function phraseText(phrase: Phrase): string {
+  return phrase.map((part) => ("key" in part ? part.key : part.text)).join("");
+}
+
 export interface ToolDefinition {
   id: ToolId;
   title: string;
@@ -23,10 +40,10 @@ export interface ToolDefinition {
   shortcut: string;
   /** What the tool does, for the palette and the tool options bar. */
   summary: string;
-  /** The plain sentence in the options bar naming the modifier keys. */
-  modifiers: string;
-  /** How the tool is driven with no pointer at all (ADR-017 D4). */
-  keyboard: string;
+  /** The sentence in the options bar naming the modifier keys, with the keys marked. */
+  modifiers: Phrase;
+  /** How the tool is driven with no pointer at all (ADR-017 D4), with the keys marked. */
+  keyboard: Phrase;
   options: ToolOption[];
 }
 
@@ -37,7 +54,13 @@ const SNAP_OPTIONS: ToolOption[] = [
 ];
 
 /** Snapping is a preference the modifier keys invert (W-082). */
-const SNAP_MODIFIERS = "Hold Shift to align · Alt to bypass snapping";
+const SNAP_MODIFIERS: Phrase = [
+  t("Hold "),
+  k("Shift"),
+  t(" to align · "),
+  k("Alt"),
+  t(" to bypass snapping"),
+];
 
 export const TOOLS: ToolDefinition[] = [
   {
@@ -45,8 +68,15 @@ export const TOOLS: ToolDefinition[] = [
     title: "Select",
     shortcut: "V",
     summary: "Pick, move and edit what is already there",
-    modifiers: "Hold Shift to add to the selection · Alt to bypass snapping",
-    keyboard: "Tab steps through entities, arrows nudge, Space picks up and drops, Enter opens properties",
+    modifiers: [t("Hold "), k("Shift"), t(" to add to the selection · "), k("Alt"), t(" to bypass snapping")],
+    keyboard: [
+      k("Tab"),
+      t(" steps through entities, arrows nudge, "),
+      k("Space"),
+      t(" picks up and drops, "),
+      k("Enter"),
+      t(" opens properties"),
+    ],
     options: SNAP_OPTIONS,
   },
   {
@@ -55,7 +85,15 @@ export const TOOLS: ToolDefinition[] = [
     shortcut: "W",
     summary: "Draw a chain of walls",
     modifiers: SNAP_MODIFIERS,
-    keyboard: "Type a length, Tab, an angle, then Enter to place; Enter twice ends the chain",
+    keyboard: [
+      t("Type a length, "),
+      k("Tab"),
+      t(", an angle, then "),
+      k("Enter"),
+      t(" to place; "),
+      k("Enter"),
+      t(" twice ends the chain"),
+    ],
     options: [
       { id: "thickness", label: "Thickness", kind: "number", value: 100, unit: "mm" },
       {
@@ -79,7 +117,15 @@ export const TOOLS: ToolDefinition[] = [
     shortcut: "R",
     summary: "Draw a room, or fill an area the walls already enclose",
     modifiers: SNAP_MODIFIERS,
-    keyboard: "Type a side length, Tab, an angle, then Enter; Enter twice closes the room",
+    keyboard: [
+      t("Type a side length, "),
+      k("Tab"),
+      t(", an angle, then "),
+      k("Enter"),
+      t("; "),
+      k("Enter"),
+      t(" twice closes the room"),
+    ],
     options: SNAP_OPTIONS,
   },
   {
@@ -87,8 +133,15 @@ export const TOOLS: ToolDefinition[] = [
     title: "Add door or window",
     shortcut: "O",
     summary: "Place a door, window or passage in a wall",
-    modifiers: "Hold Alt to bypass snapping to the middle of the wall",
-    keyboard: "Tab to a wall, Enter to place, then arrows slide it along and Enter confirms",
+    modifiers: [t("Hold "), k("Alt"), t(" to bypass snapping to the middle of the wall")],
+    keyboard: [
+      k("Tab"),
+      t(" to a wall, "),
+      k("Enter"),
+      t(" to place, then arrows slide it along and "),
+      k("Enter"),
+      t(" confirms"),
+    ],
     options: [
       {
         id: "opening",
@@ -110,7 +163,7 @@ export const TOOLS: ToolDefinition[] = [
     shortcut: "I",
     summary: "Place a piece from the catalog",
     modifiers: SNAP_MODIFIERS,
-    keyboard: "Arrows move the piece, brackets rotate it by 15 degrees, Enter places it",
+    keyboard: [t("Arrows move the piece, brackets rotate it by 15 degrees, "), k("Enter"), t(" places it")],
     options: [{ id: "rotation", label: "Rotation", kind: "number", value: 0, unit: "°" }, ...SNAP_OPTIONS],
   },
   {
@@ -118,8 +171,17 @@ export const TOOLS: ToolDefinition[] = [
     title: "Measure",
     shortcut: "M",
     summary: "Measure a distance without changing anything",
-    modifiers: "Hold Shift to measure along an axis",
-    keyboard: "Tab to a point, Enter to start, Tab to the second point, Enter to read the distance",
+    modifiers: [t("Hold "), k("Shift"), t(" to measure along an axis")],
+    keyboard: [
+      k("Tab"),
+      t(" to a point, "),
+      k("Enter"),
+      t(" to start, "),
+      k("Tab"),
+      t(" to the second point, "),
+      k("Enter"),
+      t(" to read the distance"),
+    ],
     options: [
       {
         id: "units",
@@ -139,8 +201,13 @@ export const TOOLS: ToolDefinition[] = [
     title: "Annotate",
     shortcut: "T",
     summary: "Add a label or a dimension line",
-    modifiers: "Hold Shift to keep the line on an axis",
-    keyboard: "Enter starts a label where focus is, then type and press Enter again",
+    modifiers: [t("Hold "), k("Shift"), t(" to keep the line on an axis")],
+    keyboard: [
+      k("Enter"),
+      t(" starts a label where focus is, then type and press "),
+      k("Enter"),
+      t(" again"),
+    ],
     options: [
       {
         id: "annotation",
@@ -159,8 +226,8 @@ export const TOOLS: ToolDefinition[] = [
     title: "Pan",
     shortcut: "Space",
     summary: "Move the view without changing anything",
-    modifiers: "Hold Space from any tool to pan, and let go to return to it",
-    keyboard: "Arrows pan the view, F fits the plan to the window",
+    modifiers: [t("Hold "), k("Space"), t(" from any tool to pan, and let go to return to it")],
+    keyboard: [t("Arrows pan the view, "), k("F"), t(" fits the plan to the window")],
     options: [],
   },
 ];
@@ -170,8 +237,8 @@ export function checkTool(tool: ToolDefinition): string[] {
   const missing: string[] = [];
   if (!tool.shortcut.trim()) missing.push("a shortcut");
   if (!tool.summary.trim()) missing.push("a summary");
-  if (!tool.modifiers.trim()) missing.push("a sentence naming its modifiers");
-  if (!tool.keyboard.trim()) missing.push("a keyboard path");
+  if (!phraseText(tool.modifiers).trim()) missing.push("a sentence naming its modifiers");
+  if (!phraseText(tool.keyboard).trim()) missing.push("a keyboard path");
   return missing;
 }
 

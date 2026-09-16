@@ -18,7 +18,15 @@ import { StatusBar } from "./StatusBar.js";
 import { scaleLabel } from "./status.js";
 import { ToolOptionsBar } from "./ToolOptionsBar.js";
 import { ToolRail } from "./ToolRail.js";
-import { checkTools, TOOLS, type ToolDefinition, type ToolId, toolById, toolReady } from "./tools.js";
+import {
+  checkTools,
+  phraseText,
+  TOOLS,
+  type ToolDefinition,
+  type ToolId,
+  toolById,
+  toolReady,
+} from "./tools.js";
 import { type Editor, EditorContext, type ViewMode } from "./useEditor.js";
 import { bindWallDrawing } from "./wall-drawing.js";
 
@@ -82,8 +90,11 @@ export function EditorShell(): JSX.Element {
       if (!next) return;
       setToolId(next.id);
       announcer.say(
+        // phraseText, not the Phrase itself: keyboard is an array of parts now, and interpolating it
+        // straight into the template would announce "[object Object]" to a screen reader without any
+        // type error to catch it.
         toolReady(next)
-          ? `${next.title}. ${next.keyboard}.`
+          ? `${next.title}. ${phraseText(next.keyboard)}.`
           : `${next.title}. Not built yet, so the plan will not answer.`,
       );
     },

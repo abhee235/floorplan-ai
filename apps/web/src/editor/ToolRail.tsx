@@ -19,6 +19,7 @@ import {
   Type,
 } from "lucide-react";
 import type { JSX } from "react";
+import { Kbd } from "@/components/ui/kbd";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { TOOLS, type ToolId, toolReady } from "./tools.js";
@@ -34,9 +35,14 @@ import { useEditor } from "./useEditor.js";
 // 32px targets: the rail sits at the chrome's density rather than above it. They still read as the largest
 // thing in the chrome because they are square and hold a 20px icon, where a bar control is 28px of mostly
 // text.
+//
+// The selected tool is a SOLID primary fill with a white glyph, not the pale accent tint it used to be.
+// The active tool is the single most important piece of state in the whole editor — it decides what the
+// next click does — and a 4% tint of blue is not a strong enough signal to carry that. A filled swatch
+// reads instantly at the edge of vision, which is where the rail actually lives while you are drawing.
 const ITEM =
   "size-8 rounded-lg! text-muted-foreground transition-colors hover:bg-muted hover:text-foreground " +
-  "aria-checked:bg-accent aria-checked:text-accent-foreground";
+  "aria-checked:bg-primary aria-checked:text-primary-foreground aria-checked:hover:bg-primary";
 
 /** One lucide icon per tool. Keyed by ToolId rather than looked up by string, so adding a tool without an
  *  icon is a type error rather than a blank button. */
@@ -67,7 +73,7 @@ export function ToolRail(): JSX.Element {
       }}
       orientation="vertical"
       aria-label="Tools"
-      className="flex w-12 flex-col items-center gap-0.5 border-r bg-card py-1.5"
+      className="flex w-12 flex-col items-center gap-1 border-r bg-card py-2"
     >
       {TOOLS.map((tool) => {
         const ready = toolReady(tool);
@@ -90,7 +96,7 @@ export function ToolRail(): JSX.Element {
             </TooltipTrigger>
             <TooltipContent side="right">
               {tool.title}
-              <span className="ml-1.5 opacity-60">{tool.shortcut}</span>
+              <Kbd className="ml-1.5">{tool.shortcut}</Kbd>
               {ready ? "" : " · not built yet"}
             </TooltipContent>
           </Tooltip>

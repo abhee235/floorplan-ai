@@ -61,11 +61,14 @@ export function AppBar({ replica, level, onLevel, onImport }: AppBarProps): JSX.
       </Select>
 
       <div className="flex gap-0.5" role="group" aria-label="History">
-        <Button variant="ghost" className={CONTROL} onClick={() => run("edit.undo")}>
+        {/* outline, not ghost: Undo and Redo are the same KIND of thing as Import — a command you press —
+            so they get the same outline the other commands have. A borderless button beside bordered ones
+            reads as a different class of control rather than as a quieter one. */}
+        <Button variant="outline" className={CONTROL} onClick={() => run("edit.undo")}>
           <Undo2 aria-hidden />
           Undo
         </Button>
-        <Button variant="ghost" className={CONTROL} onClick={() => run("edit.redo")}>
+        <Button variant="outline" className={CONTROL} onClick={() => run("edit.redo")}>
           <Redo2 aria-hidden />
           Redo
         </Button>

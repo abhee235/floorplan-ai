@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { checkTool, checkTools, TOOLS, toolById, toolForKey, toolReady } from "../../src/index.js";
+import {
+  checkTool,
+  checkTools,
+  phraseText,
+  TOOLS,
+  t,
+  toolById,
+  toolForKey,
+  toolReady,
+} from "../../src/index.js";
 
 describe("the tools on the rail (ADR-017 D2)", () => {
   it("is the set the design names, in rail order", () => {
@@ -18,7 +27,7 @@ describe("the tools on the rail (ADR-017 D2)", () => {
 
   it("refuses a tool that does not say how it is used", () => {
     // ADR-017: a tool must state its options, its shortcut and its keyboard path, or it cannot be added
-    const half = { ...(TOOLS[1] as (typeof TOOLS)[number]), keyboard: "", modifiers: " " };
+    const half = { ...(TOOLS[1] as (typeof TOOLS)[number]), keyboard: [], modifiers: [t(" ")] };
     expect(checkTool(half)).toEqual(["a sentence naming its modifiers", "a keyboard path"]);
     expect(() => checkTools([half])).toThrow(/cannot go on the rail without/);
   });
@@ -56,6 +65,8 @@ describe("the tools on the rail (ADR-017 D2)", () => {
     const wall = toolById("wall");
     expect(wall?.options.map((o) => o.id)).toContain("snapWalls");
     expect(wall?.options.map((o) => o.id)).toContain("thickness");
-    expect(wall?.modifiers).toMatch(/Shift.*align.*Alt.*bypass/);
+    // The sentence still reads the same; it is just built from parts now so the keys can be drawn as keys.
+    expect(phraseText(wall?.modifiers ?? [])).toMatch(/Shift.*align.*Alt.*bypass/);
+    expect(wall?.modifiers.filter((p) => "key" in p)).toEqual([{ key: "Shift" }, { key: "Alt" }]);
   });
 });

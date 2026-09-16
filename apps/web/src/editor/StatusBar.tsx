@@ -8,6 +8,7 @@
 // screen. The counts move into a child so the hooks stay unconditional.
 
 import type { JSX, RefObject } from "react";
+import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { Separator } from "@/components/ui/separator";
 import type { Replica } from "../replica.js";
 import { pointerText, problemCounts, scaleLabel } from "./status.js";
@@ -48,7 +49,10 @@ export function StatusBar({ replica, activityRef }: StatusBarProps): JSX.Element
       <span className="tabular-nums">{scaleLabel(editor.scale, Math.min(2, window.devicePixelRatio))}</span>
       {RULE}
       <span className="flex items-center gap-1.5">
-        <kbd className="rounded-md border bg-muted px-1.5 py-0.5 font-sans leading-none">Ctrl K</kbd>
+        <KbdGroup>
+          <Kbd>Ctrl</Kbd>
+          <Kbd>K</Kbd>
+        </KbdGroup>
         commands
       </span>
     </footer>

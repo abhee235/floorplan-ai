@@ -9,7 +9,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { Replica } from "../replica.js";
+import { Keyed } from "./Phrase.js";
 import { countsText, formatMm } from "./status.js";
+import { k, t } from "./tools.js";
 import { useProject, useSelectionKey } from "./useReplica.js";
 
 export function PropertiesPanel({ replica, level }: { replica: Replica; level: string | null }): JSX.Element {
@@ -24,9 +26,17 @@ export function PropertiesPanel({ replica, level }: { replica: Replica; level: s
         <div className="pb-4">
           <Section title={heading(selected.length)}>
             <p className="leading-relaxed text-muted-foreground">
-              {selected.length === 0
-                ? "Click an entity, or press Tab to step through them. These settings apply to the level."
-                : "Editing a selection arrives with the next tool; the plan still shows what is chosen."}
+              {selected.length === 0 ? (
+                <Keyed
+                  phrase={[
+                    t("Click an entity, or press "),
+                    k("Tab"),
+                    t(" to step through them. These settings apply to the level."),
+                  ]}
+                />
+              ) : (
+                "Editing a selection arrives with the next tool; the plan still shows what is chosen."
+              )}
             </p>
           </Section>
 
@@ -57,7 +67,11 @@ function heading(count: number): string {
 function Section({ title, children }: { title: string; children: React.ReactNode }): JSX.Element {
   return (
     <section className="border-b px-3 py-2 last:border-b-0">
-      <p className="mb-2 text-xs font-medium tracking-[0.06em] text-muted-foreground uppercase">{title}</p>
+      {/* text-foreground, not muted. The heading is what tells you WHICH band of the panel you are reading,
+          so it is the one line that has to survive a glance; muting it left the panel a uniform grey wash
+          with only the field values carrying any weight. Uppercase and tracking already mark it as a
+          heading, so the colour is free to do contrast instead of hierarchy. */}
+      <p className="mb-2 text-xs font-medium tracking-[0.06em] text-foreground uppercase">{title}</p>
       <div className="space-y-1.5">{children}</div>
     </section>
   );

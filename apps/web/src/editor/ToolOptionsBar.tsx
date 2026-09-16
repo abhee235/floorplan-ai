@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { Keyed } from "./Phrase.js";
 import type { ToolOption } from "./tools.js";
 import { toolReady } from "./tools.js";
 import { useEditor } from "./useEditor.js";
@@ -35,7 +36,11 @@ export function ToolOptionsBar(): JSX.Element {
       </div>
       <span className="grow" />
       <span className={ready ? "text-muted-foreground" : "text-[#a05a00]"}>
-        {ready ? tool.modifiers : "Not built yet: this tool changes nothing on the plan so far."}
+        {ready ? (
+          <Keyed phrase={tool.modifiers} />
+        ) : (
+          "Not built yet: this tool changes nothing on the plan so far."
+        )}
       </span>
     </div>
   );
