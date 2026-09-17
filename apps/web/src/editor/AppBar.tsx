@@ -9,12 +9,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { Replica } from "../replica.js";
+import { StaleNote } from "./StaleNote.js";
 import type { ViewMode } from "./useEditor.js";
 import { useEditor } from "./useEditor.js";
 import { useProject } from "./useReplica.js";
 
 export interface AppBarProps {
   replica: Replica;
+  /** One sentence about the host running code older than what is written, or null when all is well. */
+  stale?: string | null;
   level: string | null;
   onLevel: (levelId: string) => void;
   onImport: () => void;
@@ -35,7 +38,7 @@ const VIEWS: [ViewMode, string, LucideIcon][] = [
  *  usual 1.2x of a 13px label. */
 const CONTROL = "h-7 gap-1.5 px-2.5 font-normal";
 
-export function AppBar({ replica, level, onLevel, onImport }: AppBarProps): JSX.Element {
+export function AppBar({ replica, stale = null, level, onLevel, onImport }: AppBarProps): JSX.Element {
   const editor = useEditor();
   const project = useProject(replica);
   const levels = [...(project?.levels ?? [])].sort((a, b) => a.index - b.index);
@@ -75,6 +78,10 @@ export function AppBar({ replica, level, onLevel, onImport }: AppBarProps): JSX.
       </div>
 
       <span className="grow" />
+
+      {/* Only there when there is something wrong, and it opens what it says rather than printing it:
+          a warning across the editor would push everything under it down as it came and went. */}
+      <StaleNote note={stale} />
 
       <ToggleGroup
         type="single"

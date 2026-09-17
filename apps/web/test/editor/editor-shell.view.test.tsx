@@ -149,6 +149,18 @@ describe("switching what is on screen (ADR-017 D1)", () => {
     expect(handed).toHaveLength(1);
   });
 
+  it("gives the shell exactly as many children as its grid has rows", () => {
+    // The rows are counted out in order, so a child that renders nothing at all shifts every row after
+    // it up one track. It did: with no stale note to show, the plan took the note's `auto` track and
+    // shrank to its contents while the status bar took the plan's `1fr`, leaving a field of white below
+    // the window. Nothing in the DOM was missing, which is why only a screenshot showed it.
+    render(<EditorShell />);
+    const shell = document.querySelector("[class*='grid-rows-']") as HTMLElement;
+    const tracks = (/grid-rows-\[([^\]]+)\]/.exec(shell.className)?.[1] ?? "").split("_").length;
+    expect(tracks).toBeGreaterThan(1);
+    expect(shell.children).toHaveLength(tracks);
+  });
+
   it("shows the plan's scale whenever the app reports a new one, not only when the project changes", () => {
     render(<EditorShell />);
     const { onScale } = handed[0] as AppElements;
