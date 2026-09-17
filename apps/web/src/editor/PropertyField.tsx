@@ -1,5 +1,6 @@
-// One cell of the properties panel (ADR-017 D3): a short caption over a compact field, laid out as design
-// tools lay theirs out, with a leading mark to drag a number by. The panel places the cells in a grid.
+// One cell of the properties panel (ADR-017 D3): a caption over a field, made of the app's own components
+// at the app's own sizes. The panel places the cells two to a line; a number is changed by dragging its
+// caption sideways, as design tools do.
 //
 // What is typed shows on the plan and in 3D as it is typed, without being sent: Enter or leaving the field
 // sends it, as one change, and Escape puts the value back. A list commits as soon as something is picked.
@@ -7,7 +8,7 @@
 // the conversation around it — the draft, the refusal, and the round trip to the host.
 
 import { cn } from "cn";
-import { RotateCcw } from "lucide-react";
+import { ChevronsLeftRight, RotateCcw } from "lucide-react";
 import type { JSX, KeyboardEvent, ReactNode, PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -31,13 +32,11 @@ export interface PropertyFieldProps {
   label: string;
   /** The leading part of `label` to print, when that is less than all of it. */
   caption?: string | undefined;
-  /** Printed inside the field ahead of the value, and hidden from a screen reader, which has the label. */
-  prefix?: string | undefined;
   /**
-   * A mark at the field's left edge, a letter or an icon, standing for the name the caption prints; `prefix`
-   * when there is one. On a number it is also the handle to drag the number by.
+   * Printed inside the field ahead of the value, and hidden from a screen reader, which has the label: the
+   * axis of a coordinate. It is a handle to drag the number by, as the caption is.
    */
-  glyph?: ReactNode | undefined;
+  prefix?: string | undefined;
   value: string;
   unit?: string | undefined;
   choices?: readonly Choice[] | undefined;
@@ -67,21 +66,17 @@ export interface PropertyFieldProps {
   bare?: boolean | undefined;
   /** For a colour row wearing a texture: the texture's picture, shown on the swatch. */
   swatchImage?: string | undefined;
-  /**
-   * Whether the unit is printed inside the field. The panel prints millimetres once, in the band's heading,
-   * rather than in every field; the name a screen reader hears says the unit either way.
-   */
-  showUnit?: boolean | undefined;
 }
 
-/** The compact field every cell uses: no border until the pointer or focus is on it. */
-const FIELD =
-  "h-6.5 rounded-md border-transparent px-2 text-xs shadow-none md:text-xs hover:border-input focus-visible:bg-background";
-const FILLED = "bg-muted dark:bg-input/40";
+/**
+ * A value that is only read: the field's shape without its border, on a quiet fill, so its text lines up with
+ * the fields beside it and it still cannot be mistaken for one that takes typing.
+ */
+const READ_ONLY = "border-transparent bg-muted/60 shadow-none dark:bg-muted/40";
 
 /** What every draggable number field adds to its own description. */
 export const NUMBER_HELP =
-  "Up and Down arrows change the number, ten at a time with Shift. Dragging the field's name or its letter sideways does too.";
+  "Up and Down arrows change the number, ten at a time with Shift. Dragging the field's name sideways does too.";
 
 export function PropertyField(props: PropertyFieldProps): JSX.Element {
   const { choices, toggle, edit, send } = props;
@@ -115,7 +110,7 @@ function ToggleField({
   // The name sits beside the box rather than over it, as a checkbox's does, so the cell takes one line.
   return (
     <div className={cn("flex min-w-0 flex-col justify-end", className)}>
-      <div className="flex h-6.5 items-center gap-2 px-0.5">
+      <div className="flex h-8 items-center gap-2">
         <Checkbox
           id={id}
           checked={value === "true"}
@@ -124,7 +119,7 @@ function ToggleField({
           aria-describedby={describedBy(id, hint, report.error)}
           onCheckedChange={(next) => void flip(next === true)}
         />
-        <Label htmlFor={id} className="block min-w-0 truncate text-xs font-normal">
+        <Label htmlFor={id} className="block min-w-0 truncate font-normal">
           {caption ?? label}
         </Label>
       </div>
@@ -138,7 +133,6 @@ function TextField({
   label,
   caption,
   prefix,
-  glyph,
   value,
   unit,
   choices,
@@ -152,7 +146,6 @@ function TextField({
   className,
   trailing,
   swatchImage,
-  showUnit = true,
 }: PropertyFieldProps): JSX.Element {
   const report = useReport(label, send);
   const input = useRef<HTMLInputElement>(null);
@@ -181,12 +174,11 @@ function TextField({
   // An empty field that stands for something shows that instead, greyed, with its own unit: the unit
   // beside the field would otherwise follow "straight" as "straight °".
   const showingEmpty = empty !== undefined && (draft ?? shown) === "";
-  const printedUnit = unit && showUnit && !showingEmpty ? unit : null;
+  const printedUnit = unit && !showingEmpty ? unit : null;
   const resettable = editable && empty !== undefined && value !== "";
-  // What sits inside the field's left edge, in order: the mark, the swatch, the reset button. The text
+  // What sits inside the field's left edge, in order: the axis, the swatch, the reset button. The text
   // starts clear of all of them.
-  const mark = glyph ?? prefix;
-  const lead = (mark ? 20 : 0) + (colour && editable ? 24 : 0) + (resettable ? 24 : 0);
+  const lead = (prefix ? 20 : 0) + (colour && editable ? 24 : 0) + (resettable ? 26 : 0);
 
   // The edit as it was when the draft began. Once a preview is shown the panel is drawn from the previewed
   // project, and an edit taken from that would measure its change from the preview: a typed position
@@ -382,18 +374,17 @@ function TextField({
     >
       {lead > 0 ? (
         // First in the DOM, so the focus order runs left to right as the eye does.
-        <span className="absolute inset-y-0 left-0.5 z-10 flex items-center">
-          {mark ? (
+        <span className="absolute inset-y-0 left-1 z-10 flex items-center">
+          {prefix ? (
             <span
               aria-hidden
-              title={scrub ? `Drag to change ${caption || label}` : undefined}
               onPointerDown={scrub ? startScrub : undefined}
               className={cn(
-                "flex h-full w-5 items-center justify-center text-[11px] text-muted-foreground select-none [&_svg]:size-3.5",
+                "flex h-full w-5 items-center justify-center text-muted-foreground select-none",
                 scrub ? "cursor-ew-resize hover:text-foreground" : "",
               )}
             >
-              {mark}
+              {prefix}
             </span>
           ) : null}
           {colour && editable ? (
@@ -405,7 +396,7 @@ function TextField({
               image={draft === null ? swatchImage : undefined}
               onPick={type}
               onClose={closePicker}
-              className="mr-0.5 ml-1.5"
+              className="mx-1"
             />
           ) : null}
           {resettable ? (
@@ -455,25 +446,23 @@ function TextField({
         }}
         onBlur={() => void commit("blur")}
         onKeyDown={onKeyDown}
-        style={lead > 0 ? { paddingLeft: lead + 4 } : undefined}
+        style={lead > 0 ? { paddingLeft: lead + 8 } : undefined}
         className={cn(
-          FIELD,
-          "tabular-nums",
-          // A value that is only read sits under its caption, not indented as if in a box.
-          editable ? FILLED : "bg-transparent px-0 hover:border-transparent dark:bg-transparent",
+          "h-8 tabular-nums",
+          editable ? "" : READ_ONLY,
           // Room for the unit, and no more: "mm" wants a gap before it, a degree sign sits against its
           // number, and a word such as "seats" needs its own width.
-          printedUnit ? (printedUnit.length > 2 ? "pr-11" : printedUnit.length > 1 ? "pr-7" : "pr-4") : "",
-          trailing ? "pr-7" : "",
+          printedUnit ? (printedUnit.length > 2 ? "pr-14" : printedUnit.length > 1 ? "pr-10" : "pr-6") : "",
+          trailing ? "pr-9" : "",
         )}
       />
       {trailing ? (
-        <span className="absolute inset-y-0 right-0.5 z-10 flex items-center">{trailing}</span>
+        <span className="absolute inset-y-0 right-1 z-10 flex items-center">{trailing}</span>
       ) : null}
       {printedUnit ? (
         <span
           aria-hidden
-          className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[11px] text-muted-foreground"
+          className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-muted-foreground"
         >
           {printedUnit}
         </span>
@@ -539,7 +528,7 @@ function ChoiceField({
           aria-invalid={report.error ? true : undefined}
           aria-describedby={describedBy(id, hint, report.error)}
           title={report.error ?? label}
-          className="size-6 justify-center gap-0 rounded-sm border-transparent bg-transparent p-0 shadow-none hover:bg-background data-[size=sm]:h-6 dark:bg-transparent [&_svg:not([class*='size-'])]:size-3.5"
+          className="size-6 justify-center gap-0 rounded-sm border-transparent bg-transparent p-0 shadow-none hover:bg-accent data-[size=sm]:h-6 dark:bg-transparent"
         >
           <span className="sr-only">
             <SelectValue />
@@ -559,11 +548,7 @@ function ChoiceField({
           aria-label={nameOf(label, undefined)}
           aria-invalid={report.error ? true : undefined}
           aria-describedby={describedBy(id, hint, report.error)}
-          className={cn(
-            FIELD,
-            FILLED,
-            "w-full px-2 data-[size=sm]:h-6.5 [&_svg:not([class*='size-'])]:size-3.5",
-          )}
+          className="w-full"
         >
           <SelectValue />
         </SelectTrigger>
@@ -629,11 +614,18 @@ function Row({
         htmlFor={id}
         onPointerDown={onScrub}
         className={cn(
-          "mb-1 block h-3 min-w-0 truncate text-[10px] leading-3 font-normal text-muted-foreground",
+          "group/caption mb-1 block h-[18px] min-w-0 truncate leading-[18px] font-normal text-muted-foreground",
           onScrub ? "cursor-ew-resize select-none hover:text-foreground" : "",
         )}
       >
         {printed}
+        {onScrub && printed ? (
+          // Says, on the way past, that the name is a handle: drag it sideways to change the number. It takes
+          // no width, so a caption that only just fits is not cut short for a mark that is mostly hidden.
+          <span aria-hidden className="inline-block w-0 overflow-visible whitespace-nowrap">
+            <ChevronsLeftRight className="ml-1 inline-block size-3 align-[-1px] opacity-0 transition-opacity group-hover/caption:opacity-70" />
+          </span>
+        ) : null}
       </Label>
       <div className="relative">{children}</div>
       <Notes id={id} hint={hint} error={error} steps={onScrub !== undefined} />
@@ -668,7 +660,7 @@ function Notes({
         </span>
       ) : null}
       {error ? (
-        <p id={errorId(id)} className="mt-1 text-[11px] leading-snug text-pretty text-destructive">
+        <p id={errorId(id)} className="mt-1 leading-snug text-pretty text-destructive">
           {error}
         </p>
       ) : null}

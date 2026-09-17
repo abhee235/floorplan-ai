@@ -384,15 +384,6 @@ function wallFacts(w: Wall, level: Level, north: number, materials: MaterialChoi
     },
     ...endFacts(w, "start"),
     ...endFacts(w, "end"),
-    {
-      group: SHAPE_AND_SIZE,
-      label: "Curve",
-      value: w.arcExtent === null ? "" : formatDegrees(w.arcExtent),
-      unit: "°",
-      empty: { shown: "straight", action: "Make the wall straight" },
-      hint: "In degrees. A positive curve bows to the left, going from start to end. Empty is straight.",
-      edit: curveEdit(w),
-    },
     arc
       ? // Along the curve, which is the length anyone means by a curved wall's length. Not typed: a new
         // length could keep the chord and deepen the curve, or keep the curve and move an end, and neither
@@ -417,6 +408,16 @@ function wallFacts(w: Wall, level: Level, north: number, materials: MaterialChoi
       ),
     },
     ...heightFacts(w, level),
+    // last in its band, after the length and the heights, which pair up two to a line
+    {
+      group: SHAPE_AND_SIZE,
+      label: "Curve",
+      value: w.arcExtent === null ? "" : formatDegrees(w.arcExtent),
+      unit: "°",
+      empty: { shown: "straight", action: "Make the wall straight" },
+      hint: "In degrees. A positive curve bows to the left, going from start to end. Empty is straight.",
+      edit: curveEdit(w),
+    },
     ...sideFacts(w, "left", level, north, materials),
     ...sideFacts(w, "right", level, north, materials),
   ];
@@ -510,7 +511,7 @@ export { SKIRTING_DEPTH, SKIRTING_DEPTH_RANGE };
  */
 function skirtingFacts(w: Wall, side: "left" | "right", level: Level, group: string): Fact[] {
   const name = `${side} side`;
-  // In its side's band, so its captions say "of baseboard" to stand apart from the side's own Colour.
+  // In its side's band, so its captions say "Baseboard" to stand apart from the side's own Colour.
   const current = w.skirting[side];
   const tallest = Math.round(derive.wallMaxHeight(w, level));
   const withSkirting = (value: Wall["skirting"]["left"]): EditCommand =>
@@ -518,8 +519,8 @@ function skirtingFacts(w: Wall, side: "left" | "right", level: Level, group: str
   const facts: Fact[] = [
     {
       group,
-      label: `Height of baseboard, ${name}`,
-      caption: "Height of baseboard",
+      label: `Baseboard height, ${name}`,
+      caption: "Baseboard height",
       value: current ? formatMm(current.height) : "",
       unit: "mm",
       empty: { shown: "none", action: "Remove the baseboard" },
@@ -541,8 +542,8 @@ function skirtingFacts(w: Wall, side: "left" | "right", level: Level, group: str
   facts.push(
     {
       group,
-      label: `Depth of baseboard, ${name}`,
-      caption: "Depth of baseboard",
+      label: `Baseboard depth, ${name}`,
+      caption: "Baseboard depth",
       value: formatMm(current.thickness),
       unit: "mm",
       hint: "How far the baseboard stands out from the wall.",
@@ -552,8 +553,8 @@ function skirtingFacts(w: Wall, side: "left" | "right", level: Level, group: str
     },
     {
       group,
-      label: `Colour of baseboard, ${name}`,
-      caption: "Colour of baseboard",
+      label: `Baseboard colour, ${name}`,
+      caption: "Baseboard colour",
       value: current.color ?? "",
       // what it looks like while it has no colour of its own: its side's, or the baseboard off-white
       colour: {
@@ -611,7 +612,7 @@ function heightFacts(w: Wall, level: Level): Fact[] {
       // turn the slope into a flat top at the end's height.
       ...(sloping
         ? {}
-        : { empty: { shown: `level · ${formatMm(level.height)} mm`, action: "Follow the level's height" } }),
+        : { empty: { shown: `${formatMm(level.height)} (level)`, action: "Follow the level's height" } }),
       hint: sloping ? "The height at the start of this sloping wall." : `Empty ${followsLevel}.`,
       edit: orEmpty(
         lengthEdit("Height", w.height, HEIGHT_RANGE, (height) => wallModify(w.id, { height })),
@@ -633,7 +634,7 @@ function heightFacts(w: Wall, level: Level): Fact[] {
       label: "Height at end",
       value: w.heightAtEnd === null ? "" : formatMm(w.heightAtEnd),
       unit: "mm",
-      empty: { shown: `same · ${formatMm(start)} mm`, action: "Make the top flat" },
+      empty: { shown: `${formatMm(start)} (flat)`, action: "Make the top flat" },
       hint: `Empty keeps the top flat, at the start's ${describeLength(start)}.`,
       edit: orEmpty(
         lengthEdit("Height at end", w.heightAtEnd, HEIGHT_RANGE, (mm) => {
@@ -883,7 +884,7 @@ function roomFacts(r: Room, level: Level, materials: (prefer: string) => Materia
       caption: "Height",
       value: r.ceilingHeight === null ? "" : formatMm(r.ceilingHeight),
       unit: "mm",
-      empty: { shown: `level · ${formatMm(level.height)} mm`, action: "Follow the level's height" },
+      empty: { shown: `${formatMm(level.height)} (level)`, action: "Follow the level's height" },
       hint: `Empty follows the level, ${describeLength(level.height)}.`,
       edit: orEmpty(
         lengthEdit("Ceiling height", r.ceilingHeight, HEIGHT_RANGE, (ceilingHeight) =>
@@ -1065,19 +1066,20 @@ function itemFacts(project: Project, it: Item, materials: (prefer: string) => Ma
         payload: { itemIds: ids, elevation },
       })),
     },
-    {
-      group: "Placement",
-      label: "Mirrored",
-      toggle: true,
-      value: String(it.mirrored),
-      hint: "Left and right swapped, for things that are not the same both ways.",
-      edit: toggleEdit(it.mirrored, () => ({ type: "item.mirror", payload: { itemIds: ids } }), {
-        yes: "mirrored",
-        no: "not mirrored",
-      }),
-    },
   ];
-  if (!size) return facts;
+  // After the sizes, so the panel pairs the numbers two to a line and the checkbox comes last.
+  const mirrored: Fact = {
+    group: "Placement",
+    label: "Mirrored",
+    toggle: true,
+    value: String(it.mirrored),
+    hint: "Left and right swapped, for things that are not the same both ways.",
+    edit: toggleEdit(it.mirrored, () => ({ type: "item.mirror", payload: { itemIds: ids } }), {
+      yes: "mirrored",
+      no: "not mirrored",
+    }),
+  };
+  if (!size) return [...facts, mirrored];
   const dimensions = [
     { key: "w", label: "Width", range: LENGTH_RANGE },
     { key: "d", label: "Depth", range: LENGTH_RANGE },
@@ -1124,7 +1126,7 @@ function itemFacts(project: Project, it: Item, materials: (prefer: string) => Ma
           }),
     });
   }
-  facts.push(...materialFacts(project, it, size, materials));
+  facts.push(mirrored, ...materialFacts(project, it, size, materials));
   return facts;
 }
 
@@ -1160,8 +1162,8 @@ function productFacts(project: Project, it: Item): Fact[] {
   if (!snap)
     return [{ group, label: "Product", value: `${it.ref.productId}, not in this project's catalog copy` }];
   const facts: Fact[] = [];
+  // Make beside category, then the model, which is the one of the three likely to need the whole line.
   if (snap.make) facts.push({ group, label: "Make", value: snap.make });
-  if (snap.model) facts.push({ group, label: "Model", value: snap.model });
   if (snap.category)
     facts.push({
       group,
@@ -1169,6 +1171,7 @@ function productFacts(project: Project, it: Item): Fact[] {
       caption: "Category",
       value: categoryLabel(snap.category),
     });
+  if (snap.model) facts.push({ group, label: "Model", value: snap.model });
   const status = snap.verification?.status;
   if (status) {
     const confidence = snap.verification?.confidence;

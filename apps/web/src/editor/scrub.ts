@@ -34,7 +34,7 @@ export function paceOf(mods: { shiftKey: boolean; altKey: boolean }): number {
 
 /**
  * The number a field starts from: its own value, or, for an empty field that stands for something, the
- * first number in what it shows ("level · 2 700 mm" starts at 2700). Null when there is none.
+ * first number in what it shows ("2 700 (level)" starts at 2700). Null when there is none.
  */
 export function scrubStart(value: string, emptyShown?: string): number | null {
   const read = (text: string): number | null => {

@@ -3,13 +3,25 @@
 //
 // What an entity IS comes from selection.ts, not from here: the shell needs the same answers for its
 // commands, and two places working it out separately is how they drift. How it is LAID OUT is decided
-// here, as the owner's design editor (wizzel) lays out its own panel: a title bar, then sections with a
-// small heading over a grid, where short values share a line, a surface's material and colour are one
-// field, and names and long text take the whole line. That keeps a selection's properties on one screen
-// far more often than a column of one row per value did.
+// here. The idea comes from the owner's design editor (wizzel): a title, then bands, each a heading over
+// fields set two to a line, so a selection takes half the height a column of rows did. The parts and the
+// sizes are this app's own: its text size, its bordered fields, its spacing.
 
 import { cn } from "cn";
-import { MoveHorizontal, RotateCw, Spline, Users } from "lucide-react";
+import {
+  DoorOpen,
+  Layers,
+  type LucideIcon,
+  Move,
+  Move3d,
+  Package,
+  PaintRoller,
+  Palette,
+  PanelTop,
+  Ruler,
+  Scan,
+  SquareDashed,
+} from "lucide-react";
 import type { JSX, ReactNode } from "react";
 import { useMemo } from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -70,7 +82,6 @@ export function PropertiesPanel({
     label: fact.label,
     caption: fact.caption,
     prefix: fact.prefix,
-    glyph: glyphOf(fact),
     value: fact.value,
     unit: fact.unit,
     choices: fact.choices,
@@ -79,7 +90,6 @@ export function PropertiesPanel({
     colour: fact.colour,
     swatches: fact.colour ? swatches : undefined,
     toggle: fact.toggle,
-    showUnit: fact.unit !== "mm",
     edit: fact.edit,
     send,
     preview,
@@ -113,67 +123,62 @@ export function PropertiesPanel({
       {/* Radix sizes the scrolled content as a table, which lets one long title widen the whole panel
           past its edge; as a block, long text truncates where it should. */}
       <ScrollArea className="min-h-0 grow [&_[data-slot=scroll-area-viewport]>div]:!block">
-        <div className="pb-3">
-          {/* With nothing selected, how to select comes first; with a selection, the selection does, and how
-              to change it waits at the end. */}
+        <div className="pb-2">
           {entities.length === 0 ? <SelectionNote count={selected.length} /> : null}
 
           {/* One block per selected entity. Beyond a handful this would want collapsing, but a long
               scroll is a better failure than hiding what is selected. */}
-          {entities.map((entity) => (
-            <section key={entity.id} aria-labelledby={`${entity.id}-title`} className="border-b">
-              <div className="flex items-center justify-between gap-2 px-3 pt-2.5 pb-1">
-                <h3
-                  id={`${entity.id}-title`}
-                  title={entity.title}
-                  className="min-w-0 truncate text-[13px] font-medium text-foreground"
-                >
-                  {entity.title}
-                </h3>
-                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] tracking-wide text-muted-foreground uppercase">
-                  {KIND_NAMES[entity.kind]}
-                </span>
-              </div>
-              {bands(entity.facts).map((band, index) => {
-                if (!band.title)
+          {entities.map((entity) => {
+            const kind = KIND_NAMES[entity.kind];
+            return (
+              <section key={entity.id} aria-labelledby={`${entity.id}-title`} className="border-b">
+                <header className="px-4 pt-3.5 pb-1">
+                  <h3 id={`${entity.id}-title`} className="line-clamp-2 font-semibold break-words">
+                    {entity.title}
+                  </h3>
+                  {/* What it is, when its name does not say: a room is called Boardroom, a wall is called Wall. */}
+                  {entity.title === kind ? null : <p className="text-muted-foreground">{kind}</p>}
+                </header>
+                {bands(entity.facts).map((band, index) => {
+                  if (!band.title)
+                    return (
+                      <Grid key={`rows-${index}`} className="px-4 pt-2 pb-4">
+                        {cells(entity, band.facts)}
+                      </Grid>
+                    );
+                  // A named group, so a screen reader says "Position" on the way in and every cell need
+                  // not repeat it.
+                  const headingId = `${entity.id}-${slug(band.title)}-heading`;
+                  const Icon = iconOf(band.title);
                   return (
-                    <Grid key={`rows-${index}`} className="px-3 pt-1 pb-2">
-                      {cells(entity, band.facts)}
-                    </Grid>
-                  );
-                // A named group, so a screen reader says "Position" on the way in and every cell need not
-                // repeat it.
-                const headingId = `${entity.id}-${slug(band.title)}-heading`;
-                return (
-                  <div
-                    key={band.title}
-                    role="group"
-                    aria-labelledby={headingId}
-                    className="border-t border-border/60 px-3 pt-2 pb-2"
-                  >
-                    <div className="mb-1 flex items-baseline justify-between gap-2">
-                      <h4 id={headingId} className="min-w-0 truncate text-xs font-semibold text-foreground">
-                        {band.title}
+                    <div
+                      key={band.title}
+                      role="group"
+                      aria-labelledby={headingId}
+                      className="border-t px-4 pt-3 pb-3.5"
+                    >
+                      <h4 id={headingId} className="mb-2.5 flex min-w-0 items-center gap-2 font-medium">
+                        {Icon ? (
+                          <Icon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+                        ) : null}
+                        <span className="truncate">{band.title}</span>
                       </h4>
-                      {band.facts.some((f) => f.unit === "mm") ? <MillimetresNote /> : null}
+                      <Grid>{cells(entity, band.facts)}</Grid>
                     </div>
-                    <Grid>{cells(entity, band.facts)}</Grid>
-                  </div>
-                );
-              })}
-            </section>
-          ))}
+                  );
+                })}
+              </section>
+            );
+          })}
 
           {/* The level is what the panel is about when nothing is selected; beside a selection it only
               pushed the selection's own values off the screen. */}
           {current && entities.length === 0 ? (
-            <section aria-labelledby="level-title" className="border-b px-3 pt-2.5 pb-2.5">
-              <div className="mb-1.5 flex items-baseline justify-between gap-2">
-                <h3 id="level-title" className="text-xs font-semibold text-foreground">
-                  Level
-                </h3>
-                <MillimetresNote />
-              </div>
+            <section aria-labelledby="level-title" className="border-b px-4 py-3.5">
+              <h3 id="level-title" className="mb-3 flex items-center gap-2 font-medium">
+                <Layers aria-hidden className="size-3.5 text-muted-foreground" />
+                Level
+              </h3>
               {/* "of level" in every name: the selection above can have a Name and a Height of its own, and two
                   fields that sound the same cannot be told apart by a screen reader or by voice. */}
               <Grid>
@@ -182,68 +187,54 @@ export function PropertiesPanel({
                   label="Name of level"
                   caption="Name"
                   value={current.name}
-                  className={SPAN[6]}
+                  className="col-span-2"
                 />
                 <PropertyField
                   id="level-elevation"
                   label="Elevation of level"
                   caption="Elevation"
-                  glyph="E"
                   value={formatMm(current.elevation)}
                   unit="mm"
-                  showUnit={false}
-                  className={SPAN[2]}
                 />
                 <PropertyField
                   id="level-height"
                   label="Height of level"
                   caption="Height"
-                  glyph="H"
                   value={formatMm(current.height)}
                   unit="mm"
-                  showUnit={false}
-                  className={SPAN[2]}
                 />
                 <PropertyField
                   id="level-floor"
                   label="Floor of level"
                   caption="Floor"
-                  glyph="F"
                   value={formatMm(current.floorThickness)}
                   unit="mm"
-                  showUnit={false}
-                  className={SPAN[2]}
                 />
               </Grid>
             </section>
           ) : null}
 
-          {entities.length > 0 ? <SelectionNote count={selected.length} /> : null}
-
           {entities.length === 0 ? (
-            <section aria-labelledby="counts-title" className="px-3 pt-2.5">
-              <h3 id="counts-title" className="mb-1 text-xs font-semibold text-foreground">
+            <section aria-labelledby="counts-title" className="px-4 py-3.5">
+              <h3 id="counts-title" className="mb-1 font-medium">
                 This level
               </h3>
-              <p className="text-xs text-muted-foreground tabular-nums">{countsText(project)}</p>
+              <p className="text-muted-foreground tabular-nums">{countsText(project)}</p>
             </section>
-          ) : null}
+          ) : (
+            <SelectionNote count={selected.length} />
+          )}
         </div>
       </ScrollArea>
     </aside>
   );
 }
 
+/** What is selected, and how to change that: first when nothing is, after the selection when something is. */
 function SelectionNote({ count }: { count: number }): JSX.Element {
   return (
-    <p
-      className={cn(
-        "px-3 py-2 text-[11px] leading-relaxed text-muted-foreground",
-        count === 0 ? "border-b" : "",
-      )}
-    >
-      <span className="font-medium text-foreground">{heading(count)}</span>
-      {" · "}
+    <p className={cn("px-4 py-3 leading-relaxed text-muted-foreground", count === 0 ? "border-b" : "")}>
+      <span className="font-medium text-foreground">{heading(count)}.</span>{" "}
       {count === 0 ? (
         <Keyed
           phrase={[
@@ -253,14 +244,15 @@ function SelectionNote({ count }: { count: number }): JSX.Element {
           ]}
         />
       ) : (
-        <Keyed phrase={[k("Del"), t(" removes, Shift-click adds")]} />
+        <Keyed phrase={[k("Del"), t(" removes it. Shift-click adds to it.")]} />
       )}
     </p>
   );
 }
 
 function heading(count: number): string {
-  return count === 0 ? "Nothing selected" : `${count} selected`;
+  if (count === 0) return "Nothing selected";
+  return count === 1 ? "One selected" : `${count} selected`;
 }
 
 const KIND_NAMES: Record<EntityKind, string> = {
@@ -270,112 +262,64 @@ const KIND_NAMES: Record<EntityKind, string> = {
   item: "Item",
 };
 
-/** Said once per band instead of in every field: the band's lengths are millimetres. */
-function MillimetresNote(): JSX.Element {
-  return (
-    <span
-      className="shrink-0 text-[10px] text-muted-foreground"
-      title="Lengths in this band are in millimetres"
-    >
-      mm
-    </span>
-  );
+/** A small picture beside a band's name, so a long panel can be scanned by shape as well as by word. */
+function iconOf(title: string): LucideIcon | null {
+  if (/^(left|right) side/i.test(title)) return PaintRoller;
+  const icons: Record<string, LucideIcon> = {
+    Position: Move,
+    Placement: Move3d,
+    "Shape and size": Ruler,
+    Size: Scan,
+    Product: Package,
+    Floor: SquareDashed,
+    Ceiling: PanelTop,
+    Swing: DoorOpen,
+  };
+  // what is left is an item's parts: Top, Legs, Fabric, Frame and the like
+  return icons[title] ?? Palette;
 }
 
-/** Six columns: a half is three of them, a third two, the whole line six. */
+/** Two columns, and never more: a value gets half the panel, or all of it. */
 function Grid({ children, className }: { children: ReactNode; className?: string }): JSX.Element {
-  return <div className={cn("grid grid-cols-6 gap-x-2 gap-y-1.5", className)}>{children}</div>;
+  return <div className={cn("grid grid-cols-2 gap-x-3 gap-y-3", className)}>{children}</div>;
 }
-
-const SPAN: Record<number, string> = { 2: "col-span-2", 3: "col-span-3", 4: "col-span-4", 6: "col-span-6" };
-const place = (cell: Cell): string => cn(SPAN[cell.span], cell.first ? "col-start-1" : "");
 
 /** A cell of a band's grid; `first` starts a line, which the grid would otherwise fill from the one above. */
-type Cell = { span: number; first: boolean } & (
+type Cell = { span: 1 | 2; first: boolean } & (
   | { kind: "field"; fact: Fact }
   | { kind: "fill"; material: Fact; colour: Fact }
 );
 
+const place = (cell: Cell): string =>
+  cn(cell.span === 2 ? "col-span-2" : "", cell.first ? "col-start-1" : "");
+
 const isMaterial = (f: Fact | undefined): boolean => f?.choices?.some((c) => c.value === PAINT) ?? false;
 
 /**
- * The band's cells, packed into lines of six columns in the order selection.ts gave them. Each cell asks
- * for the least it can be read in: a third for a short number, a choice beside a colour, or a checkbox; a
- * half for anything else, and for a number whose empty meaning is long ("level · 2 700 mm"); two thirds
- * for a surface's colour and material; the whole line for a name, a list with long entries or long text.
- * A coordinate pair always has a line to itself. A line left short is widened, cells that can grow taking
- * half each, so a lone number does not stretch across the panel.
+ * The band's cells in the order selection.ts gave them, each half the panel or all of it. The whole width
+ * goes to what needs it: a name, a surface's colour and material together (texture names are long), a list
+ * with long entries, a number whose empty meaning is too long for half the panel, and long text that is
+ * only read. A coordinate pair always starts its own line, so X and Y sit side by side.
  */
 export function layout(facts: readonly Fact[]): Cell[] {
-  const items: { cell: Cell; grows: boolean; ownLine: boolean }[] = [];
+  const cells: Cell[] = [];
   for (let i = 0; i < facts.length; i += 1) {
     const f = facts[i] as Fact;
     const next = facts[i + 1];
     if (isMaterial(f) && next?.colour) {
-      items.push({
-        cell: { kind: "fill", material: f, colour: next, span: 4, first: false },
-        grows: false,
-        ownLine: false,
-      });
+      cells.push({ kind: "fill", material: f, colour: next, span: 2, first: false });
       i += 1;
       continue;
     }
-    const afterFill = items.at(-1)?.cell.kind === "fill";
     const wide =
       f.align === "left" ||
       isMaterial(f) ||
-      (f.choices?.some((c) => c.label.length > 16) ?? false) ||
-      (!f.edit && !f.unit && !f.toggle && !f.choices && f.value.length > 14);
-    let span = 3;
-    let grows = false;
-    if (wide) span = 6;
-    else if (f.prefix) span = 3;
-    else if (f.toggle) [span, grows] = [2, true];
-    else if (f.unit) {
-      const longEmpty = f.value === "" && (f.empty?.shown.length ?? 0) > 9;
-      [span, grows] = longEmpty ? [3, false] : [2, true];
-    } else if (f.choices && afterFill) span = 2;
-    items.push({ cell: { kind: "field", fact: f, span, first: false }, grows, ownLine: f.prefix === "X" });
+      (f.choices?.some((c) => c.label.length > 14) ?? false) ||
+      (f.value === "" && (f.empty?.shown.length ?? 0) > 16) ||
+      (!f.edit && !f.unit && !f.choices && f.value.length > 16);
+    cells.push({ kind: "field", fact: f, span: wide ? 2 : 1, first: f.prefix === "X" });
   }
-
-  const lines: (typeof items)[] = [];
-  let line: typeof items = [];
-  let used = 0;
-  for (const item of items) {
-    if (line.length > 0 && (item.ownLine || used + item.cell.span > 6)) {
-      lines.push(line);
-      line = [];
-      used = 0;
-    }
-    line.push(item);
-    used += item.cell.span;
-  }
-  if (line.length > 0) lines.push(line);
-
-  for (const l of lines) {
-    if (l[0]) l[0].cell.first = true;
-    let sum = l.reduce((n, item) => n + item.cell.span, 0);
-    for (const item of l)
-      if (item.grows && item.cell.span === 2 && sum < 6) {
-        item.cell.span = 3;
-        sum += 1;
-      }
-  }
-  return items.map((item) => item.cell);
-}
-
-/**
- * The mark inside a number's field, which is also its handle: the axis of a coordinate, an icon where one
- * says it better than a letter, and otherwise the first letter of the name the caption prints.
- */
-export function glyphOf(fact: Fact): ReactNode {
-  if (fact.prefix) return fact.prefix;
-  if (!fact.unit) return undefined;
-  const printed = fact.caption || fact.label;
-  if (fact.unit === "°") return /rotation/i.test(printed) ? <RotateCw aria-hidden /> : <Spline aria-hidden />;
-  if (fact.unit === "seats") return <Users aria-hidden />;
-  if (/^from /i.test(printed)) return <MoveHorizontal aria-hidden />;
-  return printed.charAt(0).toUpperCase();
+  return cells;
 }
 
 /** Runs of rows that share a group, in the order selection.ts gave them. */
