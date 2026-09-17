@@ -1,6 +1,9 @@
 // The viewer bridge (ADR-005 D4, D5, spec 06 part B): a WebSocket per browser tab, JSON frames, ids for
 // requests, the snapshot and change stream from the store, and render requests routed to the first
 // client that can render. Lives inside the host; the browser is a replica, never the authority.
+
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   type ChangesMsg,
   CLOSE_VERSION_MISMATCH,
@@ -14,8 +17,12 @@ import {
 import type { DraftPresentation, RenderedImage, RenderRequest, ViewerRenderer } from "@fpv/tools";
 import type { WebSocket } from "ws";
 import type { Session } from "./session.js";
+import { staleness, stalenessNote } from "./staleness.js";
 
 export const HOST_VERSION = "0.0.1";
+/** When this process started, and where its own source would be, for the staleness check. */
+const STARTED_AT = Date.now();
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const RENDER_TIMEOUT_MS = 30_000;
 
 /** The subset of a ws socket the bridge needs, so tests can use fakes. */
@@ -157,6 +164,9 @@ export class Bridge implements ViewerRenderer {
           protocolVersion: PROTOCOL_VERSION,
           projectId: store.project.meta.name,
           path: this.projectPath(),
+          // Worked out per connection, not at startup: the code changes while the host runs, which is
+          // the whole point of asking.
+          stale: stalenessNote(staleness(REPO_ROOT, STARTED_AT)),
         });
         this.send(state, this.snapshot());
         this.send(state, { type: "problems", problems: this.session.registry.problems() });

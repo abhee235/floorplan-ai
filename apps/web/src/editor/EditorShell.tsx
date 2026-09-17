@@ -24,6 +24,7 @@ import type { Placeable } from "./item-tool.js";
 import { isInsidePopup, isTypingTarget } from "./keys.js";
 import { PropertiesPanel } from "./PropertiesPanel.js";
 import { bindRoomDrawing } from "./room-drawing.js";
+import { StaleNote } from "./StaleNote.js";
 import { StatusBar } from "./StatusBar.js";
 import { deleteCommands, describeEntity, kindOf, type TextureChoice } from "./selection.js";
 import { scaleLabel } from "./status.js";
@@ -557,8 +558,9 @@ export function EditorShell(): JSX.Element {
   return (
     <EditorContext.Provider value={editor}>
       <TooltipProvider delayDuration={400}>
-        {/* tracks match the bars: app bar h-10, tool options h-9, status h-7 */}
-        <div className="grid h-full grid-rows-[40px_36px_minmax(0,1fr)_28px] bg-background text-foreground">
+        {/* tracks match the bars: app bar h-10, tool options h-9, status h-7; the stale note takes a
+            track of its own, which is `auto` because it is usually not there at all */}
+        <div className="grid h-full grid-rows-[40px_36px_auto_minmax(0,1fr)_28px] bg-background text-foreground">
           {replica ? (
             <AppBar
               replica={replica}
@@ -576,6 +578,8 @@ export function EditorShell(): JSX.Element {
           )}
 
           <ToolOptionsBar />
+
+          <StaleNote note={app?.client.welcome?.stale ?? null} />
 
           {/* columns match the rail (w-12) and the properties panel (w-72) */}
           <div className="grid min-h-0 grid-cols-[48px_minmax(0,1fr)_288px]">

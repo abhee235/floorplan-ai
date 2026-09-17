@@ -65,6 +65,12 @@ export interface WelcomeMsg {
   protocolVersion: number;
   projectId: string;
   path: string | null;
+  /**
+   * Set when the host is running code older than what is on disk, or serving an app that has not been
+   * built since its source changed: one sentence saying which, and what to do. A packaged host never
+   * sends it, having no source to compare itself with.
+   */
+  stale?: string | null;
 }
 export interface ResultMsg {
   id: string;
