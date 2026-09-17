@@ -12,7 +12,21 @@ interface Placement {
   rotation: number;
 }
 
-/** Grid or rows inside the polygon inset by margin; positions whose footprint corners leave the polygon are dropped. */
+/**
+ * Grid, rows or bench inside the polygon, inset by the margin. Positions whose footprint corners leave
+ * the polygon are dropped, so a zone that is not a rectangle still only holds what fits inside it.
+ *
+ * Two things this gets right that are easy to get wrong:
+ *
+ * The step is the footprint AS IT LIES, not the size as it was measured. A 1600 x 800 desk turned to
+ * face east is 800 across and 1600 deep, and stepping by 1600 across would have left it in a field of
+ * gaps — or, turned the other way, overlapping its neighbour.
+ *
+ * The block is centred in the zone rather than packed into its bottom-left corner. The margin is what
+ * is kept clear INSIDE the edge, so whatever is left over after the last row is shared between the two
+ * sides; packing to one corner made a zone look mis-drawn, because the gap at the far edge was whatever
+ * the arithmetic happened to leave.
+ */
 export function arrangePlacements(
   polygon: readonly Point[],
   rule: Rule,
@@ -30,12 +44,28 @@ export function arrangePlacements(
   const a = (rule.facing * Math.PI) / 180;
   const cos = Math.cos(a);
   const sin = Math.sin(a);
-  const pitchX = size.w + rule.spacing.x;
-  const pitchY = size.d + rule.spacing.y;
+  // How much room one piece takes along each axis once it is turned to face the way the rule says.
+  const spanX = Math.abs(size.w * cos) + Math.abs(size.d * sin);
+  const spanY = Math.abs(size.w * sin) + Math.abs(size.d * cos);
+  const usableX = b.maxX - b.minX - 2 * rule.margin;
+  const usableY = b.maxY - b.minY - 2 * rule.margin;
   const placements: Placement[] = [];
+  if (usableX < spanX || usableY < spanY) return { placements, requested: rule.count };
+
+  const columns = offsets(spanX, rule.spacing.x, usableX, false);
+  const rows = offsets(spanY, rule.spacing.y, usableY, rule.pattern === "bench");
+  const blockX = (columns[columns.length - 1] ?? 0) + spanX;
+  const blockY = (rows[rows.length - 1] ?? 0) + spanY;
+  const originX = b.minX + rule.margin + (usableX - blockX) / 2 + spanX / 2;
+  const originY = b.minY + rule.margin + (usableY - blockY) / 2 + spanY / 2;
+
+  // The corners are pulled a hair towards the middle before they are tested. A piece that exactly fills
+  // its zone has corners ON the polygon's edge, where containment is a coin toss, and a zone drawn to
+  // hold ten desks would come back holding nine. The shrink is a millionth of the piece — under a
+  // thousandth of a millimetre — so it cannot let anything hang outside a zone it does not fit in.
   const fits = (c: Point): boolean => {
-    const hw = size.w / 2;
-    const hd = size.d / 2;
+    const hw = (size.w / 2) * (1 - 1e-6);
+    const hd = (size.d / 2) * (1 - 1e-6);
     const corners = [
       { x: -hw, y: hd },
       { x: hw, y: hd },
@@ -44,21 +74,40 @@ export function arrangePlacements(
     ].map((q) => ({ x: c.x + q.x * cos - q.y * sin, y: c.y + q.x * sin + q.y * cos }));
     return corners.every((q) => poly.containsPoint(polygon, q));
   };
-  const startX = b.minX + rule.margin + size.w / 2;
-  const startY = b.minY + rule.margin + size.d / 2;
-  outer: for (let y = startY; y <= b.maxY - rule.margin - size.d / 2 + 1e-9; y += pitchY) {
-    for (let x = startX; x <= b.maxX - rule.margin - size.w / 2 + 1e-9; x += pitchX) {
-      const c = { x: Math.round(x), y: Math.round(y) };
+
+  outer: for (let row = 0; row < rows.length; row += 1) {
+    for (const acrossOffset of columns) {
+      const c = {
+        x: Math.round(originX + acrossOffset),
+        y: Math.round(originY + (rows[row] as number)),
+      };
       if (!fits(c)) continue;
-      // bench: pairs of desks back to back along rows; alternate rows face opposite ways
-      const rowIndex = Math.round((y - startY) / pitchY);
+      // bench: desks are back to back in pairs, so every second row faces the way it came from
       const rotation =
-        rule.pattern === "bench" && rowIndex % 2 === 1 ? normalizeDeg(rule.facing + 180) : rule.facing;
+        rule.pattern === "bench" && row % 2 === 1 ? normalizeDeg(rule.facing + 180) : rule.facing;
       placements.push({ position: c, rotation });
       if (placements.length >= rule.count) break outer;
     }
   }
   return { placements, requested: rule.count };
+}
+
+/**
+ * Where each row or column begins, measured from the near edge of the first one, for as many as fit in
+ * `available`.
+ *
+ * Paired rows are what makes a bench a bench: two desks meet back to back with nothing between them,
+ * and the gap is what separates one pair from the next. Spreading the gap evenly instead would be a
+ * grid of desks that happen to face opposite ways.
+ */
+function offsets(span: number, gap: number, available: number, paired: boolean): number[] {
+  const out: number[] = [];
+  for (let i = 0; ; i += 1) {
+    const at = paired ? i * span + Math.floor(i / 2) * gap : i * (span + gap);
+    if (at + span > available + 1e-9) break;
+    out.push(at);
+  }
+  return out;
 }
 
 function ruleRef(rule: Rule): Item["ref"] {
