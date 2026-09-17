@@ -3,7 +3,7 @@ import { memoryCatalog, type ToolResult, WORKFLOW_PROMPT_NAME } from "@fpv/tools
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it } from "vitest";
-import { createMcpServer, createSession, parseArgs, toCallToolResult } from "../src/index.js";
+import { createMcpServer, createSession, parseArgs, readLogLevel, toCallToolResult } from "../src/index.js";
 
 async function connect(profile: "high" | "medium" | "low" = "high") {
   const session = createSession({
@@ -138,7 +138,14 @@ describe("MCP adapter over an in-memory transport (ADR-005 D1, D7)", () => {
       data: null,
       agent: null,
       steps: null,
+      log: null,
     });
+    // how much is written down, and a level only taken when it is one this understands
+    expect(parseArgs(["--log", "verbose"]).log).toBe("verbose");
+    expect(parseArgs(["--log", "loud"]).log).toBeNull();
+    expect(readLogLevel(undefined)).toBe("info");
+    expect(readLogLevel("off")).toBe("off");
+    expect(readLogLevel("shout")).toBe("info");
     expect(parseArgs(["--agent", "10-seat boardroom", "--steps", "25"])).toMatchObject({
       agent: "10-seat boardroom",
       steps: 25,
@@ -152,6 +159,7 @@ describe("MCP adapter over an in-memory transport (ADR-005 D1, D7)", () => {
       data: null,
       agent: null,
       steps: null,
+      log: null,
     });
   });
 });

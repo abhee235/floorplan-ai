@@ -9,9 +9,11 @@ import { CatalogStore } from "@fpv/catalog/store";
 import { PROTOCOL_VERSION } from "@fpv/commands";
 import type { ToolReliability } from "@fpv/tools";
 import { describeEvent, loadAgentConfig, runAgentTask } from "./agent.js";
+import { HOST_VERSION } from "./bridge.js";
 import { loadDotEnv } from "./env.js";
 import { FileExportWriter } from "./exports.js";
 import { ProjectFileStore } from "./files.js";
+import { createLog, type LogLevel } from "./log.js";
 import { serveStdio } from "./mcp.js";
 import { dataPaths } from "./paths.js";
 import { FilePlanReader } from "./plans.js";
@@ -33,6 +35,13 @@ export interface CliArgs {
   agent: string | null;
   /** Step budget for --agent. */
   steps: number | null;
+  /** How much of what happens is written down (ADR-019); null takes FPV_LOG, which defaults to info. */
+  log: LogLevel | null;
+}
+
+/** FPV_LOG, when it says something this understands; otherwise everything is written down. */
+export function readLogLevel(value: string | undefined): LogLevel {
+  return value === "off" || value === "verbose" || value === "info" ? value : "info";
 }
 
 export function parseArgs(argv: readonly string[]): CliArgs {
@@ -45,6 +54,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     data: null,
     agent: null,
     steps: null,
+    log: null,
   };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
@@ -53,6 +63,10 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     else if (a === "--port") {
       const n = Number(argv[i + 1]);
       if (Number.isInteger(n) && n >= 0 && n < 65536) out.port = n;
+      i += 1;
+    } else if (a === "--log") {
+      const level = argv[i + 1];
+      if (level === "off" || level === "info" || level === "verbose") out.log = level;
       i += 1;
     } else if (a === "--project") {
       out.project = argv[i + 1] ?? null;
@@ -97,6 +111,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     process.stderr.write(
       "usage: host [--mcp] [--serve] [--port <n>] [--project <project.json>] [--profile high|medium|low] [--data <dir>]\n" +
         "            [--agent <task> [--steps <n>]]\n" +
+        "  --log    off | info | verbose: how much of what happens is written to <data>/logs (default info)\n" +
         "  --mcp    serve the tool registry over stdio for an MCP client\n" +
         "  --serve  serve the web viewer and the bridge on http://127.0.0.1:<port>/ (default 4310)\n" +
         "  --data   directory for the catalog database and libraries (default: the platform data dir)\n" +
@@ -111,6 +126,19 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   const now = () => new Date().toISOString();
   const catalog = openCatalog(args.data, now);
   process.stderr.write(`floorplan-ai catalog: ${catalog.path}${catalog.seeded ? " (seed installed)" : ""}\n`);
+  // What this run did, written down as it happens (ADR-019). The first line says what is running, so a
+  // log answers "which code was this?" without anyone having to remember.
+  const level = args.log ?? readLogLevel(process.env.FPV_LOG);
+  const log = createLog({ dir: join(catalog.dir, "logs"), level });
+  if (log.path) process.stderr.write(`floorplan-ai log: ${log.path}\n`);
+  log.write("host", "host", {
+    event: "started",
+    hostVersion: HOST_VERSION,
+    protocolVersion: PROTOCOL_VERSION,
+    node: process.version,
+    data: catalog.dir,
+    argv: [...argv],
+  });
   // one file store per session; a project given on the command line is opened before anything listens
   const files = new ProjectFileStore();
   const opened = args.project ? await files.open(args.project) : null;
@@ -129,6 +157,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   process.stderr.write(`floorplan-ai reader: ${planReaderSetup.describe}\n`);
   const session = createSession({
     files,
+    log,
     now,
     catalog: catalog.store,
     verifier: verification.verifier,
@@ -138,6 +167,14 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     ...(opened ? { project: opened.project } : {}),
   });
   files.startAutosave();
+  if (opened)
+    log.write("file", "host", {
+      event: "opened",
+      path: args.project,
+      migrated: opened.migrated,
+      modifiedOutside: opened.modifiedOutside,
+      recoveryAt: opened.recoveryAt ?? null,
+    });
   if (args.serve) {
     const images = new TextureImages(catalog.store, catalog.dir);
     const served = await serve(session, {
@@ -151,6 +188,8 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     const bye = () => {
       files.stopAutosave();
       catalog.store.close();
+      log.write("host", "host", { event: "stopping" });
+      log.close();
       void files.closeSession().finally(() => process.exit(0));
     };
     process.once("SIGINT", bye);

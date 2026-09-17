@@ -24,6 +24,8 @@ tests.
 | [015](ADR-015-engine-invalidation.md) | Change sets expanded by a dependency table into rebuild sets; one dirty set for 3D and plan layers; caches on the same path | Proposed |
 | [016](ADR-016-room-detection-magnetism-gestures.md) | Room detection from the closed wall union with gap tolerance; magnetism table; gestures as transactions | Proposed |
 | [017](ADR-017-editor-shell-and-accessibility.md) | Editor shell: plan-led layout with panels always open; tools as modes; properties panel is the selection; a keyboard equal for every gesture | Proposed |
+| [018](ADR-018-react-chrome-vanilla-canvas.md) | React and shadcn/ui for the chrome, plain DOM and canvas for the drawing surface | Accepted |
+| [019](ADR-019-session-event-log.md) | A session event log: one JSONL line per command, tool call, refusal and gesture, with the values that changed | Proposed |
 
 Deliberate departures from common practice, collected for review:
 millimetres and y-up (001); openings bound to walls by id (001); rejected

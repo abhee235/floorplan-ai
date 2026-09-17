@@ -19,6 +19,12 @@ import type { WebSocket } from "ws";
 import type { Session } from "./session.js";
 import { staleness, stalenessNote } from "./staleness.js";
 
+/** The `type` of a command, for a log line, without trusting it to be one. */
+function commandTypeOf(command: unknown): string {
+  const type = (command as { type?: unknown } | null)?.type;
+  return typeof type === "string" ? type : "(unreadable)";
+}
+
 export const HOST_VERSION = "0.0.1";
 /** When this process started, and where its own source would be, for the staleness check. */
 const STARTED_AT = Date.now();
@@ -157,6 +163,14 @@ export class Bridge implements ViewerRenderer {
         }
         state.hello = true;
         state.capabilities = new Set(msg.capabilities);
+        const behind = stalenessNote(staleness(REPO_ROOT, STARTED_AT));
+        this.session.log.write("bridge", "host", {
+          event: "joined",
+          client: msg.clientVersion,
+          protocolVersion: v,
+          capabilities: [...state.capabilities],
+          ...(behind ? { behind } : {}),
+        });
         this.send(state, {
           id: msg.id,
           type: "welcome",
@@ -166,7 +180,7 @@ export class Bridge implements ViewerRenderer {
           path: this.projectPath(),
           // Worked out per connection, not at startup: the code changes while the host runs, which is
           // the whole point of asking.
-          stale: stalenessNote(staleness(REPO_ROOT, STARTED_AT)),
+          stale: behind,
         });
         this.send(state, this.snapshot());
         this.send(state, { type: "problems", problems: this.session.registry.problems() });
@@ -176,6 +190,15 @@ export class Bridge implements ViewerRenderer {
       }
       case "command": {
         const r = store.apply(msg.command, "editor");
+        // A refusal emits nothing from the store, and "I did that and nothing happened" is the most
+        // common report there is; it is written down here, where it is known (ADR-019 D2).
+        if (!r.ok)
+          this.session.log.write("command", "editor", {
+            command: commandTypeOf(msg.command),
+            ok: false,
+            refused: r.error.code,
+            because: r.error.message,
+          });
         if (r.ok)
           this.reply(state, msg.id, true, {
             result: { changes: r.changes, warnings: r.warnings, result: r.result },
@@ -188,6 +211,15 @@ export class Bridge implements ViewerRenderer {
       }
       case "transaction": {
         const t = store.transaction(msg.label, msg.commands, "editor");
+        if (!t.ok)
+          this.session.log.write("transaction", "editor", {
+            label: msg.label,
+            commands: msg.commands.map(commandTypeOf),
+            ok: false,
+            failedAt: t.failedIndex + 1,
+            refused: t.error.code,
+            because: t.error.message,
+          });
         if (t.ok) this.reply(state, msg.id, true, { result: { changes: t.entry?.changes ?? null } });
         else
           this.reply(state, msg.id, false, {
