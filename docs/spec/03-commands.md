@@ -205,14 +205,16 @@ Changes: updated items.
 Payload: `{ itemIds (>= 3), axis: "x" | "y" }`. Effect: F-168. Changes: updated items.
 
 ### item.arrange
-Payload: `{ target: { roomId } | { zoneId } | { polygon, levelId }, rule: ArrangementRule, replace?: boolean }`
-Effect: computes placements for the pattern inside the target polygon minus clearances (spec 05 section 6); creates a zone when the target is a room or polygon; places items with parentId null; with `replace`, previously generated items of the zone are deleted first.
+Payload: `{ target: { roomId } | { zoneId, polygon? } | { polygon, levelId }, rule: ArrangementRule, replace?: boolean }`
+Effect: computes placements for the pattern inside the target polygon minus clearances (spec 05 section 6); creates a zone when the target is a room or polygon; places items with parentId null; with `replace`, previously generated items of the zone are deleted first. A `polygon` beside a `zoneId` reshapes that zone before it is filled, so resizing a cluster and filling the room it gains is one command.
+
+The step between placements is the piece's footprint as the rule turns it, not its measured size, and the block is centred within the zone inside the margin. A piece whose footprint lands exactly on the zone's edge counts as inside. `bench` pairs its rows back to back and puts the gap between the pairs.
 Changes: added zone and items; removed replaced items.
 
 ## 4. Zone, annotation, project commands
 
 ### zone.create `{ levelId, polygon, kind, name?, rule? }` — added zone.
-### zone.modify `{ zoneId, changes }` — updated zone.
+### zone.modify `{ zoneId, changes }` — updated zone. A `polygon` in `changes` carries what the zone generated with it: the pieces are translated, keeping their ids, when every corner moved by the same offset, and laid out again when the shape itself changed.
 ### zone.regenerate `{ zoneId }` — deletes generatedItemIds, re-runs the rule; removed and added items, updated zone.
 ### zone.delete `{ zoneIds, deleteItems?: boolean }` — removed zone and optionally items.
 ### annotation.add `{ annotation minus id }` / annotation.modify `{ annotationId, changes }` / annotation.delete `{ annotationIds }`.

@@ -17,6 +17,7 @@ import type {
   Item,
   Level,
   Opening,
+  Point,
   PrimitiveRecipe,
   Project,
   Room,
@@ -33,6 +34,7 @@ import {
   type FinishName,
   finishNameOf,
   normalizeDeg,
+  poly,
   SKIRTING_DEPTH,
   SKIRTING_DEPTH_RANGE,
   tidyFinish,
@@ -100,9 +102,7 @@ export function deleteCommands(ids: readonly string[]): DeleteCommand[] {
   }
   // Openings before walls: deleting a wall takes its openings with it, so the reverse order would name
   // ids that no longer exist by the time the second command ran. Items and rooms go ahead of walls for
-  // the same reason.
-  // Zones first: a zone delete takes its own desks, so naming them again afterwards would name ids that
-  // are already gone.
+  // the same reason, and zones ahead of everything, because a zone takes its own pieces with it.
   const order: EntityKind[] = ["zone", "opening", "item", "room", "wall"];
   const out: DeleteCommand[] = [];
   for (const kind of order) {
@@ -113,9 +113,6 @@ export function deleteCommands(ids: readonly string[]): DeleteCommand[] {
   }
   return out;
 }
-
-/** Openings before walls: deleting a wall takes its openings with it, so the reverse order would
- *  delete ids that no longer exist. Same reasoning puts items and rooms ahead of the walls they sit in. */
 
 export interface MoveCommand {
   type: string;
@@ -171,7 +168,21 @@ export function moveCommands(
     });
   }
 
-  const itemIds = byKind.get("item") ?? [];
+  // A zone moves by its own polygon, and the reducer walks its pieces along with it: they keep their ids,
+  // so anything done to one of them since survives the drag.
+  const owned = new Set<string>();
+  for (const zoneId of byKind.get("zone") ?? []) {
+    const zone = project.zones.find((z) => z.id === zoneId);
+    if (!zone) continue;
+    for (const id of zone.generatedItemIds) owned.add(id);
+    out.push({
+      type: "zone.modify",
+      payload: { zoneId, changes: { polygon: zone.polygon.map((q) => ({ x: q.x + x, y: q.y + y })) } },
+    });
+  }
+
+  // A piece its own zone is already moving is left out, or it would travel twice.
+  const itemIds = (byKind.get("item") ?? []).filter((id) => !owned.has(id));
   if (itemIds.length > 0) out.push({ type: "item.move", payload: { itemIds, dx: x, dy: y } });
 
   return out;
@@ -1464,6 +1475,8 @@ export const ZONE_PATTERN_CHOICES: readonly Choice[] = ZONE_PATTERNS.map((p) => 
 export const ZONE_COUNT_RANGE = { min: 1, max: FILL_CAP } as const;
 /** The gap between pieces, and the margin inside the zone's edge: none, up to ten metres. */
 export const ZONE_GAP_RANGE = { min: 0, max: 10_000 } as const;
+/** How wide or deep a cluster may be: a hundred millimetres, up to the kilometre a wall may run. */
+export const ZONE_SIDE_RANGE = { min: 100, max: MAX_LENGTH_MM } as const;
 
 /**
  * A desk cluster (P3-6). Every row here changes the RULE and lays the pieces out again, which is one
@@ -1535,8 +1548,92 @@ function zoneFacts(project: Project, z: Zone): Fact[] {
   const gap = (axis: "x" | "y", mm: number): EditCommand =>
     rearrange({ spacing: { ...rule.spacing, [axis]: mm } });
 
+  const b = poly.bounds(z.polygon);
+  const wide = Math.round(b.maxX - b.minX);
+  const deep = Math.round(b.maxY - b.minY);
+  /**
+   * A new shape for the zone, and the pieces laid out for it in the same command.
+   *
+   * A cluster that was full stays full: if it held everything that fitted, growing it fills the room it
+   * gained, and shrinking it drops what no longer fits. One that was asked for a set number keeps that
+   * number, because someone who typed twelve meant twelve.
+   */
+  const reshape = (polygon: Point[]): EditCommand => {
+    const wasFull = rule.count >= fitsWith();
+    const now = size ? fitCount(polygon, asRule(), size) : rule.count;
+    return {
+      type: "item.arrange",
+      payload: {
+        target: { zoneId: z.id, polygon },
+        rule: {
+          pattern: rule.pattern,
+          productId: rule.productId,
+          recipe: rule.recipe,
+          count: Math.max(1, wasFull ? now : rule.count),
+          spacing: rule.spacing,
+          facing: rule.facing,
+          margin: rule.margin,
+        },
+        replace: true,
+      },
+    };
+  };
+  /** Scaled about its bottom-left corner, which is the corner the panel prints as its position. */
+  const scaled = (across: number | null, along: number | null): Point[] => {
+    const sx = across === null ? 1 : across / Math.max(1, wide);
+    const sy = along === null ? 1 : along / Math.max(1, deep);
+    return z.polygon.map((q) => ({
+      x: Math.round(b.minX + (q.x - b.minX) * sx),
+      y: Math.round(b.minY + (q.y - b.minY) * sy),
+    }));
+  };
+  const movedTo = (x: number | null, y: number | null): Point[] => {
+    const dx = x === null ? 0 : Math.round(x - b.minX);
+    const dy = y === null ? 0 : Math.round(y - b.minY);
+    return z.polygon.map((q) => ({ x: q.x + dx, y: q.y + dy }));
+  };
+  // Moving keeps the pieces and their ids, so it goes through zone.modify rather than being laid out
+  // again: see the reducer. Resizing cannot, because the old positions were worked out for the old shape.
+  const moveTo = (x: number | null, y: number | null): EditCommand => ({
+    type: "zone.modify",
+    payload: { zoneId: z.id, changes: { polygon: movedTo(x, y) } },
+  });
+
   return [
     name,
+    {
+      group: "Size and place",
+      label: "Position X",
+      caption: "Position",
+      prefix: "X",
+      value: formatMm(Math.round(b.minX)),
+      unit: "mm",
+      hint: "The corner the cluster is measured from.",
+      edit: lengthEdit("Position X", Math.round(b.minX), COORDINATE_RANGE, (mm) => moveTo(mm, null)),
+    },
+    {
+      group: "Size and place",
+      label: "Position Y",
+      prefix: "Y",
+      value: formatMm(Math.round(b.minY)),
+      unit: "mm",
+      edit: lengthEdit("Position Y", Math.round(b.minY), COORDINATE_RANGE, (mm) => moveTo(null, mm)),
+    },
+    {
+      group: "Size and place",
+      label: "Width",
+      value: formatMm(wide),
+      unit: "mm",
+      hint: "How far the cluster reaches from east to west.",
+      edit: lengthEdit("Width", wide, ZONE_SIDE_RANGE, (mm) => reshape(scaled(mm, null))),
+    },
+    {
+      group: "Size and place",
+      label: "Depth",
+      value: formatMm(deep),
+      unit: "mm",
+      edit: lengthEdit("Depth", deep, ZONE_SIDE_RANGE, (mm) => reshape(scaled(null, mm))),
+    },
     {
       group: "Layout",
       label: "Pattern",
@@ -1584,7 +1681,7 @@ function zoneFacts(project: Project, z: Zone): Fact[] {
       label: "Gap across",
       caption: "Gap",
       prefix: "X",
-      value: String(rule.spacing.x),
+      value: formatMm(rule.spacing.x),
       unit: "mm",
       hint: "Between one piece and the next along a row.",
       edit: lengthEdit("Gap across", rule.spacing.x, ZONE_GAP_RANGE, (mm) => gap("x", mm)),
@@ -1593,7 +1690,7 @@ function zoneFacts(project: Project, z: Zone): Fact[] {
       group: "Layout",
       label: "Gap between rows",
       prefix: "Y",
-      value: String(rule.spacing.y),
+      value: formatMm(rule.spacing.y),
       unit: "mm",
       edit: lengthEdit("Gap between rows", rule.spacing.y, ZONE_GAP_RANGE, (mm) => gap("y", mm)),
     },
@@ -1617,7 +1714,7 @@ function zoneFacts(project: Project, z: Zone): Fact[] {
     {
       group: "Layout",
       label: "Margin",
-      value: String(rule.margin),
+      value: formatMm(rule.margin),
       unit: "mm",
       hint: "Kept clear inside the zone's edge.",
       edit: lengthEdit("Margin", rule.margin, ZONE_GAP_RANGE, (mm) => rearrange({ margin: mm })),

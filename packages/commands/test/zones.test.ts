@@ -3,6 +3,7 @@
 import type { Point } from "@fpv/ir";
 import { describe, expect, it } from "vitest";
 import { arrangePlacements } from "../src/index.js";
+import { BOX, fixture, LEVEL, ok } from "./helpers.js";
 
 const DESK = { w: 1600, d: 800, h: 750 };
 const rect = (w: number, h: number): Point[] => [
@@ -95,5 +96,84 @@ describe("laying pieces out in a zone", () => {
     const three = arrangePlacements(rect(20_000, 20_000), rule({ count: 3 }), DESK);
     expect(three.placements).toHaveLength(3);
     expect(three.requested).toBe(3);
+  });
+});
+
+describe("moving and reshaping a zone", () => {
+  /** A cluster of boxes on empty ground, well clear of the fixture's room. */
+  function withCluster() {
+    const p = fixture();
+    const r = ok(p, {
+      type: "item.arrange",
+      payload: {
+        target: {
+          levelId: LEVEL,
+          polygon: [
+            { x: 20_000, y: 0 },
+            { x: 26_000, y: 0 },
+            { x: 26_000, y: 4000 },
+            { x: 20_000, y: 4000 },
+          ],
+        },
+        rule: {
+          pattern: "grid" as const,
+          productId: null,
+          recipe: BOX.recipe,
+          count: 100,
+          spacing: { x: 400, y: 400 },
+          facing: 0,
+          margin: 300,
+        },
+      },
+    });
+    const zone = r.project.zones[0] as NonNullable<(typeof r.project.zones)[number]>;
+    return { project: r.project, zone };
+  }
+
+  const shifted = (polygon: readonly { x: number; y: number }[], dx: number, dy: number) =>
+    polygon.map((q) => ({ x: q.x + dx, y: q.y + dy }));
+
+  it("walks its pieces along when it is only moved, keeping their ids", () => {
+    const { project, zone } = withCluster();
+    const before = project.items.filter((i) => zone.generatedItemIds.includes(i.id));
+    const r = ok(project, {
+      type: "zone.modify",
+      payload: { zoneId: zone.id, changes: { polygon: shifted(zone.polygon, 1500, -700) } },
+    });
+    const after = r.project.zones[0]?.generatedItemIds as string[];
+    expect(after).toEqual(zone.generatedItemIds);
+    expect(r.changes.added).toHaveLength(0);
+    expect(r.changes.removed).toHaveLength(0);
+    for (const was of before) {
+      const now = r.project.items.find((i) => i.id === was.id);
+      expect(now?.position).toEqual({ x: was.position.x + 1500, y: was.position.y - 700 });
+    }
+  });
+
+  it("lays them out again when the shape changes, not just the place", () => {
+    const { project, zone } = withCluster();
+    const wider = [
+      { x: 20_000, y: 0 },
+      { x: 34_000, y: 0 },
+      { x: 34_000, y: 4000 },
+      { x: 20_000, y: 4000 },
+    ];
+    const r = ok(project, {
+      type: "zone.modify",
+      payload: { zoneId: zone.id, changes: { polygon: wider } },
+    });
+    const after = r.project.zones[0]?.generatedItemIds as string[];
+    expect(after.length).toBeGreaterThan(zone.generatedItemIds.length);
+    expect(r.changes.removed.length).toBe(zone.generatedItemIds.length);
+    expect(r.project.items.filter((i) => i.tags.includes("generated"))).toHaveLength(after.length);
+  });
+
+  it("leaves its pieces alone when something other than the shape changes", () => {
+    const { project, zone } = withCluster();
+    const r = ok(project, { type: "zone.modify", payload: { zoneId: zone.id, changes: { name: "Bank A" } } });
+    expect(r.project.zones[0]?.name).toBe("Bank A");
+    expect(r.project.zones[0]?.generatedItemIds).toEqual(zone.generatedItemIds);
+    expect(r.changes.added).toHaveLength(0);
+    expect(r.changes.removed).toHaveLength(0);
   });
 });

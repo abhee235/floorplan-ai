@@ -313,7 +313,9 @@ export const ItemDistribute = z.object({ itemIds: z.array(ItemId).min(3), axis: 
 export const ItemArrange = z.object({
   target: z.union([
     z.object({ roomId: RoomId }),
-    z.object({ zoneId: ZoneId }),
+    // `polygon` reshapes the zone as it lays it out again, so growing a cluster and filling the room it
+    // gained is one command and one entry in the history.
+    z.object({ zoneId: ZoneId, polygon: Polygon.optional() }),
     z.object({ polygon: Polygon, levelId: LevelId }),
   ]),
   rule: ArrangementRule,

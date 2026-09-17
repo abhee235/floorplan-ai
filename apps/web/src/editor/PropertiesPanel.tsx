@@ -281,6 +281,7 @@ function iconOf(title: string): LucideIcon | null {
     Swing: DoorOpen,
     Layout: Grid2x2,
     Holds: Package,
+    "Size and place": Move3d,
   };
   // what is left is an item's parts: Top, Legs, Fabric, Frame and the like
   return icons[title] ?? Palette;

@@ -177,11 +177,58 @@ export function zoneCreate(p: Project, payload: PayloadOf<"zone.create">, ctx: C
   return zoneById(p, zone.id);
 }
 
-export function zoneModify(p: Project, payload: PayloadOf<"zone.modify">, _ctx: Ctx, changes: Changes): Zone {
+/**
+ * Changes a zone, and keeps what it made in step with it.
+ *
+ * A zone's pieces exist because the zone says so, so a zone whose shape changed while its pieces stayed
+ * put would be a lie on the plan. How they follow depends on what changed:
+ *
+ * Moved, and nothing else — every corner shifted by the same amount — and the pieces move with it. They
+ * keep their ids, which means anything done to one of them since (a colour, a different product on the
+ * end of a row) survives being dragged across the floor.
+ *
+ * Reshaped, and they are laid out again, because the old positions were worked out for a shape that is
+ * gone. That does replace them, ids and all; there is no way to keep them and honour the new shape.
+ */
+export function zoneModify(p: Project, payload: PayloadOf<"zone.modify">, ctx: Ctx, changes: Changes): Zone {
   const z = zoneById(p, payload.zoneId);
+  const before = z.polygon.map((q) => ({ x: q.x, y: q.y }));
   Object.assign(z, payload.changes);
+  if (payload.changes.polygon) {
+    const shift = translationBetween(before, z.polygon);
+    if (shift) moveGenerated(p, z, shift, changes);
+    else {
+      deleteGenerated(p, z, changes);
+      placeGenerated(p, ctx, z, changes);
+    }
+  }
   changes.update("zone", z.id);
   return z;
+}
+
+/** The one offset that turns `from` into `to`, or null when the shape changed as well as the place. */
+function translationBetween(from: readonly Point[], to: readonly Point[]): Point | null {
+  if (from.length !== to.length || from.length === 0) return null;
+  const first = from[0] as Point;
+  const shift = { x: (to[0] as Point).x - first.x, y: (to[0] as Point).y - first.y };
+  for (let i = 1; i < from.length; i += 1) {
+    const a = from[i] as Point;
+    const b = to[i] as Point;
+    if (b.x - a.x !== shift.x || b.y - a.y !== shift.y) return null;
+  }
+  return shift;
+}
+
+function moveGenerated(p: Project, zone: Zone, shift: Point, changes: Changes): void {
+  if (shift.x === 0 && shift.y === 0) return;
+  const ids = new Set(zone.generatedItemIds);
+  for (const it of p.items) {
+    if (!ids.has(it.id)) continue;
+    it.position = { x: it.position.x + shift.x, y: it.position.y + shift.y };
+    // Which room a piece counts in is where it stands, so it is worked out again where it now stands.
+    it.roomId = derive.containingRoom(p, it.levelId, it.position)?.id ?? null;
+    changes.update("item", it.id);
+  }
 }
 
 export function zoneRegenerate(
@@ -214,6 +261,9 @@ export function itemArrange(
   let zone: Zone;
   if ("zoneId" in payload.target) {
     zone = zoneById(p, payload.target.zoneId);
+    // A new shape arrives with the rule when a cluster is resized, so the pieces are laid out once, for
+    // the zone as it now is, rather than once for the old shape and again for the new one.
+    if (payload.target.polygon) zone.polygon = payload.target.polygon.map((q) => ({ x: q.x, y: q.y }));
     zone.rule = payload.rule;
     if (payload.replace) deleteGenerated(p, zone, changes);
   } else {

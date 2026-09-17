@@ -6,7 +6,13 @@ import { fileURLToPath } from "node:url";
 import { apply, type Ctx } from "@fpv/commands";
 import { Project, type Project as ProjectT, sequentialIdGenerator } from "@fpv/ir";
 import { describe, expect, it } from "vitest";
-import { deleteCommands, describeEntity, type Fact, kindOf } from "../../src/editor/selection.js";
+import {
+  deleteCommands,
+  describeEntity,
+  type Fact,
+  kindOf,
+  moveCommands,
+} from "../../src/editor/selection.js";
 import { DEFAULT_PIECE, DEFAULT_RULE, ZoneTool } from "../../src/editor/zone-tool.js";
 
 const fixtureDir = fileURLToPath(new URL("../../../../tools/fixtures/boardroom.fpviz/", import.meta.url));
@@ -122,5 +128,91 @@ describe("a desk cluster in the panel", () => {
     if (!after.ok) throw new Error(after.error.message);
     expect(after.project.zones).toHaveLength(0);
     expect(after.project.items.filter((i) => i.tags.includes("generated"))).toHaveLength(0);
+  });
+});
+
+describe("dragging a cluster on the plan", () => {
+  it("moves it by its own polygon, and leaves its pieces to the reducer", () => {
+    const { project, zoneId } = withCluster();
+    const zone = project.zones[0];
+    const commands = moveCommands(project, [zoneId], 1500, -700);
+    expect(commands).toEqual([
+      {
+        type: "zone.modify",
+        payload: {
+          zoneId,
+          changes: { polygon: zone?.polygon.map((q) => ({ x: q.x + 1500, y: q.y - 700 })) },
+        },
+      },
+    ]);
+    const after = apply(project, commands[0], ctxOf());
+    if (!after.ok) throw new Error(after.error.message);
+    expect(after.project.zones[0]?.generatedItemIds).toEqual(zone?.generatedItemIds);
+  });
+
+  it("does not move a piece twice when its cluster is selected with it", () => {
+    const { project, zoneId } = withCluster();
+    const pieces = project.zones[0]?.generatedItemIds ?? [];
+    const commands = moveCommands(project, [zoneId, ...pieces], 100, 0);
+    // the zone carries them; there is no item.move naming the same pieces
+    expect(commands.map((c) => c.type)).toEqual(["zone.modify"]);
+  });
+});
+
+describe("the size and place of a cluster", () => {
+  it("says how big it is, and where its corner sits", () => {
+    const { project, zoneId } = withCluster();
+    const facts = describeEntity(project, zoneId)?.facts ?? [];
+    // grouped for reading, as every other length in the panel is
+    expect(factOf(facts, "Width").value).toBe("12 000");
+    expect(factOf(facts, "Depth").value).toBe("8 000");
+    expect(factOf(facts, "Position X").value).toBe("30 000");
+    expect(factOf(facts, "Position Y").value).toBe("0");
+  });
+
+  it("moves without disturbing its pieces when a position is typed", () => {
+    const { project, zoneId } = withCluster();
+    const pieces = project.zones[0]?.generatedItemIds as string[];
+    const outcome = factOf(describeEntity(project, zoneId)?.facts ?? [], "Position X").edit?.("35000");
+    if (!outcome?.ok || !outcome.command) throw new Error("the position did not ask for anything");
+    expect(outcome.command.type).toBe("zone.modify");
+    const after = apply(project, outcome.command, ctxOf());
+    if (!after.ok) throw new Error(after.error.message);
+    expect(after.project.zones[0]?.generatedItemIds).toEqual(pieces);
+    const b = after.project.zones[0]?.polygon.map((q) => q.x) ?? [];
+    expect(Math.min(...b)).toBe(35_000);
+  });
+
+  it("fills the room it gains when it is made wider, because it was full", () => {
+    const { project, zoneId } = withCluster();
+    const before = project.zones[0]?.generatedItemIds.length as number;
+    const outcome = factOf(describeEntity(project, zoneId)?.facts ?? [], "Width").edit?.("24000");
+    if (!outcome?.ok || !outcome.command) throw new Error("the width did not ask for anything");
+    expect(outcome.command.type).toBe("item.arrange");
+    const after = apply(project, outcome.command, ctxOf());
+    if (!after.ok) throw new Error(after.error.message);
+    const zone = after.project.zones[0];
+    expect(Math.max(...(zone?.polygon.map((q) => q.x) ?? []))).toBe(54_000);
+    expect(zone?.generatedItemIds.length).toBeGreaterThan(before);
+    expect(zone?.rule?.count).toBe(zone?.generatedItemIds.length);
+  });
+
+  it("keeps the number asked for when it was a number, not a fill", () => {
+    const { project, zoneId } = withCluster();
+    const four = factOf(describeEntity(project, zoneId)?.facts ?? [], "Pieces").edit?.("4");
+    if (!four?.ok || !four.command) throw new Error("the count did not ask for anything");
+    const small = apply(project, four.command, ctxOf());
+    if (!small.ok) throw new Error(small.error.message);
+    const outcome = factOf(describeEntity(small.project, zoneId)?.facts ?? [], "Width").edit?.("24000");
+    if (!outcome?.ok || !outcome.command) throw new Error("the width did not ask for anything");
+    const after = apply(small.project, outcome.command, ctxOf());
+    if (!after.ok) throw new Error(after.error.message);
+    expect(after.project.zones[0]?.generatedItemIds).toHaveLength(4);
+  });
+
+  it("refuses a width that is not a number, in words", () => {
+    const { project, zoneId } = withCluster();
+    const outcome = factOf(describeEntity(project, zoneId)?.facts ?? [], "Width").edit?.("wide");
+    expect(outcome).toEqual({ ok: false, message: "Width needs a number of millimetres, such as 120." });
   });
 });
