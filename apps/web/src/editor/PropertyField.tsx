@@ -5,11 +5,13 @@
 //
 // What is typed shows on the plan and in 3D as it is typed, without being sent: Enter or leaving the field
 // sends it, as one change, and Escape puts the value back. A list commits as soon as something is picked.
+// A refusal never takes room of its own: the field wears a red mark at its right edge and says why on
+// hover or focus, so the rest of the panel does not jump down the moment something is mistyped.
 // What the value MEANS is not decided here: the row's `edit` comes from selection.ts, and this only runs
 // the conversation around it — the draft, the refusal, and the round trip to the host.
 
 import { cn } from "cn";
-import { RotateCcw } from "lucide-react";
+import { CircleAlert, RotateCcw } from "lucide-react";
 import type { JSX, KeyboardEvent, ReactNode, PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -132,6 +134,7 @@ function ToggleField({
         <Label htmlFor={id} className="block min-w-0 truncate font-normal">
           {caption ?? label}
         </Label>
+        {report.error ? <ErrorMark name={caption ?? label} message={report.error} /> : null}
       </div>
       <Notes id={id} hint={hint} error={report.error} />
     </div>
@@ -191,6 +194,14 @@ function TextField({
   // A one-letter mark is narrow; two letters ("HE" for a height at the end) need a little more.
   const lead =
     (prefix ? (prefix.length > 1 ? 22 : 16) : 0) + (colour && editable ? 22 : 0) + (resettable ? 24 : 0);
+  // And what sits inside the right edge: the unit, the refusal mark, a list belonging to the field. The
+  // text stops before them, so a long value is cut short rather than running underneath.
+  const tailParts = [
+    printedUnit ? (printedUnit.length > 2 ? 30 : printedUnit.length > 1 ? 20 : 10) : 0,
+    report.error ? 20 : 0,
+    trailing ? 24 : 0,
+  ].filter((w) => w > 0);
+  const tail = tailParts.length > 0 ? tailParts.reduce((a, b) => a + b, 0) + 6 : 0;
 
   // The edit as it was when the draft began. Once a preview is shown the panel is drawn from the previewed
   // project, and an edit taken from that would measure its change from the preview: a typed position
@@ -461,25 +472,24 @@ function TextField({
         }}
         onBlur={() => void commit("blur")}
         onKeyDown={onKeyDown}
-        style={lead > 0 ? { paddingLeft: lead + 8 } : undefined}
-        className={cn(
-          "h-6.5 px-2.5 tabular-nums",
-          editable ? FIELD : READ_ONLY,
-          // Room for the unit, and no more: "mm" wants a gap before it, a degree sign sits against its
-          // number, and a word such as "seats" needs its own width.
-          printedUnit ? (printedUnit.length > 2 ? "pr-12" : printedUnit.length > 1 ? "pr-8" : "pr-5") : "",
-          trailing ? "pr-8" : "",
-        )}
+        style={{
+          ...(lead > 0 ? { paddingLeft: lead + 8 } : null),
+          ...(tail > 0 ? { paddingRight: tail } : null),
+        }}
+        className={cn("h-6.5 px-2.5 tabular-nums", editable ? FIELD : READ_ONLY)}
       />
-      {trailing ? (
-        <span className="absolute inset-y-0 right-1 z-10 flex items-center">{trailing}</span>
-      ) : null}
-      {printedUnit ? (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-2xs text-muted-foreground"
-        >
-          {printedUnit}
+      {tail > 0 ? (
+        // One row inside the right edge, so the unit steps aside for the mark instead of sitting under it.
+        // It does not take the pointer, except where something in it wants it: the field is clicked
+        // through its own padding.
+        <span className="pointer-events-none absolute inset-y-0 right-1.5 z-10 flex items-center gap-1">
+          {printedUnit ? (
+            <span aria-hidden className="text-2xs text-muted-foreground">
+              {printedUnit}
+            </span>
+          ) : null}
+          {report.error ? <ErrorMark name={caption ?? label} message={report.error} /> : null}
+          {trailing ? <span className="pointer-events-auto flex items-center">{trailing}</span> : null}
         </span>
       ) : null}
     </Row>
@@ -569,6 +579,12 @@ function ChoiceField({
         </SelectTrigger>
         <SelectContent>{items}</SelectContent>
       </Select>
+      {report.error ? (
+        // Clear of the arrow at the trigger's own right edge.
+        <span className="absolute inset-y-0 right-7 z-10 flex items-center">
+          <ErrorMark name={caption ?? label} message={report.error} />
+        </span>
+      ) : null}
     </Row>
   );
 }
@@ -640,7 +656,10 @@ function Row({
   );
 }
 
-/** A cell's description and refusal: the hint and the steps help hidden, the refusal in view. */
+/**
+ * A cell's description and refusal, all of it hidden: the reason is carried into view by the mark inside
+ * the field (see ErrorMark), and read from here by a screen reader as the field's description.
+ */
 function Notes({
   id,
   hint,
@@ -667,11 +686,39 @@ function Notes({
         </span>
       ) : null}
       {error ? (
-        <p id={errorId(id)} className="mt-1 leading-snug text-pretty text-destructive">
+        <span id={errorId(id)} hidden>
           {error}
-        </p>
+        </span>
       ) : null}
     </>
+  );
+}
+
+/**
+ * Why a value was refused: a red mark at the field's right edge, the reason in a tooltip on hover or on
+ * focus. A sentence printed under the field would appear and disappear as values are typed and push
+ * everything below it up and down the panel; this takes the room whether it is showing or not.
+ *
+ * It is a button so that it can be reached by keyboard: the tooltip opens on focus as well as on hover.
+ */
+function ErrorMark({ name, message }: { name: string; message: string }): JSX.Element {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          // The reason itself is the tooltip, which Radix hangs off this as its description; the name says
+          // which field it belongs to, because the mark sits away from the caption.
+          aria-label={`Problem with ${name}`}
+          className="pointer-events-auto flex size-4 shrink-0 items-center justify-center rounded-sm text-destructive outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        >
+          <CircleAlert aria-hidden className="size-3.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="left" className="max-w-56">
+        {message}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

@@ -48,15 +48,17 @@ function setup({ refuse, editable = true }: Setup = {}) {
 
   const ui = (value: string) => (
     <EditorContext.Provider value={editor}>
-      <PropertyField
-        id="wall-thickness"
-        label="Thickness"
-        value={value}
-        unit="mm"
-        edit={editable ? edit : undefined}
-        send={editable ? send : undefined}
-      />
-      <button type="button">elsewhere</button>
+      <TooltipProvider>
+        <PropertyField
+          id="wall-thickness"
+          label="Thickness"
+          value={value}
+          unit="mm"
+          edit={editable ? edit : undefined}
+          send={editable ? send : undefined}
+        />
+        <button type="button">elsewhere</button>
+      </TooltipProvider>
     </EditorContext.Provider>
   );
   const view = render(ui("100"));
@@ -206,6 +208,24 @@ describe("a property field (ADR-017 D3)", () => {
     // Escape clears the reason once it has been read
     await user.keyboard("{Escape}");
     expect(input.getAttribute("aria-invalid")).toBeNull();
+  });
+
+  it("puts a mark in the field rather than a sentence under it, and says why on hover", async () => {
+    const { input, user } = setup({ refuse: "start must differ from end" });
+    await user.tab();
+    await user.keyboard("120{Enter}");
+    // The reason is in the page only as the field's description; nothing is printed under the field, so
+    // the cells below it do not move as values are typed.
+    const reason = document.getElementById("wall-thickness-error");
+    expect(reason?.hidden).toBe(true);
+    expect((input.getAttribute("aria-describedby") ?? "").split(" ")).toContain("wall-thickness-error");
+    const mark = screen.getByRole("button", { name: "Problem with Thickness" });
+    await user.hover(mark);
+    const tip = await screen.findByRole("tooltip");
+    expect(tip.textContent).toContain("Not changed: start must differ from end");
+    // and it goes with the refusal
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("button", { name: "Problem with Thickness" })).toBeNull();
   });
 
   it("takes no typing on a read-only row, but can still be reached", async () => {

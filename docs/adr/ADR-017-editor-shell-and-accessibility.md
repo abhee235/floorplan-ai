@@ -64,6 +64,12 @@ is the one handle for dragging the value; the arrow keys step it from the field
 itself. Lengths are left-aligned and tabular, with the unit inside the field.
 The level's own values show only while nothing is selected.
 
+A refused value is marked, not written about: the field turns its border red and
+shows a red mark inside its right edge, and the reason is a tooltip on hovering
+or focusing that mark. A sentence printed under the field would push every cell
+below it down as values are typed and let go again. The reason stays the field's
+accessible description either way, and D5's assertive region still says it.
+
 ### D4. Every gesture has a keyboard equal
 
 The tab sequence is the shell: app bar, tool options, tool rail, canvas,
