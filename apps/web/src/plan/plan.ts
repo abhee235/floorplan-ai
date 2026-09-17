@@ -73,11 +73,32 @@ const COLOURS = {
 const ZONE_LABEL_PX = 5;
 const ZONE_LABEL_HEIGHT_PX = 13;
 
-/** What a zone is called on the plan: its own name, or what it holds. */
-export function zoneLabel(z: Zone): string {
+/**
+ * What a zone is called on the plan: its own name if it has one, else the piece it lays out, and how many
+ * are standing. A cluster of chairs reads "Chair · 24" rather than "Desk cluster", because what it holds
+ * is the thing you need to know at a glance.
+ */
+export function zoneLabel(z: Zone, project?: Project): string {
   const count = z.generatedItemIds.length;
-  const name = z.name ?? (z.kind === "desk-cluster" ? "Desk cluster" : zoneKindLabel(z.kind));
+  const name = z.name ?? (project ? zonePieceName(z, project) : null) ?? zoneKindLabel(z.kind);
   return count > 0 ? `${name} · ${count}` : name;
+}
+
+/** The piece a zone lays out, in words, or null when it lays out nothing. */
+function zonePieceName(z: Zone, project: Project): string | null {
+  const rule = z.rule;
+  if (!rule) return null;
+  if (rule.productId) {
+    const snap = project.catalogRefs[rule.productId] as { name?: unknown } | undefined;
+    const full = typeof snap?.name === "string" && snap.name.trim() !== "" ? snap.name : rule.productId;
+    // The part before the first comma: a catalogue name is a sentence, and the plan has no room for one.
+    return (full.split(",")[0] as string).trim();
+  }
+  if (!rule.recipe) return null;
+  const label = "label" in rule.recipe ? rule.recipe.label.trim() : "";
+  if (label !== "") return label;
+  const words = rule.recipe.kind.replace(/-/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 function zoneKindLabel(kind: Zone["kind"]): string {
@@ -249,7 +270,7 @@ export class PlanRenderer {
     for (const z of project.zones) {
       if (z.levelId !== this.levelId) continue;
       if (onEdge(z.polygon, p, Math.max(marginMm, 4 / this.view.scale))) return z.id;
-      if (inBox(zoneLabelBox(z, this.view.scale), p)) return z.id;
+      if (inBox(zoneLabelBox(z, this.view.scale, project), p)) return z.id;
     }
     const walls = project.walls.filter((w) => w.levelId === this.levelId);
     for (const [id, fp] of wallFootprints(walls)) if (near(fp)) return id;
@@ -514,7 +535,7 @@ export class PlanRenderer {
    * ring goes on the overlay, over the desks it made, because the area is the thing being pointed at and
    * an outline under the furniture would be hidden by exactly what it stands for.
    */
-  private zone(ctx: Ctx2D, z: Zone): void {
+  private zone(ctx: Ctx2D, z: Zone, project: Project): void {
     if (z.polygon.length < 3) return;
     const px = 1 / this.view.scale;
     ctx.beginPath();
@@ -533,7 +554,7 @@ export class PlanRenderer {
     ctx.font = "11px system-ui, sans-serif";
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
-    ctx.fillText(zoneLabel(z), s.x, s.y - ZONE_LABEL_PX);
+    ctx.fillText(zoneLabel(z, project), s.x, s.y - ZONE_LABEL_PX);
     ctx.restore();
   }
 
@@ -564,7 +585,7 @@ export class PlanRenderer {
   private drawOverlay(project: Project, levelId: string): void {
     const ctx = this.begin("overlay");
     const sizes = this.sizes ?? derive.snapshotSizeSource(project);
-    for (const z of project.zones) if (z.levelId === levelId) this.zone(ctx, z);
+    for (const z of project.zones) if (z.levelId === levelId) this.zone(ctx, z, project);
     ctx.strokeStyle = COLOURS.selection;
     ctx.lineWidth = 2 / this.view.scale;
     ctx.setLineDash([6 / this.view.scale, 4 / this.view.scale]);
@@ -629,9 +650,10 @@ function onEdge(ring: readonly Point[], p: Point, toleranceMm: number): boolean 
 export function zoneLabelBox(
   z: Zone,
   scale: number,
+  project?: Project,
 ): { minX: number; minY: number; maxX: number; maxY: number } {
   const b = poly.bounds(z.polygon);
-  const width = (zoneLabel(z).length * 6.2) / scale;
+  const width = (zoneLabel(z, project).length * 6.2) / scale;
   const bottom = b.maxY + ZONE_LABEL_PX / scale;
   return { minX: b.minX, minY: bottom, maxX: b.minX + width, maxY: bottom + ZONE_LABEL_HEIGHT_PX / scale };
 }

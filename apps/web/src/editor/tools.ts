@@ -174,9 +174,9 @@ export const TOOLS: ToolDefinition[] = [
   },
   {
     id: "zone",
-    title: "Desk cluster",
+    title: "Cluster",
     shortcut: "Z",
-    summary: "Fill an area with desks laid out to a pattern",
+    summary: "Fill an area with copies of the piece picked in the catalog",
     modifiers: [
       t("Hold "),
       k("Shift"),

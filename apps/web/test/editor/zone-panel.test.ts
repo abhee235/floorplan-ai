@@ -39,7 +39,8 @@ describe("a desk cluster in the panel", () => {
     const d = describeEntity(project, zoneId);
     if (!d) throw new Error("no description");
     expect(d.kind).toBe("zone");
-    expect(d.title).toBe("Desk cluster");
+    // named after what it holds, since a cluster is whatever the catalog had picked
+    expect(d.title).toBe("Table cluster");
     expect(factOf(d.facts, "Pattern").value).toBe("rows");
     expect(factOf(d.facts, "Gap across").value).toBe("600");
     expect(factOf(d.facts, "Facing").value).toBe("180");

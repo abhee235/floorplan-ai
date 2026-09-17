@@ -264,7 +264,7 @@ const KIND_NAMES: Record<EntityKind, string> = {
   room: "Room",
   opening: "Opening",
   item: "Item",
-  zone: "Desk cluster",
+  zone: "Cluster",
 };
 
 /** A small picture beside a band's name, so a long panel can be scanned by shape as well as by word. */

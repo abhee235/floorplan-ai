@@ -313,7 +313,7 @@ export function describeEntity(
   }
   if (kind === "zone") {
     const z = project.zones.find((x) => x.id === id);
-    return z ? { id, kind, title: z.name ?? "Desk cluster", facts: zoneFacts(project, z) } : null;
+    return z ? { id, kind, title: z.name ?? zoneTitle(project, z), facts: zoneFacts(project, z) } : null;
   }
   const o = project.openings.find((x) => x.id === id);
   return o ? { id, kind, title: openingTitle(o), facts: openingFacts(project, o) } : null;
@@ -1632,6 +1632,17 @@ function zoneFacts(project: Project, z: Zone): Fact[] {
         : {}),
     },
   ];
+}
+
+/**
+ * A cluster with no name of its own is called after what it holds: "Chair cluster". A product's full
+ * catalogue name is a sentence — "Generic chair, any size" — so only the part before the first comma is
+ * used, and the whole of it is on the Piece row just below.
+ */
+function zoneTitle(project: Project, z: Zone): string {
+  const piece = zonePieceName(project, z);
+  if (piece === "nothing") return "Cluster";
+  return `${(piece.split(",")[0] as string).trim()} cluster`;
 }
 
 /** The size of one piece the zone lays out, worked out as the reducer works it out. */
