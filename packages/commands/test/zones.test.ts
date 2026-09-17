@@ -168,6 +168,48 @@ describe("moving and reshaping a zone", () => {
     expect(r.project.items.filter((i) => i.tags.includes("generated"))).toHaveLength(after.length);
   });
 
+  it("puts a cluster back together when it has parted company with its pieces", () => {
+    // What an older host left behind: the outline was moved and the pieces were not. Moving it again
+    // must not carry the mistake to a new place.
+    const { project, zone } = withCluster();
+    const strayed = ok(project, {
+      type: "item.move",
+      payload: { itemIds: [...zone.generatedItemIds], dx: 40_000, dy: 0 },
+    });
+    const away = strayed.project.items.filter((i) => zone.generatedItemIds.includes(i.id));
+    expect(away.every((i) => i.position.x > 50_000)).toBe(true);
+
+    const r = ok(strayed.project, {
+      type: "zone.modify",
+      payload: { zoneId: zone.id, changes: { polygon: shifted(zone.polygon, 1000, 0) } },
+    });
+    const now = r.project.zones[0] as NonNullable<(typeof r.project.zones)[number]>;
+    const pieces = r.project.items.filter((i) => now.generatedItemIds.includes(i.id));
+    expect(pieces.length).toBeGreaterThan(0);
+    // every piece is back inside the zone, where the rule puts them
+    const b = {
+      minX: Math.min(...now.polygon.map((q) => q.x)),
+      maxX: Math.max(...now.polygon.map((q) => q.x)),
+    };
+    for (const piece of pieces) {
+      expect(piece.position.x).toBeGreaterThan(b.minX);
+      expect(piece.position.x).toBeLessThan(b.maxX);
+    }
+  });
+
+  it("still carries the pieces along when only one of them was moved out", () => {
+    const { project, zone } = withCluster();
+    const one = zone.generatedItemIds[0] as string;
+    const nudged = ok(project, { type: "item.move", payload: { itemIds: [one], dx: 40_000, dy: 0 } });
+    const r = ok(nudged.project, {
+      type: "zone.modify",
+      payload: { zoneId: zone.id, changes: { polygon: shifted(zone.polygon, 1000, 0) } },
+    });
+    // the ids are the same, so nothing was laid out again: the odd one out is respected
+    expect(r.project.zones[0]?.generatedItemIds).toEqual(zone.generatedItemIds);
+    expect(r.project.items.find((i) => i.id === one)?.position.x).toBeGreaterThan(50_000);
+  });
+
   it("leaves its pieces alone when something other than the shape changes", () => {
     const { project, zone } = withCluster();
     const r = ok(project, { type: "zone.modify", payload: { zoneId: zone.id, changes: { name: "Bank A" } } });

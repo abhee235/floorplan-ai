@@ -189,6 +189,12 @@ export function zoneCreate(p: Project, payload: PayloadOf<"zone.create">, ctx: C
  *
  * Reshaped, and they are laid out again, because the old positions were worked out for a shape that is
  * gone. That does replace them, ids and all; there is no way to keep them and honour the new shape.
+ *
+ * Moved, but with every piece already standing outside it, and they are laid out again too. That is a
+ * zone which parted company with its own pieces — a host that moved the outline and left them behind,
+ * before this reducer walked them along — and translating them again would only carry the mistake to a
+ * new place. Laying them out puts the cluster back together. One piece dragged out on purpose does not
+ * count: it takes ALL of them being outside, which no healthy cluster ever is.
  */
 export function zoneModify(p: Project, payload: PayloadOf<"zone.modify">, ctx: Ctx, changes: Changes): Zone {
   const z = zoneById(p, payload.zoneId);
@@ -196,7 +202,7 @@ export function zoneModify(p: Project, payload: PayloadOf<"zone.modify">, ctx: C
   Object.assign(z, payload.changes);
   if (payload.changes.polygon) {
     const shift = translationBetween(before, z.polygon);
-    if (shift) moveGenerated(p, z, shift, changes);
+    if (shift && !parted(p, z, before)) moveGenerated(p, z, shift, changes);
     else {
       deleteGenerated(p, z, changes);
       placeGenerated(p, ctx, z, changes);
@@ -217,6 +223,23 @@ function translationBetween(from: readonly Point[], to: readonly Point[]): Point
     if (b.x - a.x !== shift.x || b.y - a.y !== shift.y) return null;
   }
   return shift;
+}
+
+/**
+ * Whether the zone has parted company with its pieces: it has some, and not one of them stands inside
+ * the shape it had. A cluster is built with every footprint inside its polygon, so this can only be the
+ * wreckage of something that moved the zone without them.
+ */
+function parted(p: Project, zone: Zone, polygon: readonly Point[]): boolean {
+  const ids = new Set(zone.generatedItemIds);
+  if (ids.size === 0 || polygon.length < 3) return false;
+  let found = 0;
+  for (const it of p.items) {
+    if (!ids.has(it.id)) continue;
+    found += 1;
+    if (poly.containsPoint(polygon, it.position)) return false;
+  }
+  return found > 0;
 }
 
 function moveGenerated(p: Project, zone: Zone, shift: Point, changes: Changes): void {
