@@ -21,6 +21,9 @@ const KINDS: Readonly<Record<string, ScrubKind>> = {
   mm: { perPx: 1, step: 1, decimals: 0 },
   "°": { perPx: 0.5, step: 1, decimals: 1 },
   seats: { perPx: 0.1, step: 1, decimals: 0 },
+  // A count of things, as seats are: a tenth per pixel, so a whole drag of the panel's width is about
+  // twenty desks rather than two hundred.
+  desks: { perPx: 0.1, step: 1, decimals: 0 },
 };
 
 export function scrubKindOf(unit: string | undefined): ScrubKind | null {

@@ -197,7 +197,7 @@ function TextField({
   // And what sits inside the right edge: the unit, the refusal mark, a list belonging to the field. The
   // text stops before them, so a long value is cut short rather than running underneath.
   const tailParts = [
-    printedUnit ? (printedUnit.length > 2 ? 30 : printedUnit.length > 1 ? 20 : 10) : 0,
+    printedUnit ? (printedUnit.length > 2 ? 36 : printedUnit.length > 1 ? 20 : 10) : 0,
     report.error ? 20 : 0,
     trailing ? 24 : 0,
   ].filter((w) => w > 0);

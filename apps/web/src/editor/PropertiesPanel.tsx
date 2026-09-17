@@ -10,6 +10,7 @@
 import { cn } from "cn";
 import {
   DoorOpen,
+  Grid2x2,
   Layers,
   type LucideIcon,
   Move,
@@ -263,6 +264,7 @@ const KIND_NAMES: Record<EntityKind, string> = {
   room: "Room",
   opening: "Opening",
   item: "Item",
+  zone: "Desk cluster",
 };
 
 /** A small picture beside a band's name, so a long panel can be scanned by shape as well as by word. */
@@ -277,6 +279,8 @@ function iconOf(title: string): LucideIcon | null {
     Floor: SquareDashed,
     Ceiling: PanelTop,
     Swing: DoorOpen,
+    Layout: Grid2x2,
+    Holds: Package,
   };
   // what is left is an item's parts: Top, Legs, Fabric, Frame and the like
   return icons[title] ?? Palette;

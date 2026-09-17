@@ -10,9 +10,8 @@ describe("what an id names", () => {
   });
 
   it("returns null for a kind the editor does not handle, rather than throwing", () => {
-    // A selection can hold a zone or an annotation. Delete must leave those alone, not fall over:
-    // an exception on Delete would lose the whole gesture over one entity the UI cannot act on.
-    expect(kindOf("zone_000001")).toBeNull();
+    // A selection can hold an annotation. Delete must leave those alone, not fall over: an exception on
+    // Delete would lose the whole gesture over one entity the UI cannot act on.
     expect(kindOf("annot_000001")).toBeNull();
     expect(kindOf("nonsense")).toBeNull();
     expect(kindOf("")).toBeNull();
@@ -40,8 +39,16 @@ describe("deleting a selection", () => {
   });
 
   it("skips ids it cannot classify and still deletes the rest", () => {
-    const cmds = deleteCommands(["zone_000001", "wall_000001"]);
+    const cmds = deleteCommands(["annot_000001", "wall_000001"]);
     expect(cmds).toEqual([{ type: "wall.delete", payload: { wallIds: ["wall_000001"] } }]);
+  });
+
+  it("deletes a desk cluster with the desks it made, and before anything else", () => {
+    const cmds = deleteCommands(["wall_000001", "zone_000001"]);
+    expect(cmds).toEqual([
+      { type: "zone.delete", payload: { zoneIds: ["zone_000001"], deleteItems: true } },
+      { type: "wall.delete", payload: { wallIds: ["wall_000001"] } },
+    ]);
   });
 });
 

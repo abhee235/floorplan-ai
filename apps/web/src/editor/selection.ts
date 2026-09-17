@@ -20,11 +20,14 @@ import type {
   PrimitiveRecipe,
   Project,
   Room,
+  Size3,
   Wall,
   WallPattern,
+  Zone,
 } from "@fpv/ir";
 import {
   blankFinish,
+  defaultItem,
   derive,
   FINISH_SHININESS,
   type FinishName,
@@ -38,15 +41,19 @@ import { categoryLabel } from "./catalog.js";
 import { describeLength, formatDegrees, formatMm, parseDegrees, parseHexColour, parseMm } from "./status.js";
 import { WALL_KINDS } from "./tools.js";
 import { MAX_LENGTH_MM } from "./wall-tool.js";
+import { FILL_CAP, fitCount, ZONE_PATTERNS, type ZonePattern, type ZoneRule } from "./zone-tool.js";
 
 /** The entity kinds the editor can select and delete today. */
-export type EntityKind = "wall" | "room" | "item" | "opening";
+export type EntityKind = "wall" | "room" | "item" | "opening" | "zone";
 
-const DELETE_COMMAND: Record<EntityKind, { type: string; key: string }> = {
+const DELETE_COMMAND: Record<EntityKind, { type: string; key: string; extra?: Record<string, unknown> }> = {
   wall: { type: "wall.delete", key: "wallIds" },
   room: { type: "room.delete", key: "roomIds" },
   item: { type: "item.delete", key: "itemIds" },
   opening: { type: "opening.delete", key: "openingIds" },
+  // Deleting a cluster takes its desks with it. They exist because the zone said so, and leaving a floor
+  // covered in desks that nothing now describes is not what "delete this cluster" means.
+  zone: { type: "zone.delete", key: "zoneIds", extra: { deleteItems: true } },
 };
 
 /**
@@ -61,12 +68,18 @@ const DELETE_COMMAND: Record<EntityKind, { type: string; key: string }> = {
  */
 export function kindOf(id: string): EntityKind | null {
   const prefix = id.slice(0, id.indexOf("_"));
-  return prefix === "wall" || prefix === "room" || prefix === "item" || prefix === "opening" ? prefix : null;
+  return prefix === "wall" ||
+    prefix === "room" ||
+    prefix === "item" ||
+    prefix === "opening" ||
+    prefix === "zone"
+    ? prefix
+    : null;
 }
 
 export interface DeleteCommand {
   type: string;
-  payload: Record<string, string[]>;
+  payload: Record<string, unknown>;
 }
 
 /**
@@ -88,13 +101,15 @@ export function deleteCommands(ids: readonly string[]): DeleteCommand[] {
   // Openings before walls: deleting a wall takes its openings with it, so the reverse order would name
   // ids that no longer exist by the time the second command ran. Items and rooms go ahead of walls for
   // the same reason.
-  const order: EntityKind[] = ["opening", "item", "room", "wall"];
+  // Zones first: a zone delete takes its own desks, so naming them again afterwards would name ids that
+  // are already gone.
+  const order: EntityKind[] = ["zone", "opening", "item", "room", "wall"];
   const out: DeleteCommand[] = [];
   for (const kind of order) {
     const list = byKind.get(kind);
     if (!list?.length) continue;
     const spec = DELETE_COMMAND[kind];
-    out.push({ type: spec.type, payload: { [spec.key]: list } });
+    out.push({ type: spec.type, payload: { [spec.key]: list, ...spec.extra } });
   }
   return out;
 }
@@ -295,6 +310,10 @@ export function describeEntity(
   if (kind === "item") {
     const it = project.items.find((x) => x.id === id);
     return it ? { id, kind, title: itemTitle(project, it), facts: itemFacts(project, it, materials) } : null;
+  }
+  if (kind === "zone") {
+    const z = project.zones.find((x) => x.id === id);
+    return z ? { id, kind, title: z.name ?? "Desk cluster", facts: zoneFacts(project, z) } : null;
   }
   const o = project.openings.find((x) => x.id === id);
   return o ? { id, kind, title: openingTitle(o), facts: openingFacts(project, o) } : null;
@@ -1433,4 +1452,207 @@ export function nextSelection(current: readonly string[], hit: string | null, sh
   if (!hit) return shiftHeld ? [...current] : [];
   if (!shiftHeld) return [hit];
   return current.includes(hit) ? current.filter((id) => id !== hit) : [...current, hit];
+}
+
+/** The patterns a cluster can be laid out in, in the panel's words. */
+export const ZONE_PATTERN_CHOICES: readonly Choice[] = ZONE_PATTERNS.map((p) => ({
+  value: p.value,
+  label: p.label,
+}));
+
+/** How many pieces a cluster may be asked for: one, up to the tool's own ceiling. */
+export const ZONE_COUNT_RANGE = { min: 1, max: FILL_CAP } as const;
+/** The gap between pieces, and the margin inside the zone's edge: none, up to ten metres. */
+export const ZONE_GAP_RANGE = { min: 0, max: 10_000 } as const;
+
+/**
+ * A desk cluster (P3-6). Every row here changes the RULE and lays the pieces out again, which is one
+ * `item.arrange` with `replace` rather than a modify and a regenerate: two commands would be two entries
+ * in the history, so undoing a change to the gap would leave the old desks deleted and the new ones not
+ * yet placed.
+ *
+ * The count is a field like any other, but its reset button means "fill", because that is what a person
+ * wants after making the zone bigger. What is actually standing is shown beside it: the rule can ask for
+ * sixty and the floor hold forty-eight, and a panel that showed only the sixty would be lying.
+ */
+function zoneFacts(project: Project, z: Zone): Fact[] {
+  const rule = z.rule;
+  const placed = z.generatedItemIds.length;
+  const name: Fact = {
+    label: "Name of cluster",
+    caption: "Name",
+    value: z.name ?? "",
+    align: "left",
+    empty: { shown: "unnamed", action: "Clear the name" },
+    edit: (text) => {
+      const trimmed = text.trim();
+      if (trimmed.length > NAME_LIMIT)
+        return { ok: false, message: `A name is at most ${NAME_LIMIT} characters.` };
+      const next = trimmed === "" ? null : trimmed;
+      return {
+        ok: true,
+        command:
+          next === z.name
+            ? null
+            : { type: "zone.modify", payload: { zoneId: z.id, changes: { name: next } } },
+        said: next ?? "unnamed",
+      };
+    },
+  };
+  if (!rule)
+    // A zone drawn for something other than furniture: it marks an area and lays nothing out.
+    return [name, { label: "Pieces", value: String(placed) }];
+
+  const size = zonePieceSize(project, z);
+  const asRule = (over: Partial<ZoneRule> = {}): ZoneRule => ({
+    pattern: (over.pattern ?? rule.pattern) as ZonePattern,
+    spacing: over.spacing ?? rule.spacing,
+    facing: over.facing ?? rule.facing,
+    margin: over.margin ?? rule.margin,
+  });
+  /** How many would fit if the rule changed this way; the count itself never changes the answer. */
+  const fitsWith = (over: Partial<ZoneRule> = {}): number =>
+    size ? fitCount(z.polygon, asRule(over), size) : 0;
+  const rearrange = (over: Partial<ZoneRule> & { count?: number }): EditCommand => {
+    const next = asRule(over);
+    return {
+      type: "item.arrange",
+      payload: {
+        target: { zoneId: z.id },
+        rule: {
+          pattern: next.pattern,
+          productId: rule.productId,
+          recipe: rule.recipe,
+          count: over.count ?? rule.count,
+          spacing: next.spacing,
+          facing: next.facing,
+          margin: next.margin,
+        },
+        replace: true,
+      },
+    };
+  };
+  const gap = (axis: "x" | "y", mm: number): EditCommand =>
+    rearrange({ spacing: { ...rule.spacing, [axis]: mm } });
+
+  return [
+    name,
+    {
+      group: "Layout",
+      label: "Pattern",
+      value: rule.pattern,
+      choices: ZONE_PATTERN_CHOICES,
+      hint: "Rows face one way; bench turns every other row to face back.",
+      edit: choiceEdit("Pattern", ZONE_PATTERN_CHOICES, rule.pattern, (pattern) =>
+        rearrange({ pattern: pattern as ZonePattern }),
+      ),
+    },
+    {
+      group: "Layout",
+      label: "Pieces",
+      value: String(rule.count),
+      unit: "desks",
+      empty: { shown: "as many as fit", action: "Fill the zone" },
+      hint: `${fitsWith()} fit in this zone at this gap.`,
+      edit: (text) => {
+        const trimmed = text.trim();
+        if (trimmed === "") {
+          const fits = fitsWith();
+          if (fits === 0) return { ok: false, message: "Nothing fits in this zone at this gap." };
+          return {
+            ok: true,
+            command: fits === rule.count ? null : rearrange({ count: fits }),
+            said: `${fits} filling the zone`,
+          };
+        }
+        if (!/^\d+$/.test(trimmed)) return { ok: false, message: "Pieces needs a whole number, such as 24." };
+        const count = Number(trimmed);
+        if (count < ZONE_COUNT_RANGE.min || count > ZONE_COUNT_RANGE.max)
+          return {
+            ok: false,
+            message: `Pieces must be from ${ZONE_COUNT_RANGE.min} to ${ZONE_COUNT_RANGE.max}.`,
+          };
+        return {
+          ok: true,
+          command: count === rule.count ? null : rearrange({ count }),
+          said: `${count} ${count === 1 ? "piece" : "pieces"}`,
+        };
+      },
+    },
+    {
+      group: "Layout",
+      label: "Gap across",
+      caption: "Gap",
+      prefix: "X",
+      value: String(rule.spacing.x),
+      unit: "mm",
+      hint: "Between one piece and the next along a row.",
+      edit: lengthEdit("Gap across", rule.spacing.x, ZONE_GAP_RANGE, (mm) => gap("x", mm)),
+    },
+    {
+      group: "Layout",
+      label: "Gap between rows",
+      prefix: "Y",
+      value: String(rule.spacing.y),
+      unit: "mm",
+      edit: lengthEdit("Gap between rows", rule.spacing.y, ZONE_GAP_RANGE, (mm) => gap("y", mm)),
+    },
+    {
+      group: "Layout",
+      label: "Facing",
+      value: formatDegrees(normalizeDeg(rule.facing)),
+      unit: "°",
+      hint: "Which way the pieces face, clockwise from north.",
+      edit: (text) => {
+        const deg = parseDegrees(text);
+        if (deg === null) return { ok: false, message: "Facing needs a number of degrees, such as 180." };
+        const facing = normalizeDeg(deg);
+        return {
+          ok: true,
+          command: facing === normalizeDeg(rule.facing) ? null : rearrange({ facing }),
+          said: `${formatDegrees(facing)} degrees`,
+        };
+      },
+    },
+    {
+      group: "Layout",
+      label: "Margin",
+      value: String(rule.margin),
+      unit: "mm",
+      hint: "Kept clear inside the zone's edge.",
+      edit: lengthEdit("Margin", rule.margin, ZONE_GAP_RANGE, (mm) => rearrange({ margin: mm })),
+    },
+    { group: "Holds", label: "Piece", value: zonePieceName(project, z), align: "left" },
+    {
+      group: "Holds",
+      label: "Standing",
+      value: placed === rule.count ? String(placed) : `${placed} of ${rule.count}`,
+      ...(placed < rule.count
+        ? { hint: "The rest do not fit; make the zone bigger or the gap smaller." }
+        : {}),
+    },
+  ];
+}
+
+/** The size of one piece the zone lays out, worked out as the reducer works it out. */
+function zonePieceSize(project: Project, z: Zone): Size3 | null {
+  const ref = zoneRef(z);
+  if (!ref) return null;
+  const probe = defaultItem("item_000000", z.levelId, ref, { x: 0, y: 0 });
+  return derive.itemSize(probe, derive.snapshotSizeSource(project)) ?? null;
+}
+
+function zoneRef(z: Zone): Item["ref"] | null {
+  const rule = z.rule;
+  if (!rule) return null;
+  if (rule.productId) return { kind: "product", productId: rule.productId };
+  return rule.recipe ? { kind: "recipe", recipe: rule.recipe } : null;
+}
+
+/** What the zone lays out, in words: the product's name, or the name of the generic shape. Written the
+ *  same way an item's own title is, so a cluster of chairs and a chair read alike. */
+function zonePieceName(project: Project, z: Zone): string {
+  const ref = zoneRef(z);
+  if (!ref) return "nothing";
+  return itemTitle(project, defaultItem("item_000000", z.levelId, ref, { x: 0, y: 0 }));
 }
