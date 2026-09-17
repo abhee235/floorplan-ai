@@ -2,7 +2,16 @@
 // naming the modifiers, and the way it is driven from the keyboard alone. ADR-017 says a tool that does
 // not state all of those cannot be added to the rail, so `checkTool` enforces it rather than a comment.
 
-export type ToolId = "select" | "wall" | "room" | "opening" | "item" | "measure" | "annotate" | "pan";
+export type ToolId =
+  | "select"
+  | "wall"
+  | "room"
+  | "opening"
+  | "item"
+  | "zone"
+  | "measure"
+  | "annotate"
+  | "pan";
 
 export interface ToolOption {
   id: string;
@@ -164,6 +173,48 @@ export const TOOLS: ToolDefinition[] = [
     options: [{ id: "rotation", label: "Rotation", kind: "number", value: 0, unit: "°" }, ...SNAP_OPTIONS],
   },
   {
+    id: "zone",
+    title: "Desk cluster",
+    shortcut: "Z",
+    summary: "Fill an area with desks laid out to a pattern",
+    modifiers: [
+      t("Hold "),
+      k("Shift"),
+      t(" for a square · "),
+      k("Alt"),
+      t(" to bypass snapping · drag over a room, or click inside it to fill it"),
+    ],
+    keyboard: [t("Select a room, then "), k("Enter"), t(" fills it with the pattern in the options bar")],
+    options: [
+      {
+        id: "pattern",
+        label: "Pattern",
+        kind: "choice",
+        value: "rows",
+        choices: [
+          { value: "rows", label: "Rows" },
+          { value: "grid", label: "Grid" },
+          { value: "bench", label: "Bench" },
+        ],
+      },
+      { id: "spacing", label: "Gap", kind: "number", value: 600, unit: "mm" },
+      {
+        id: "facing",
+        label: "Facing",
+        kind: "choice",
+        value: "180",
+        choices: [
+          { value: "0", label: "North" },
+          { value: "90", label: "West" },
+          { value: "180", label: "South" },
+          { value: "270", label: "East" },
+        ],
+      },
+      { id: "margin", label: "Margin", kind: "number", value: 300, unit: "mm" },
+      ...SNAP_OPTIONS,
+    ],
+  },
+  {
     id: "measure",
     title: "Measure",
     shortcut: "M",
@@ -251,7 +302,7 @@ export function checkTools(tools: readonly ToolDefinition[] = TOOLS): void {
 /** The tools that actually change something on the plan today. The rest are on the rail so the shape of
  *  the editor is visible, but they do nothing yet, and the shell says so rather than leaving a person
  *  clicking at a canvas that will not answer. Add a tool here as its gestures land. */
-const IMPLEMENTED: readonly ToolId[] = ["select", "wall", "room", "item", "pan"];
+const IMPLEMENTED: readonly ToolId[] = ["select", "wall", "room", "item", "zone", "pan"];
 
 export function toolReady(tool: ToolDefinition | ToolId): boolean {
   return IMPLEMENTED.includes(typeof tool === "string" ? tool : tool.id);

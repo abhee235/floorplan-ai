@@ -43,6 +43,15 @@ the options bar under the app bar: its defaults (wall thickness and kind),
 the snapping switches, and a plain sentence naming the modifiers. Snapping is
 a preference the modifier keys invert (W-082): Alt bypasses, Shift aligns.
 
+Amendment 2026-09-18 (P3-6): a ninth tool, desk cluster on Z, between item and
+measure. It is the only tool whose gesture is a sweep rather than a chain: a
+cluster is an area, so you drag the part of the floor that will hold desks and
+it fills as you drag, saying how many fit. A click with no drag fills the room
+under the pointer, and with a room selected Enter does the same without a
+pointer. What it lays out is whatever the catalog tab has picked, or a plain
+desk. It asks for exactly the number that fits rather than a number typed in
+advance, because the gesture means "fill this".
+
 ### D3. The properties panel is the selection
 
 Empty selection shows the level and the defaults for new entities. One entity

@@ -40,6 +40,8 @@ import {
 } from "./tools.js";
 import { type Editor, EditorContext, type ViewMode } from "./useEditor.js";
 import { bindWallDrawing } from "./wall-drawing.js";
+import { bindZoneDrawing, type ZoneDrawing } from "./zone-drawing.js";
+import type { ZonePattern } from "./zone-tool.js";
 
 type OptionValues = Record<string, string | number | boolean>;
 
@@ -82,6 +84,7 @@ export function EditorShell(): JSX.Element {
   // again carries on with it.
   const pieceRef = useRef<Placeable | null>(null);
   const itemPlacingRef = useRef<ItemPlacing | null>(null);
+  const zoneDrawingRef = useRef<ZoneDrawing | null>(null);
   // the catalog's search field, which the item tool hands focus to when there is nothing to place yet
   const catalogInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -285,12 +288,38 @@ export function EditorShell(): JSX.Element {
     });
     itemPlacingRef.current = itemPlacing;
 
+    const zoneDrawing = bindZoneDrawing({
+      plan,
+      element: planRef.current as HTMLElement,
+      announcer,
+      project: () => replica.project,
+      // A cluster lays out whatever the catalog tab has picked; with nothing picked it lays out a desk.
+      piece: () => pieceRef.current,
+      settings: () => {
+        const gap = Number(optionsRef.current["zone.spacing"] ?? 600);
+        return {
+          pattern: String(optionsRef.current["zone.pattern"] ?? "rows") as ZonePattern,
+          spacing: { x: gap, y: gap },
+          facing: Number(optionsRef.current["zone.facing"] ?? 180),
+          margin: Number(optionsRef.current["zone.margin"] ?? 300),
+          magnetism: optionsRef.current["zone.snapWalls"] !== false,
+        };
+      },
+      selection: () => replica.selection,
+      active: () => toolRef.current === "zone",
+      send: (command) => sendOrThrow(client, command),
+      redraw,
+      status: setSnap,
+    });
+    zoneDrawingRef.current = zoneDrawing;
+
     // Leaving a tool finishes what it was drawing (W-090): what is already down is kept and committed,
     // rather than abandoned half drawn with its preview left standing in the 3D scene.
     endGestures.current = [
       () => wallDrawing.finish(),
       () => roomDrawing.finish(),
       () => itemPlacing.finish(),
+      () => zoneDrawing.finish(),
     ];
 
     // One overlay painter: the draft review panel, both drawing tools and the compass all draw over the
@@ -301,6 +330,7 @@ export function EditorShell(): JSX.Element {
       wallDrawing.draw(ctx, view2);
       roomDrawing.draw(ctx, view2);
       itemPlacing.draw(ctx, view2);
+      zoneDrawing.draw(ctx, view2);
       app.drawSelectionDrag(ctx, view2);
       const north = replica.project?.meta.north;
       if (north !== undefined) drawCompass(ctx, view2, north);
@@ -435,7 +465,9 @@ export function EditorShell(): JSX.Element {
       wallDrawing.destroy();
       roomDrawing.destroy();
       itemPlacing.destroy();
+      zoneDrawing.destroy();
       itemPlacingRef.current = null;
+      zoneDrawingRef.current = null;
     };
   }, [app, announcer, commands, setTool, setOption]);
 

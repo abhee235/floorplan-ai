@@ -4,7 +4,7 @@
 import type { ChangeSet } from "@fpv/commands";
 import { emptyRebuildSet, expand, type Layer, type RebuildSet, skirtingOutlines } from "@fpv/engine";
 import { type PolyWithHoles, unionRings, wallFootprints } from "@fpv/geometry";
-import type { Item, Opening, Point, Project, Room, Wall, WallPattern } from "@fpv/ir";
+import type { Item, Opening, Point, Project, Room, Wall, WallPattern, Zone } from "@fpv/ir";
 import { derive, poly } from "@fpv/ir";
 
 /** The subset of CanvasRenderingContext2D the plan uses. */
@@ -64,7 +64,26 @@ const COLOURS = {
   itemEdge: "#6f5b3e",
   selection: "#1e88e5",
   text: "#333333",
+  // A zone is an instruction, not a thing that was built, so it is drawn in a colour nothing else uses
+  // and never filled: a tint would wash over the desks standing inside it.
+  zone: "#7a5cc4",
 };
+
+/** A zone's name sits this many screen pixels above its top-left corner, and is reachable there. */
+const ZONE_LABEL_PX = 5;
+const ZONE_LABEL_HEIGHT_PX = 13;
+
+/** What a zone is called on the plan: its own name, or what it holds. */
+export function zoneLabel(z: Zone): string {
+  const count = z.generatedItemIds.length;
+  const name = z.name ?? (z.kind === "desk-cluster" ? "Desk cluster" : zoneKindLabel(z.kind));
+  return count > 0 ? `${name} · ${count}` : name;
+}
+
+function zoneKindLabel(kind: Zone["kind"]): string {
+  const words = kind.replace(/-/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
 
 /** Hatch lines are this many screen pixels apart and this wide; an outlined cut is edged this wide. */
 const HATCH_GAP_PX = 5;
@@ -224,6 +243,13 @@ export class PlanRenderer {
       if (it.levelId !== this.levelId || !it.visible) continue;
       const size = derive.itemSize(it, sizes);
       if (size && near(derive.itemFootprint(it, size))) return it.id;
+    }
+    // A zone answers to its edge and to its name, never to its middle: it is an area with furniture
+    // standing in it, and taking every click inside it would make the desks unselectable.
+    for (const z of project.zones) {
+      if (z.levelId !== this.levelId) continue;
+      if (onEdge(z.polygon, p, Math.max(marginMm, 4 / this.view.scale))) return z.id;
+      if (inBox(zoneLabelBox(z, this.view.scale), p)) return z.id;
     }
     const walls = project.walls.filter((w) => w.levelId === this.levelId);
     for (const [id, fp] of wallFootprints(walls)) if (near(fp)) return id;
@@ -483,6 +509,34 @@ export class PlanRenderer {
     ctx.restore();
   }
 
+  /**
+   * A zone: a dashed ring and a name above its top-left corner, the way a design tool names a frame. The
+   * ring goes on the overlay, over the desks it made, because the area is the thing being pointed at and
+   * an outline under the furniture would be hidden by exactly what it stands for.
+   */
+  private zone(ctx: Ctx2D, z: Zone): void {
+    if (z.polygon.length < 3) return;
+    const px = 1 / this.view.scale;
+    ctx.beginPath();
+    this.ring(ctx, z.polygon);
+    ctx.strokeStyle = COLOURS.zone;
+    ctx.lineWidth = 1.2 * px;
+    ctx.setLineDash([8 * px, 5 * px]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    const b = poly.bounds(z.polygon);
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const s = this.toScreen({ x: b.minX, y: b.maxY });
+    ctx.fillStyle = COLOURS.zone;
+    ctx.font = "11px system-ui, sans-serif";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillText(zoneLabel(z), s.x, s.y - ZONE_LABEL_PX);
+    ctx.restore();
+  }
+
   private drawItems(project: Project, levelId: string): void {
     const ctx = this.begin("items");
     const sizes = this.sizes ?? derive.snapshotSizeSource(project);
@@ -510,6 +564,7 @@ export class PlanRenderer {
   private drawOverlay(project: Project, levelId: string): void {
     const ctx = this.begin("overlay");
     const sizes = this.sizes ?? derive.snapshotSizeSource(project);
+    for (const z of project.zones) if (z.levelId === levelId) this.zone(ctx, z);
     ctx.strokeStyle = COLOURS.selection;
     ctx.lineWidth = 2 / this.view.scale;
     ctx.setLineDash([6 / this.view.scale, 4 / this.view.scale]);
@@ -552,5 +607,35 @@ export function outlineOf(
     const size = derive.itemSize(it, sizes);
     return size ? derive.itemFootprint(it, size) : null;
   }
+  const z = project.zones.find((x) => x.id === id);
+  if (z) return z.levelId === levelId ? z.polygon : null;
   return null;
+}
+
+/** Within `toleranceMm` of one of the ring's edges, and not merely inside it. */
+function onEdge(ring: readonly Point[], p: Point, toleranceMm: number): boolean {
+  for (let i = 0; i < ring.length; i += 1) {
+    const a = ring[i] as Point;
+    const b = ring[(i + 1) % ring.length] as Point;
+    if (poly.distancePointSegment(p, a, b) <= toleranceMm) return true;
+  }
+  return false;
+}
+
+/**
+ * Where a zone's name sits, in plan millimetres. The text is drawn in screen pixels, so its box grows as
+ * the plan zooms out — which is what makes a zone still reachable when its outline is a few pixels wide.
+ */
+export function zoneLabelBox(
+  z: Zone,
+  scale: number,
+): { minX: number; minY: number; maxX: number; maxY: number } {
+  const b = poly.bounds(z.polygon);
+  const width = (zoneLabel(z).length * 6.2) / scale;
+  const bottom = b.maxY + ZONE_LABEL_PX / scale;
+  return { minX: b.minX, minY: bottom, maxX: b.minX + width, maxY: bottom + ZONE_LABEL_HEIGHT_PX / scale };
+}
+
+function inBox(box: { minX: number; minY: number; maxX: number; maxY: number }, p: Point): boolean {
+  return p.x >= box.minX && p.x <= box.maxX && p.y >= box.minY && p.y <= box.maxY;
 }

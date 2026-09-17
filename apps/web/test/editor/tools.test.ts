@@ -18,11 +18,12 @@ describe("the tools on the rail (ADR-017 D2)", () => {
       "room",
       "opening",
       "item",
+      "zone",
       "measure",
       "annotate",
       "pan",
     ]);
-    expect(TOOLS.map((t) => t.shortcut)).toEqual(["V", "W", "R", "O", "I", "M", "T", "Space"]);
+    expect(TOOLS.map((t) => t.shortcut)).toEqual(["V", "W", "R", "O", "I", "Z", "M", "T", "Space"]);
   });
 
   it("refuses a tool that does not say how it is used", () => {
@@ -56,6 +57,7 @@ describe("the tools on the rail (ADR-017 D2)", () => {
       "wall",
       "room",
       "item",
+      "zone",
       "pan",
     ]);
     expect(toolReady("opening")).toBe(false);

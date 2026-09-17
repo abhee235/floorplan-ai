@@ -113,6 +113,9 @@ export function expand(
         const z = zones.get(ref.id);
         for (const id of z?.generatedItemIds ?? []) into.items.add(id);
         into.layers.add("items");
+        // The plan draws the zone's own ring and name on the overlay (P3-6), so moving or renaming one
+        // has to redraw that layer as well as rebuilding whatever it generated.
+        into.layers.add("overlay");
         break;
       }
       case "level": {

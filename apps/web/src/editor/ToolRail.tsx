@@ -15,6 +15,7 @@ import {
   Armchair,
   BrickWall,
   DoorOpen,
+  Grid2x2,
   Hand,
   type LucideIcon,
   MousePointer2,
@@ -61,6 +62,8 @@ const ICONS: Record<ToolId, LucideIcon> = {
   room: SquareDimensions,
   opening: DoorOpen,
   item: Armchair,
+  // A grid of four: what a cluster lays down, rather than a desk, which would repeat the item tool.
+  zone: Grid2x2,
   measure: RulerDimensionLine,
   annotate: Type,
   pan: Hand,
