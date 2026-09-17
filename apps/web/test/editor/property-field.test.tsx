@@ -550,7 +550,7 @@ describe("a colour field", () => {
   it("makes room for both the swatch and the reset button once the side is painted", () => {
     const { text } = setupColour("#FF0000");
     expect(screen.getByRole("button", { name: "Use the default colour (Colour, left side)" })).toBeDefined();
-    expect(text.style.paddingLeft).toBe("58px");
+    expect(text.style.paddingLeft).toBe("54px");
   });
 });
 

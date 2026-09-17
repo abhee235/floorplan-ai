@@ -1,6 +1,7 @@
 // One cell of the properties panel (ADR-017 D3): a caption over a field, made of the app's own components
-// at the app's own sizes. The panel places the cells two to a line; a number is changed by dragging its
-// caption sideways, as design tools do.
+// at the app's own sizes. The panel places the cells two to a line. A number wears a letter at its left
+// edge saying which number it is, and that letter is the handle: drag it sideways to change the value, as
+// design tools do.
 //
 // What is typed shows on the plan and in 3D as it is typed, without being sent: Enter or leaving the field
 // sends it, as one change, and Escape puts the value back. A list commits as soon as something is picked.
@@ -8,7 +9,7 @@
 // the conversation around it — the draft, the refusal, and the round trip to the host.
 
 import { cn } from "cn";
-import { ChevronsLeftRight, RotateCcw } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 import type { JSX, KeyboardEvent, ReactNode, PointerEvent as ReactPointerEvent } from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -33,8 +34,8 @@ export interface PropertyFieldProps {
   /** The leading part of `label` to print, when that is less than all of it. */
   caption?: string | undefined;
   /**
-   * Printed inside the field ahead of the value, and hidden from a screen reader, which has the label: the
-   * axis of a coordinate. It is a handle to drag the number by, as the caption is.
+   * A letter or two inside the field ahead of the value, hidden from a screen reader, which has the whole
+   * label: the axis of a coordinate, the W of a width. On a number it is also the handle to drag it by.
    */
   prefix?: string | undefined;
   value: string;
@@ -69,14 +70,23 @@ export interface PropertyFieldProps {
 }
 
 /**
- * A value that is only read: the field's shape without its border, on a quiet fill, so its text lines up with
- * the fields beside it and it still cannot be mistaken for one that takes typing.
+ * Every field that takes a value: a quiet fill and no border until the pointer is on it or the caret is in
+ * it. A panel of bordered boxes reads as a grid of boxes; this way the values carry the panel and the
+ * chrome shows itself when it is wanted.
  */
-const READ_ONLY = "border-transparent bg-muted/60 shadow-none dark:bg-muted/40";
+const FIELD =
+  "border-transparent bg-muted shadow-none hover:border-input focus-visible:bg-background dark:bg-input/40";
+
+/**
+ * A value that is only read: no fill and no border, so it cannot be mistaken for one that takes typing. It
+ * keeps the padding, so its text lines up with the fields beside it.
+ */
+const READ_ONLY =
+  "border-transparent bg-transparent shadow-none hover:border-transparent dark:bg-transparent";
 
 /** What every draggable number field adds to its own description. */
 export const NUMBER_HELP =
-  "Up and Down arrows change the number, ten at a time with Shift. Dragging the field's name sideways does too.";
+  "Up and Down arrows change the number, ten at a time with Shift. Dragging the letter at the field's left sideways does too.";
 
 export function PropertyField(props: PropertyFieldProps): JSX.Element {
   const { choices, toggle, edit, send } = props;
@@ -110,7 +120,7 @@ function ToggleField({
   // The name sits beside the box rather than over it, as a checkbox's does, so the cell takes one line.
   return (
     <div className={cn("flex min-w-0 flex-col justify-end", className)}>
-      <div className="flex h-8 items-center gap-2">
+      <div className="flex h-6.5 items-center gap-2">
         <Checkbox
           id={id}
           checked={value === "true"}
@@ -178,7 +188,9 @@ function TextField({
   const resettable = editable && empty !== undefined && value !== "";
   // What sits inside the field's left edge, in order: the axis, the swatch, the reset button. The text
   // starts clear of all of them.
-  const lead = (prefix ? 20 : 0) + (colour && editable ? 24 : 0) + (resettable ? 26 : 0);
+  // A one-letter mark is narrow; two letters ("HE" for a height at the end) need a little more.
+  const lead =
+    (prefix ? (prefix.length > 1 ? 22 : 16) : 0) + (colour && editable ? 22 : 0) + (resettable ? 24 : 0);
 
   // The edit as it was when the draft began. Once a preview is shown the panel is drawn from the previewed
   // project, and an edit taken from that would measure its change from the preview: a typed position
@@ -369,19 +381,22 @@ function TextField({
       caption={caption}
       hint={hint}
       error={report.error}
-      onScrub={scrub ? startScrub : undefined}
+      scrubbable={scrub !== null}
       className={className}
     >
       {lead > 0 ? (
         // First in the DOM, so the focus order runs left to right as the eye does.
-        <span className="absolute inset-y-0 left-1 z-10 flex items-center">
+        <span className="absolute inset-y-0 left-1.5 z-10 flex items-center">
           {prefix ? (
             <span
               aria-hidden
+              title={scrub ? `Drag to change ${caption || label}` : undefined}
               onPointerDown={scrub ? startScrub : undefined}
               className={cn(
-                "flex h-full w-5 items-center justify-center text-muted-foreground select-none",
-                scrub ? "cursor-ew-resize hover:text-foreground" : "",
+                "flex h-full items-center justify-center text-2xs text-muted-foreground tabular-nums select-none",
+                prefix.length > 1 ? "w-[18px]" : "w-3",
+                // The one place a drag starts, so it says so on hover rather than leaving it to be found.
+                scrub ? "cursor-ew-resize rounded-sm hover:bg-accent hover:text-foreground" : "",
               )}
             >
               {prefix}
@@ -396,7 +411,7 @@ function TextField({
               image={draft === null ? swatchImage : undefined}
               onPick={type}
               onClose={closePicker}
-              className="mx-1"
+              className="mx-0.5"
             />
           ) : null}
           {resettable ? (
@@ -448,12 +463,12 @@ function TextField({
         onKeyDown={onKeyDown}
         style={lead > 0 ? { paddingLeft: lead + 8 } : undefined}
         className={cn(
-          "h-8 tabular-nums",
-          editable ? "" : READ_ONLY,
+          "h-6.5 px-2.5 tabular-nums",
+          editable ? FIELD : READ_ONLY,
           // Room for the unit, and no more: "mm" wants a gap before it, a degree sign sits against its
           // number, and a word such as "seats" needs its own width.
-          printedUnit ? (printedUnit.length > 2 ? "pr-14" : printedUnit.length > 1 ? "pr-10" : "pr-6") : "",
-          trailing ? "pr-9" : "",
+          printedUnit ? (printedUnit.length > 2 ? "pr-12" : printedUnit.length > 1 ? "pr-8" : "pr-5") : "",
+          trailing ? "pr-8" : "",
         )}
       />
       {trailing ? (
@@ -462,7 +477,7 @@ function TextField({
       {printedUnit ? (
         <span
           aria-hidden
-          className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-muted-foreground"
+          className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-2xs text-muted-foreground"
         >
           {printedUnit}
         </span>
@@ -528,7 +543,7 @@ function ChoiceField({
           aria-invalid={report.error ? true : undefined}
           aria-describedby={describedBy(id, hint, report.error)}
           title={report.error ?? label}
-          className="size-6 justify-center gap-0 rounded-sm border-transparent bg-transparent p-0 shadow-none hover:bg-accent data-[size=sm]:h-6 dark:bg-transparent"
+          className="size-5 justify-center gap-0 rounded-sm border-transparent bg-transparent p-0 shadow-none hover:bg-accent data-[size=sm]:h-5 dark:bg-transparent"
         >
           <span className="sr-only">
             <SelectValue />
@@ -548,7 +563,7 @@ function ChoiceField({
           aria-label={nameOf(label, undefined)}
           aria-invalid={report.error ? true : undefined}
           aria-describedby={describedBy(id, hint, report.error)}
-          className="w-full"
+          className={cn(FIELD, "w-full px-2.5 data-[size=sm]:h-6.5")}
         >
           <SelectValue />
         </SelectTrigger>
@@ -590,7 +605,7 @@ function Row({
   hint,
   error,
   children,
-  onScrub,
+  scrubbable = false,
   className,
 }: {
   id: string;
@@ -599,8 +614,8 @@ function Row({
   hint?: string | undefined;
   error: string | null;
   children: ReactNode;
-  /** Makes the printed name a handle to drag the number with. */
-  onScrub?: ((e: ReactPointerEvent<HTMLElement>) => void) | undefined;
+  /** Whether the field carries the steps help, because its letter can be dragged. */
+  scrubbable?: boolean;
   className?: string | undefined;
 }): JSX.Element {
   const printed = caption ?? label;
@@ -610,25 +625,17 @@ function Row({
           used to sit here in a visually hidden span, and because that span is absolutely positioned,
           Chrome padded it with a space and named the field "Finish , left side". A cell whose name the
           one beside it prints (the Y of a pair) keeps the line, so the two fields stay level. */}
+      {/* The name at 12px over the value at 13px: a caption reads as a caption without a second colour
+          doing all the work. A cell whose name the one beside it prints (the Y of a pair) keeps the line,
+          so the two fields stay level. */}
       <Label
         htmlFor={id}
-        onPointerDown={onScrub}
-        className={cn(
-          "group/caption mb-1 block h-[18px] min-w-0 truncate leading-[18px] font-normal text-muted-foreground",
-          onScrub ? "cursor-ew-resize select-none hover:text-foreground" : "",
-        )}
+        className="mb-1 block h-4 min-w-0 truncate text-2xs leading-4 font-normal text-muted-foreground"
       >
         {printed}
-        {onScrub && printed ? (
-          // Says, on the way past, that the name is a handle: drag it sideways to change the number. It takes
-          // no width, so a caption that only just fits is not cut short for a mark that is mostly hidden.
-          <span aria-hidden className="inline-block w-0 overflow-visible whitespace-nowrap">
-            <ChevronsLeftRight className="ml-1 inline-block size-3 align-[-1px] opacity-0 transition-opacity group-hover/caption:opacity-70" />
-          </span>
-        ) : null}
       </Label>
       <div className="relative">{children}</div>
-      <Notes id={id} hint={hint} error={error} steps={onScrub !== undefined} />
+      <Notes id={id} hint={hint} error={error} steps={scrubbable} />
     </div>
   );
 }

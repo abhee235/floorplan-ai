@@ -140,6 +140,10 @@
      fractional line boxes put text on half pixels, which is exactly where hinting goes soft. */
   --text-xs: 11px;
   --text-xs--line-height: 16px;
+  /* Between the two: the properties panel names a field at 12px and shows its value at 13px, so a caption
+     reads as a caption without a second colour doing all the work. */
+  --text-2xs: 12px;
+  --text-2xs--line-height: 16px;
   --text-sm: 13px;
   --text-sm--line-height: 18px;
   --color-background: var(--background);

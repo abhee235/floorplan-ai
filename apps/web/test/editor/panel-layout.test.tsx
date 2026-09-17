@@ -10,7 +10,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { TooltipProvider } from "../../src/components/ui/tooltip.js";
 import { Announcer } from "../../src/editor/announce.js";
-import { layout, PropertiesPanel } from "../../src/editor/PropertiesPanel.js";
+import { layout, markOf, PropertiesPanel } from "../../src/editor/PropertiesPanel.js";
 import { describeEntity, type Fact } from "../../src/editor/selection.js";
 import { type Editor, EditorContext } from "../../src/editor/useEditor.js";
 import { Replica } from "../../src/replica.js";
@@ -93,6 +93,34 @@ describe("laying out the panel", () => {
     if (!room) throw new Error("no room");
     expect(lines(room.facts, null)).toBe("Name* | Purpose Capacity");
     expect(lines(room.facts, "Floor")).toBe("fill(Colour)* | Show");
+  });
+});
+
+describe("the letter in a number's field", () => {
+  it("is the axis, or the initials of the name, and nothing on a value that is not a number", () => {
+    const mark = (fact: Partial<Fact>) => markOf({ label: "x", value: "", ...fact });
+    expect(mark({ label: "Start X", caption: "Start", prefix: "X", unit: "mm" })).toBe("X");
+    expect(mark({ label: "Thickness", unit: "mm" })).toBe("T");
+    expect(mark({ label: "Height at end", unit: "mm" })).toBe("HE");
+    expect(mark({ label: "Baseboard height, left side", caption: "Baseboard height", unit: "mm" })).toBe(
+      "BH",
+    );
+    expect(mark({ label: "From west end", unit: "mm" })).toBe("W");
+    expect(mark({ label: "Rotation", unit: "°" })).toBe("R");
+    expect(mark({ label: "Capacity", unit: "seats" })).toBe("C");
+    expect(mark({ label: "Kind" })).toBeUndefined();
+  });
+
+  it("gives every number in a selection a letter to drag, and leaves the rest alone", () => {
+    const p = boardroom();
+    for (const id of [p.walls[0]?.id, p.rooms[0]?.id, p.openings[0]?.id, p.items[0]?.id]) {
+      const d = describeEntity(p, id as string);
+      if (!d) continue;
+      for (const f of d.facts) {
+        if (f.unit) expect(markOf(f), `${d.kind} ${f.label}`).toBeDefined();
+        else expect(markOf(f), `${d.kind} ${f.label}`).toBeUndefined();
+      }
+    }
   });
 });
 

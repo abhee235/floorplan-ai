@@ -54,14 +54,15 @@ catalog and the level list live, as sibling tabs.
 
 Amendment 2026-09-17 (P3-5): the panel takes its shape from a design tool's,
 to keep a selection on one screen, but keeps this app's own parts. Under a
-title, each group is a band with a small heading over a grid of at most two
+title, each group is a band with a heading at 13 px over a grid of at most two
 fields to a line; a name, a surface's colour and material, or any value that
-needs the room takes the whole line. Every field is the app's own component at
-the app's own size, and the panel has one text size, telling a caption from a
-value by colour and weight rather than by shrinking it. A caption is the handle
-for dragging its number, and says so on hover. Lengths are left-aligned and
-tabular, with the unit inside the field. The level's own values show only while
-nothing is selected.
+needs the room takes the whole line. Every field is the app's own component,
+26 px high, its value at 13 px and its caption at 12 px, on a quiet fill with
+no border until the pointer is on it; a value that is only read has neither. Every number carries a
+letter at its left edge saying which number it is — X, W, HE — and that letter
+is the one handle for dragging the value; the arrow keys step it from the field
+itself. Lengths are left-aligned and tabular, with the unit inside the field.
+The level's own values show only while nothing is selected.
 
 ### D4. Every gesture has a keyboard equal
 

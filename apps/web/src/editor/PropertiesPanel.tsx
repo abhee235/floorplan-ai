@@ -81,7 +81,7 @@ export function PropertiesPanel({
     id: `${entity.id}-${slug(fact.label)}`,
     label: fact.label,
     caption: fact.caption,
-    prefix: fact.prefix,
+    prefix: markOf(fact),
     value: fact.value,
     unit: fact.unit,
     choices: fact.choices,
@@ -193,6 +193,7 @@ export function PropertiesPanel({
                   id="level-elevation"
                   label="Elevation of level"
                   caption="Elevation"
+                  prefix="E"
                   value={formatMm(current.elevation)}
                   unit="mm"
                 />
@@ -200,6 +201,7 @@ export function PropertiesPanel({
                   id="level-height"
                   label="Height of level"
                   caption="Height"
+                  prefix="H"
                   value={formatMm(current.height)}
                   unit="mm"
                 />
@@ -207,6 +209,7 @@ export function PropertiesPanel({
                   id="level-floor"
                   label="Floor of level"
                   caption="Floor"
+                  prefix="F"
                   value={formatMm(current.floorThickness)}
                   unit="mm"
                 />
@@ -277,6 +280,26 @@ function iconOf(title: string): LucideIcon | null {
   };
   // what is left is an item's parts: Top, Legs, Fabric, Frame and the like
   return icons[title] ?? Palette;
+}
+
+/** Words that carry no meaning in a field's mark: "Height at end" is HE, not HAE. */
+const SMALL_WORDS = new Set(["at", "of", "in", "the", "from", "on", "to"]);
+
+/**
+ * The letter or two inside a number's field, which is also the handle to drag it by: the axis of a
+ * coordinate where there is one, else the initials of the name the caption prints — L for Length, HE for
+ * Height at end, W for the opening's gap From west end. A value with no unit is not a number to drag and
+ * gets no mark.
+ */
+export function markOf(fact: Fact): string | undefined {
+  if (fact.prefix) return fact.prefix;
+  if (!fact.unit) return undefined;
+  const name = fact.caption || fact.label;
+  // "From west end" is the gap to that end of the wall, and the compass word is what tells the two apart.
+  if (/^from\s/i.test(name)) return name.split(/\s+/)[1]?.[0]?.toUpperCase();
+  const words = name.split(/[\s,]+/).filter((w) => w.length > 0 && !SMALL_WORDS.has(w.toLowerCase()));
+  const initials = words.map((w) => (w[0] as string).toUpperCase()).join("");
+  return initials.slice(0, 2) || undefined;
 }
 
 /** Two columns, and never more: a value gets half the panel, or all of it. */

@@ -69,6 +69,7 @@ function setup() {
       <PropertyField
         id="wall-thickness"
         label="Thickness"
+        prefix="T"
         value="100"
         unit="mm"
         edit={edit}
@@ -80,16 +81,17 @@ function setup() {
     </EditorContext.Provider>,
   );
   const input = screen.getByRole("textbox") as HTMLInputElement;
-  const label = screen.getByText("Thickness");
-  return { input, label, sent, previews };
+  // the letter inside the field, which is the handle; the name above it only names the field
+  const handle = screen.getByText("T");
+  return { input, handle, label: screen.getByText("Thickness"), sent, previews };
 }
 
 const drag = (
-  label: HTMLElement,
+  handle: HTMLElement,
   moves: { x: number; shiftKey?: boolean }[],
   end: "up" | "escape" = "up",
 ) => {
-  fireEvent.pointerDown(label, { button: 0, clientX: 100, clientY: 10 });
+  fireEvent.pointerDown(handle, { button: 0, clientX: 100, clientY: 10 });
   for (const m of moves)
     fireEvent.pointerMove(document, { clientX: m.x, clientY: 10, shiftKey: m.shiftKey ?? false });
   if (end === "up") fireEvent.pointerUp(document, { clientX: moves.at(-1)?.x ?? 100 });
@@ -98,8 +100,8 @@ const drag = (
 
 describe("dragging a number", () => {
   it("previews every step and sends one command, for the value where the drag ended", () => {
-    const { input, label, sent, previews } = setup();
-    drag(label, [{ x: 110 }, { x: 130 }, { x: 125 }]);
+    const { input, handle, sent, previews } = setup();
+    drag(handle, [{ x: 110 }, { x: 130 }, { x: 125 }]);
     expect(previews.slice(0, -1).map((c) => c?.payload.thickness)).toEqual([110, 130, 125]);
     // the preview is put back before the real command goes, so the host's reply lands on what it knows
     expect(previews.at(-1)).toBeNull();
@@ -108,38 +110,39 @@ describe("dragging a number", () => {
   });
 
   it("goes ten times as far with Shift held", () => {
-    const { label, sent } = setup();
-    drag(label, [{ x: 104 }, { x: 110, shiftKey: true }]);
+    const { handle, sent } = setup();
+    drag(handle, [{ x: 104 }, { x: 110, shiftKey: true }]);
     expect(sent).toEqual([{ type: "wall.modify", payload: { thickness: 164 } }]);
   });
 
   it("stops at the last value the field takes, and sends nothing for a drag back to where it began", () => {
-    const { label, sent } = setup();
-    drag(label, [{ x: 600 }, { x: 900 }]);
+    const { handle, sent } = setup();
+    drag(handle, [{ x: 600 }, { x: 900 }]);
     // 600 took the value to 600, past 500, so nothing was previewed or kept for it
     expect(sent).toEqual([]);
     cleanup();
     const second = setup();
-    drag(second.label, [{ x: 150 }, { x: 100 }]);
+    drag(second.handle, [{ x: 150 }, { x: 100 }]);
     expect(second.sent).toEqual([]);
   });
 
   it("puts everything back on Escape, and treats a press without movement as a click", () => {
-    const { input, label, sent, previews } = setup();
-    drag(label, [{ x: 140 }], "escape");
+    const { input, handle, sent, previews } = setup();
+    drag(handle, [{ x: 140 }], "escape");
     expect(sent).toEqual([]);
     expect(previews.at(-1)).toBeNull();
     expect(input.value).toBe("100");
     // under the threshold: no preview, nothing sent
     const count = previews.length;
-    drag(label, [{ x: 101 }]);
+    drag(handle, [{ x: 101 }]);
     expect(previews).toHaveLength(count);
     expect(sent).toEqual([]);
   });
 
-  it("marks the name as a handle, and says how to step the number", () => {
-    const { input, label } = setup();
-    expect(label.className).toContain("cursor-ew-resize");
+  it("makes the letter the handle, not the name, and says how to step the number", () => {
+    const { input, label, handle } = setup();
+    expect(handle.className).toContain("cursor-ew-resize");
+    expect(label.className).not.toContain("cursor-ew-resize");
     const described = (input.getAttribute("aria-describedby") ?? "")
       .split(" ")
       .map((id) => document.getElementById(id)?.textContent);
