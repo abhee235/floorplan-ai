@@ -56,11 +56,13 @@ describe("the tools on the rail (ADR-017 D2)", () => {
       "select",
       "wall",
       "room",
+      "opening",
       "item",
       "zone",
       "pan",
     ]);
-    expect(toolReady("opening")).toBe(false);
+    // Still honest about the one that is genuinely not built.
+    expect(toolReady("measure")).toBe(false);
     expect(toolReady("wall")).toBe(true);
     expect(toolReady("room")).toBe(true);
   });
