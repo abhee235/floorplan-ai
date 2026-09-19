@@ -30,6 +30,26 @@ export {
   type TargetLike,
 } from "./editor/keys.js";
 export {
+  type AimedCorner,
+  addCornerCommands,
+  aimCorner,
+  CORNER_PX,
+  type CornerGuide,
+  cornerMarginMm,
+  crossed,
+  describeCorner,
+  EDGE_DOT_PX,
+  edgeMidpoints,
+  moveCornerCommand,
+  type RoomHandle,
+  removable,
+  removeCornerCommand,
+  roomHandleAt,
+  snapCandidates,
+  TOO_FEW,
+  withCornerAt,
+} from "./editor/room-handles.js";
+export {
   FIRST_SIDE_MM,
   MIN_CORNERS,
   type RoomCreateCommand,

@@ -231,6 +231,12 @@ export function EditorShell(): JSX.Element {
       fit,
       review,
       onScale: setScale,
+      // The select tool's own gestures — a room corner dragged, a corner removed — say what they are
+      // doing through the same status line and the same live regions as the drawing tools, rather than
+      // through a second channel of their own.
+      onHint: setSnap,
+      onSay: (text, assertive) => (assertive ? announcer.alert(text) : announcer.say(text)),
+      onPointer: setPointer,
       ...(importFileRef.current ? { importFile: importFileRef.current } : {}),
     });
     setApp(started);

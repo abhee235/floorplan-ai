@@ -3,7 +3,7 @@
 import { apply, type ChangeSet, type RenderRequestMsg } from "@fpv/commands";
 import type { Layer } from "@fpv/engine";
 import { SELECTION_PX, WALL_END_PX, wallFootprintUnjoined } from "@fpv/geometry";
-import type { Item, Project, Size3, Wall } from "@fpv/ir";
+import type { Item, Point, Project, Room, Size3, Wall } from "@fpv/ir";
 import { derive, sequentialIdGenerator } from "@fpv/ir";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
@@ -21,6 +21,24 @@ import {
   resizeCommands,
   rotateCommand,
 } from "./editor/item-handles.js";
+import {
+  addCornerCommands,
+  aimCorner,
+  CORNER_PX,
+  type CornerGuide,
+  cornerMarginMm,
+  crossed,
+  describeCorner,
+  EDGE_DOT_PX,
+  edgeMidpoints,
+  moveCornerCommand,
+  type RoomHandle,
+  removable,
+  removeCornerCommand,
+  roomHandleAt,
+  TOO_FEW,
+  withCornerAt,
+} from "./editor/room-handles.js";
 import { moveCommands, nextSelection } from "./editor/selection.js";
 import {
   handleAnchors,
@@ -57,6 +75,23 @@ export interface AppElements {
    * it opened with while the plan zoomed under it.
    */
   onScale?: (pixelsPerMm: number) => void;
+  /**
+   * The transient line in the status bar, where the drawing tools already say what a snap caught.
+   *
+   * Optional, like the import elements: a shell that does not pass one simply says nothing, which is
+   * what every component test does.
+   */
+  onHint?: (text: string) => void;
+  /** Spoken feedback; `assertive` is for a refusal, which never waits behind gesture chatter. */
+  onSay?: (text: string, assertive?: boolean) => void;
+  /**
+   * Where the pointer is on the plan, in millimetres, or null once it leaves.
+   *
+   * The status bar has had a place for this since it was written and nothing ever filled it, so the
+   * readout it reserves for coordinates never appeared. The plan element is the only thing that knows
+   * the mapping, so it is the only thing that can say.
+   */
+  onPointer?: (at: { x: number; y: number } | null) => void;
 }
 
 /**
@@ -66,6 +101,12 @@ export interface AppElements {
  * literal repeated at each use, and the two are meant to match: a handle belongs to the outline it sits on.
  */
 const HANDLE_COLOUR = "#1e88e5";
+
+/** The thin dashed line drawn from an aligned corner to the corner it lined up with (R-053). */
+const GUIDE_COLOUR = "rgba(30, 136, 229, 0.5)";
+
+/** A shape that is no longer a room: the same red the validator's errors wear. */
+const PROBLEM_COLOUR = "#b3261e";
 
 export function startApp(el: AppElements): {
   replica: Replica;
@@ -315,6 +356,32 @@ export function startApp(el: AppElements): {
     commands: ItemCommand[];
   } | null = null;
 
+  /**
+   * A press that began on a handle of the selected room: a corner being dragged, or a corner being
+   * added on an edge and dragged in the same gesture. Like the wall handle drag, every move runs the
+   * real reducer against the project as it was at the press, and one command goes to the host at the end.
+   */
+  let roomHandling: {
+    room: Room;
+    handle: RoomHandle;
+    /** The index of the corner under the pointer; for an edge, the one the add would create. */
+    index: number;
+    beforeProject: Project;
+    to: Point;
+    guides: CornerGuide[];
+    moved: boolean;
+  } | null = null;
+
+  /** The room the handles belong to: exactly one room selected, on the level being drawn. */
+  const handleRoom = (): Room | null => {
+    const project = replica.project;
+    if (!project || replica.selection.length !== 1) return null;
+    const id = replica.selection[0] as string;
+    return project.rooms.find((x) => x.id === id && x.levelId === plan.level) ?? null;
+  };
+
+  const hint = (text: string): void => el.onHint?.(text);
+
   /** The item the handles belong to: exactly one item selected, on the level being drawn, with a size. */
   const handleItem = (): { item: Item; size: Size3; resizable: boolean } | null => {
     const project = replica.project;
@@ -475,6 +542,121 @@ export function startApp(el: AppElements): {
     ctx.restore();
   };
 
+  /**
+   * The handles on a selected room: a filled square at every corner, a small hollow dot in the middle of
+   * every edge.
+   *
+   * Drawn in screen pixels like the wall handles, for the same reason: the layer transform scales with
+   * the zoom and flips y, so a glyph drawn through it would shrink away as the plan zoomed out.
+   *
+   * The two shapes differ because the two gestures differ. A corner exists and can be moved, so it is
+   * solid; an edge dot is a corner that does not exist yet, so it is hollow. Both are drawn at exactly
+   * the size the hit test catches, which is the pair of numbers the wall handles got wrong once.
+   */
+  const drawRoomHandles = (ctx: Ctx2D, view: PlanView, r: Room) => {
+    const guides = roomHandling?.guides ?? [];
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const screen = (p: Point) => ({
+      x: view.offsetX + p.x * view.scale,
+      y: view.offsetY - p.y * view.scale,
+    });
+    // Alignment guides first, underneath: they say why a corner stopped where it did.
+    if (guides.length) {
+      ctx.strokeStyle = GUIDE_COLOUR;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      for (const g of guides) {
+        const a = screen(g.from);
+        const b = screen(g.to);
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+    }
+    const bad = roomHandling ? crossed(withCornerAt(r, roomHandling.index, roomHandling.to)) : false;
+    ctx.strokeStyle = bad ? PROBLEM_COLOUR : HANDLE_COLOUR;
+    ctx.fillStyle = bad ? PROBLEM_COLOUR : HANDLE_COLOUR;
+    ctx.lineWidth = 1.5;
+    for (const p of r.polygon) {
+      const c = screen(p);
+      ctx.beginPath();
+      ctx.moveTo(c.x - CORNER_PX, c.y - CORNER_PX);
+      ctx.lineTo(c.x + CORNER_PX, c.y - CORNER_PX);
+      ctx.lineTo(c.x + CORNER_PX, c.y + CORNER_PX);
+      ctx.lineTo(c.x - CORNER_PX, c.y + CORNER_PX);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // Hollow, and only while nothing is being dragged: an add-a-corner dot under a corner that is
+    // already moving is an invitation to the wrong gesture.
+    if (roomHandling) {
+      ctx.restore();
+      return;
+    }
+    ctx.fillStyle = "#ffffff";
+    for (const m of edgeMidpoints(r)) {
+      const c = screen(m);
+      ctx.beginPath();
+      for (let i = 0; i <= 12; i += 1) {
+        const a = (i / 12) * Math.PI * 2;
+        const x = c.x + Math.cos(a) * EDGE_DOT_PX;
+        const y = c.y + Math.sin(a) * EDGE_DOT_PX;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+  };
+
+  /** Where a room corner drag would put the corner, with the guides that explain it. */
+  const aimRoomCorner = (r: Room, index: number, at: Point, altHeld: boolean) =>
+    aimCorner(at, r, index, {
+      magnetism: true,
+      altHeld,
+      pixelMm: 1 / plan.view.scale,
+      walls: replica.project?.walls ?? [],
+    });
+
+  /** Show a room as this drag would leave it, through the real reducer. */
+  const previewRoomDrag = (active: NonNullable<typeof roomHandling>): void => {
+    const commands =
+      active.handle.kind === "corner"
+        ? [moveCornerCommand(active.room.id, active.index, active.to)]
+        : addCornerCommands(active.room.id, active.handle.index, active.handle.at, active.to);
+    const local = applyLocally(active.beforeProject, commands);
+    if (local) replica.applyLocally(local.project, { ...local.changes, commandType: "local.room-corner" });
+    else replica.restore();
+    plan.invalidateOverlay();
+    planDirty = true;
+  };
+
+  el.plan.addEventListener("dblclick", (e) => {
+    // A corner double-clicked is a corner taken away. The room keeps everything else it has, which is
+    // the whole point of editing a shape rather than drawing it again.
+    const r = handleRoom();
+    if (!r) return;
+    const at = planPointOf(e);
+    const found = roomHandleAt(r, at, cornerMarginMm(plan.view.scale));
+    if (!found || found.kind !== "corner") return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!removable(r)) {
+      el.onSay?.(TOO_FEW, true);
+      hint(TOO_FEW);
+      return;
+    }
+    recordGesture("drag", { phase: "end", kind: "room-corner", target: r.id, at: "remove" });
+    void client.command(removeCornerCommand(r.id, found.index));
+    el.onSay?.(`Corner ${found.index + 1} removed; ${r.polygon.length - 1} left.`);
+    hint("");
+  });
+
   el.plan.addEventListener("pointerdown", (e) => {
     // A handle of the selected wall beats everything else. The handles are drawn over the wall's own
     // ends, so a press that lands on one has to reshape rather than move the wall or pan the view.
@@ -498,6 +680,34 @@ export function startApp(el: AppElements): {
           preview: null,
         };
         recordGesture("drag", { phase: "begin", kind: "wall-handle", target: shaped.id, at: handle });
+        el.plan.setPointerCapture(e.pointerId);
+        return;
+      }
+    }
+    // Then a handle of the selected room: move a corner, or grow a new one out of an edge. Before the
+    // move-the-selection branch below, because the handles sit on the room's own outline and a press
+    // that lands on one has to reshape rather than slide the whole room.
+    const room = handleRoom();
+    if (room && replica.project) {
+      const at = planPointOf(e);
+      const found = roomHandleAt(room, at, cornerMarginMm(plan.view.scale, e.pointerType === "touch"));
+      if (found) {
+        const index = found.kind === "corner" ? found.index : found.index + 1;
+        roomHandling = {
+          room,
+          handle: found,
+          index,
+          beforeProject: replica.agreed ?? replica.project,
+          to: found.kind === "corner" ? (room.polygon[found.index] as Point) : found.at,
+          guides: [],
+          moved: false,
+        };
+        recordGesture("drag", {
+          phase: "begin",
+          kind: "room-corner",
+          target: room.id,
+          at: found.kind === "corner" ? `corner ${index}` : `edge ${found.index}`,
+        });
         el.plan.setPointerCapture(e.pointerId);
         return;
       }
@@ -545,7 +755,11 @@ export function startApp(el: AppElements): {
     drag = { x: e.clientX, y: e.clientY };
     el.plan.setPointerCapture(e.pointerId);
   });
+  el.plan.addEventListener("pointerleave", () => el.onPointer?.(null));
   el.plan.addEventListener("pointermove", (e) => {
+    // Said on every move, dragging or not: where the pointer is does not stop mattering because
+    // something is being dragged — during a drag it is the one number that says how far it has gone.
+    el.onPointer?.(planPointOf(e));
     if (itemHandling) {
       const active = itemHandling;
       const to = planPointOf(e);
@@ -603,6 +817,17 @@ export function startApp(el: AppElements): {
       planDirty = true;
       return;
     }
+    if (roomHandling) {
+      const active = roomHandling;
+      // Aimed against the room as it was at the press, never against the copy this drag has already
+      // edited: reading the edited one back would compound each move into the last.
+      const aimed = aimRoomCorner(active.room, active.index, planPointOf(e), e.altKey);
+      const bad = crossed(withCornerAt(active.room, active.index, aimed.point));
+      roomHandling = { ...active, to: aimed.point, guides: aimed.guides, moved: true };
+      previewRoomDrag(roomHandling);
+      hint(describeCorner(active.index, active.room.polygon.length, aimed, bad));
+      return;
+    }
     if (moving) {
       // The view holds still while a selection is dragged; the entities themselves follow the pointer.
       // Measured from the project as it was at the press, never from the copy this drag has already
@@ -633,13 +858,21 @@ export function startApp(el: AppElements): {
               1 / plan.view.scale,
             )
           : null;
-      const target = hovered ? null : handleItem();
+      const room = hovered ? null : handleRoom();
+      const onRoom = room
+        ? roomHandleAt(room, at, cornerMarginMm(plan.view.scale, e.pointerType === "touch"))
+        : null;
+      const target = hovered || onRoom ? null : handleItem();
       const itemHovered = target
         ? itemHandleAt(target.item, target.size, at, 1 / plan.view.scale, target.resizable)
         : null;
       if (hovered && shaped && fp) {
         const anchors = handleAnchors(shaped, fp);
         el.plan.style.cursor = anchors ? handleCursor(hovered, anchors[hovered].angleDeg) : "pointer";
+      } else if (onRoom) {
+        // A corner moves, a dot makes one: the same crosshair for both, since both put a point where
+        // the pointer is, and the shapes under it already say which is which.
+        el.plan.style.cursor = "crosshair";
       } else if (itemHovered && target) {
         el.plan.style.cursor = itemHandleCursor(itemHovered, target.item.rotation);
       } else {
@@ -672,6 +905,41 @@ export function startApp(el: AppElements): {
       if (done.commands.length > 1)
         void client.transaction(done.handle.kind === "rotate" ? "Turn item" : "Resize item", done.commands);
       else if (only) void client.command(only);
+      el.plan.style.cursor = "";
+      plan.invalidateOverlay();
+      planDirty = true;
+      return;
+    }
+    if (roomHandling) {
+      const done = roomHandling;
+      roomHandling = null;
+      drag = null;
+      // The project back as the host agreed it, then one entry for the whole gesture. An added corner
+      // is two commands and must undo as one thing: the corner and the place it was dragged to.
+      replica.restore();
+      const commands =
+        done.handle.kind === "corner"
+          ? done.moved
+            ? [moveCornerCommand(done.room.id, done.index, done.to)]
+            : []
+          : addCornerCommands(done.room.id, done.handle.index, done.handle.at, done.to);
+      recordGesture("drag", {
+        phase: "end",
+        kind: "room-corner",
+        target: done.room.id,
+        at: done.handle.kind,
+        sent: commands.map((c) => c.type),
+      });
+      const [only] = commands;
+      if (commands.length > 1) void client.transaction("Add room corner", commands);
+      else if (only) void client.command(only);
+      if (commands.length)
+        el.onSay?.(
+          done.handle.kind === "corner"
+            ? `Corner ${done.index + 1} moved to ${Math.round(done.to.x)}, ${Math.round(done.to.y)} millimetres.`
+            : `Corner added; the room has ${done.room.polygon.length + 1}.`,
+        );
+      hint("");
       el.plan.style.cursor = "";
       plan.invalidateOverlay();
       planDirty = true;
@@ -1044,10 +1312,21 @@ export function startApp(el: AppElements): {
       // move, and a dashed copy sitting on top of them would only be in the way.
       if (moving) return;
 
+      // A room corner drag is the exception: the room itself follows the pointer through the reducer,
+      // as a wall does, but the corner squares and the alignment guides are drawn here and are the only
+      // things that say which corner is moving and what it lined up with.
+      if (roomHandling) {
+        const live = handleRoom();
+        if (live) drawRoomHandles(ctx, view, live);
+        return;
+      }
+
       // Nothing is being dragged, so show what CAN be: the handles on the one selected wall or item.
       // An item keeps its handles while one of them is dragged, so the pointer has something to hold.
       const shaped = handleWall();
       if (shaped) drawWallHandles(ctx, view, shaped);
+      const room = handleRoom();
+      if (room) drawRoomHandles(ctx, view, room);
       const target = handleItem();
       if (target) drawItemHandles(ctx, view, target);
     },
