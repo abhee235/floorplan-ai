@@ -20,6 +20,8 @@ function editorStub(over: Partial<Editor> = {}): Editor {
     option: () => undefined,
     setOption: () => {},
     openPalette: () => {},
+    recent: [],
+    openRecent: () => {},
     snap: "",
     setSnap: () => {},
     pointer: null,

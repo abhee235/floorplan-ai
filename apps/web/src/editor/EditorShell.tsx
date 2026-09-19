@@ -42,6 +42,8 @@ import {
   toolReady,
 } from "./tools.js";
 import { type Editor, EditorContext, type ViewMode } from "./useEditor.js";
+import { useProjectFiles } from "./useProjectFiles.js";
+import { useModified, useProjectState } from "./useReplica.js";
 import { bindWallDrawing } from "./wall-drawing.js";
 import { bindZoneDrawing, type ZoneDrawing } from "./zone-drawing.js";
 import type { ZonePattern } from "./zone-tool.js";
@@ -166,8 +168,29 @@ export function EditorShell(): JSX.Element {
     setView(mode);
   }, []);
 
+  // What is open, and whether it is saved (ADR-012 D7). Read through the replica rather than kept
+  // here: the host is the authority on both, and a save moves the saved position without the project
+  // changing at all.
+  const projectState = useProjectState(app?.replica ?? null);
+  const modified = useModified(app?.replica ?? null);
+  const files = useProjectFiles(
+    app?.client ?? null,
+    {
+      name: projectState?.name ?? app?.replica.project?.meta.name ?? "Untitled",
+      path: projectState?.path ?? null,
+      modified,
+      recoveryAvailable: projectState?.recoveryAvailable ?? null,
+    },
+    announcer,
+  );
+  // The commands are registered once and must not close over the first render's actions.
+  const filesRef = useRef(files.actions);
+  filesRef.current = files.actions;
+
   const editor: Editor = {
     commands,
+    recent: files.recent,
+    openRecent: (path) => void filesRef.current.openPath(path),
     announcer,
     tool,
     setTool,
@@ -433,6 +456,37 @@ export function EditorShell(): JSX.Element {
         run: () => chooseView("both"),
       },
       { id: "view.3d", title: "Show the 3D view only", group: "View", run: () => chooseView("3d") },
+      // Several projects in one session (ADR-012 D7). Ctrl+N is the browser's own new window and
+      // cannot be taken, so New uses Ctrl+Alt+N; the rest are the shortcuts every editor has.
+      {
+        id: "file.new",
+        title: "New project",
+        group: "File",
+        shortcut: "Ctrl+Alt+N",
+        detail: "empty, with one level",
+        run: () => void filesRef.current.newProject(),
+      },
+      {
+        id: "file.open",
+        title: "Open project…",
+        group: "File",
+        shortcut: "Ctrl+O",
+        run: () => void filesRef.current.open(),
+      },
+      {
+        id: "file.save",
+        title: "Save",
+        group: "File",
+        shortcut: "Ctrl+S",
+        run: () => void filesRef.current.save(),
+      },
+      {
+        id: "file.saveAs",
+        title: "Save as…",
+        group: "File",
+        shortcut: "Ctrl+Shift+S",
+        run: () => void filesRef.current.saveAs(),
+      },
       {
         id: "file.import",
         title: "Import plan…",
@@ -875,6 +929,7 @@ export function EditorShell(): JSX.Element {
             return (reply.result ?? {}) as Record<string, unknown>;
           }}
         />
+        {files.dialogs}
         <AboutDialog
           open={aboutOpen}
           onOpenChange={setAboutOpen}

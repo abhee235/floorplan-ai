@@ -5,6 +5,7 @@
 // tearing. Every hook here takes a selector and returns a primitive or a stable reference, so a patch that
 // changes one wall does not redraw the whole chrome: the properties panel and the status bar subscribe to
 // different slices and re-render only when their own slice changes.
+import type { ProjectStateMsg } from "@fpv/commands";
 import type { Problem, Project } from "@fpv/ir";
 import { useCallback, useSyncExternalStore } from "react";
 import type { Replica } from "../replica.js";
@@ -51,6 +52,31 @@ export function useSelectionKey(replica: Replica): string {
 
 export function useHistoryPosition(replica: Replica): number {
   return useReplica(replica, historyPosition);
+}
+
+/**
+ * What is open and whether it is saved (ADR-012 D7).
+ *
+ * Takes a null replica for the same reason `useProject` does: the app bar is drawn before the app has
+ * connected, and the title has to say something in the meantime.
+ */
+export function useProjectState(replica: Replica | null): ProjectStateMsg | null {
+  const subscribe = useCallback(
+    (onChange: () => void) => (replica ? replica.subscribe(onChange) : () => {}),
+    [replica],
+  );
+  const snapshot = useCallback(() => (replica ? replica.projectState : null), [replica]);
+  return useSyncExternalStore(subscribe, snapshot);
+}
+
+/** Whether there is work the file on disk does not have; a boolean, so the title redraws rarely. */
+export function useModified(replica: Replica | null): boolean {
+  const subscribe = useCallback(
+    (onChange: () => void) => (replica ? replica.subscribe(onChange) : () => {}),
+    [replica],
+  );
+  const snapshot = useCallback(() => (replica ? replica.modified : false), [replica]);
+  return useSyncExternalStore(subscribe, snapshot);
 }
 
 // Selectors are declared once at module scope rather than inline, so their identity is stable and

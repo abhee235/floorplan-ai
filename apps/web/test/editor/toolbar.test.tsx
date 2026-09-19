@@ -35,6 +35,8 @@ function editorStub(tool: ToolDefinition, over: Partial<Editor> = {}): Editor {
     option: (_t, id) => (id === "snapWalls" ? true : undefined),
     setOption: () => {},
     openPalette: () => {},
+    recent: [],
+    openRecent: () => {},
     snap: "",
     setSnap: () => {},
     pointer: null,

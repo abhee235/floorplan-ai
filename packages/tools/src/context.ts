@@ -140,6 +140,15 @@ export interface ProjectFiles {
   /** Whether the file on disk no longer matches the manifest hash; absent when the host cannot tell. */
   readonly modifiedOutside?: boolean;
   /**
+   * Stop pointing at the open project's directory, because there is no longer a project there to point
+   * at: `project new` replaces the whole document, and what is now open has never been saved anywhere.
+   *
+   * Without this a new project inherits the previous one's path, and the next save writes a blank
+   * project over it without asking. That is exactly what happened the first time File > New was
+   * wired up to a Save shortcut.
+   */
+  forget?(): void;
+  /**
    * Called when what is open, or whether it is saved, changes — an open, a save, a recovery file
    * written. The viewer bridge uses it to tell connected tabs, because none of these move the store's
    * history and so none of them appear in the change stream. Optional: a session without files, or one

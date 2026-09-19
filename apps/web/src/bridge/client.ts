@@ -161,6 +161,9 @@ export class BridgeClient {
       case "problems":
         this.replica.setProblems(msg.problems);
         return;
+      case "project.state":
+        this.replica.setProjectState(msg);
+        return;
       case "selection":
         this.replica.setSelection(msg.ids);
         return;

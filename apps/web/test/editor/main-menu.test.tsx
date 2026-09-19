@@ -40,6 +40,8 @@ function editorFor(commands: CommandRegistry, view: Editor["view"] = "both"): Ed
     option: () => undefined,
     setOption: () => {},
     openPalette: () => {},
+    recent: [],
+    openRecent: () => {},
     snap: "",
     setSnap: () => {},
     pointer: null,

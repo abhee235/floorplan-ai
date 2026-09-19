@@ -173,9 +173,20 @@ export class ProjectFileStore implements ProjectFiles {
   path(): string | null {
     return this.dir;
   }
+
+  /** Let go of the open project's directory; a new project has never been saved anywhere (ADR-012 D7). */
+  forget(): void {
+    this.dir = null;
+    this.savedAt = null;
+    this.recovery = null;
+    this.modifiedOutside = false;
+    this.manifestMissing = false;
+    this.changed();
+  }
   lastSavedAt(): string | null {
     return this.savedAt;
   }
+  /** Unsaved work from an EARLIER session, found when this project was opened; null once it is saved. */
   recoveryAt(): string | null {
     return this.recovery;
   }
@@ -304,13 +315,18 @@ export class ProjectFileStore implements ProjectFiles {
     return { path: dir, bytes };
   }
 
-  /** Write recovery.json when the project is modified and has a directory (ADR-012 D6). */
+  /**
+   * Write recovery.json when the project is modified and has a directory (ADR-012 D6).
+   *
+   * `recovery` is deliberately NOT set here. It means "there is unsaved work from an earlier session
+   * that you could take back", which is a question worth putting to someone; this session's own
+   * autosave is not. Setting it made the editor offer the recovery every sixty seconds, and each offer
+   * tore down whatever menu or dialog happened to be open at the time.
+   */
   async writeRecovery(): Promise<boolean> {
     const store = this.requireStore();
     if (!this.dir || !store.modified) return false;
     await writeAtomic(join(this.dir, RECOVERY_FILE), serialize(store.project));
-    this.recovery = this.now();
-    this.changed();
     return true;
   }
 

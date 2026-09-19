@@ -35,7 +35,16 @@ export type MenuEntry =
   /** A heading over the lines beneath it, as the shadcn menubar puts one over a radio group. */
   | { label: string }
   /** A set of commands where one is the state the editor is in, shown with the mark beside it. */
-  | { radio: string[]; current: string };
+  | { radio: string[]; current: string }
+  /**
+   * A submenu whose lines are not commands but data — the projects opened lately.
+   *
+   * Every other line names a registered command, which is what keeps the menus, the palette and the
+   * keyboard from drifting apart. A recent file cannot be one: the list is different on every machine
+   * and changes while the app runs. So it is marked as data, the walker that checks the menus against
+   * the registry skips it, and it is the only kind of line allowed to be dynamic.
+   */
+  | { title: string; dynamic: "recent" };
 
 export interface MenuDefinition {
   title: string;
@@ -51,6 +60,13 @@ export function menus(view: string): MenuDefinition[] {
     {
       title: "File",
       entries: [
+        "file.new",
+        "file.open",
+        { title: "Open recent", dynamic: "recent" },
+        { separator: true },
+        "file.save",
+        "file.saveAs",
+        { separator: true },
         "file.import",
         {
           title: "Export",
@@ -98,6 +114,8 @@ export function menuCommandIds(view = "both"): string[] {
     for (const entry of entries) {
       if (typeof entry === "string") out.push(entry);
       else if ("radio" in entry) out.push(...entry.radio);
+      else if ("dynamic" in entry)
+        continue; // data, not commands
       else if ("entries" in entry) walk(entry.entries);
       // a label names nothing and runs nothing
     }
@@ -114,11 +132,20 @@ function keyed(entries: MenuEntry[]): { entry: MenuEntry; key: string }[] {
     if ("separator" in entry) return { entry, key: `separator-${(separators += 1)}` };
     if ("label" in entry) return { entry, key: `label-${entry.label}` };
     if ("radio" in entry) return { entry, key: entry.radio.join("|") };
+    if ("dynamic" in entry) return { entry, key: `dynamic-${entry.dynamic}` };
     return { entry, key: entry.title };
   });
 }
 
-function Lines({ entries, commands }: { entries: MenuEntry[]; commands: CommandRegistry }): JSX.Element {
+interface LinesProps {
+  entries: MenuEntry[];
+  commands: CommandRegistry;
+  /** The lately-opened projects, for the one dynamic line there is. */
+  recent: { path: string; name: string; at: string }[];
+  openRecent: (path: string) => void;
+}
+
+function Lines({ entries, commands, recent, openRecent }: LinesProps): JSX.Element {
   const run = (id: string) => void commands.run(id);
   // A menu holding a radio or checkbox line indents every other line to match, so the titles form one
   // column rather than stepping in and out around the marks. The shadcn menubar does this with `inset`.
@@ -150,6 +177,28 @@ function Lines({ entries, commands }: { entries: MenuEntry[]; commands: CommandR
               {entry.label}
             </MenubarLabel>
           );
+        if ("dynamic" in entry)
+          return (
+            <MenubarSub key={key}>
+              <MenubarSubTrigger inset={inset} disabled={recent.length === 0}>
+                {entry.title}
+              </MenubarSubTrigger>
+              <MenubarSubContent className="max-w-[28rem]">
+                {recent.map((r) => (
+                  // The name reads as the line and the path sits under it: several projects can share a
+                  // name, and the path is the only thing that says which one this is.
+                  <MenubarItem
+                    key={r.path}
+                    className="flex-col items-start gap-0"
+                    onSelect={() => openRecent(r.path)}
+                  >
+                    <span className="w-full truncate">{r.name}</span>
+                    <span className="w-full truncate text-[11px] text-muted-foreground">{r.path}</span>
+                  </MenubarItem>
+                ))}
+              </MenubarSubContent>
+            </MenubarSub>
+          );
         if ("radio" in entry)
           return (
             <MenubarRadioGroup key={key} value={entry.current}>
@@ -167,7 +216,7 @@ function Lines({ entries, commands }: { entries: MenuEntry[]; commands: CommandR
           <MenubarSub key={key}>
             <MenubarSubTrigger inset={inset}>{entry.title}</MenubarSubTrigger>
             <MenubarSubContent>
-              <Lines entries={entry.entries} commands={commands} />
+              <Lines entries={entry.entries} commands={commands} recent={recent} openRecent={openRecent} />
             </MenubarSubContent>
           </MenubarSub>
         );
@@ -184,7 +233,12 @@ export function MainMenu(): JSX.Element {
         <MenubarMenu key={menu.title}>
           <MenubarTrigger>{menu.title}</MenubarTrigger>
           <MenubarContent>
-            <Lines entries={menu.entries} commands={editor.commands} />
+            <Lines
+              entries={menu.entries}
+              commands={editor.commands}
+              recent={editor.recent}
+              openRecent={editor.openRecent}
+            />
           </MenubarContent>
         </MenubarMenu>
       ))}

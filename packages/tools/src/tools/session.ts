@@ -159,6 +159,9 @@ export const project = defineTool({
         return info();
       case "new":
         store.load(blankProject(args.name ?? "Untitled", call.ctx.now()));
+        // Before anything else: what is open now has no file, and a save must ask where to put it
+        // rather than writing over whatever was open a moment ago.
+        files?.forget?.();
         call.changed({
           commandType: "project.new",
           added: [],

@@ -1,6 +1,6 @@
 // Managing several projects from the editor (ADR-012 D7): the remembered list, looking around the
 // machine's folders, and the message that tells a tab what is open and whether it is saved.
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { blankProject } from "@fpv/tools";
@@ -72,6 +72,77 @@ describe("the remembered projects (ADR-012 D7)", () => {
     // the write is deliberately not awaited by open; give the microtask its turn
     await new Promise((r) => setTimeout(r, 20));
     expect(readRecent(file).map((r) => r.path)).toEqual([project]);
+  });
+});
+
+describe("a new project has no file (ADR-012 D7)", () => {
+  /**
+   * `project new` used to leave the file store pointing at whatever was open before it, so the very
+   * next save wrote a blank project over that one without a word. File > New followed by Ctrl+S
+   * destroyed the project that had been open a second earlier; it was found by doing exactly that in a
+   * browser, and the project it ate was a real one.
+   */
+  it("refuses to save a new project until it is told where, rather than writing over the last one", async () => {
+    const dir = temp();
+    const project = makeProject(dir, "boardroom");
+    const files = new ProjectFileStore({ now: () => NOW });
+    const opened = await files.open(project);
+    const session = createSession({ files, project: opened.project, now: () => NOW });
+    expect(files.path()).toBe(project);
+
+    const made = await session.registry.call("project", { op: "new", name: "Untitled" });
+    expect(made.ok).toBe(true);
+    expect(files.path()).toBeNull();
+
+    const saved = await session.registry.call("project", { op: "save" });
+    expect(saved.ok).toBe(false);
+    if (!saved.ok) expect(saved.error.code).toBe("file.no-path");
+
+    // and the project that was open a moment ago is untouched on disk
+    const onDisk = JSON.parse(readFileSync(join(project, "project.json"), "utf8")) as {
+      meta: { name: string };
+    };
+    expect(onDisk.meta.name).toBe("boardroom");
+  });
+
+  /**
+   * The autosave used to set the same flag the editor reads to ask "unsaved work was recovered, take
+   * it back?". So a minute into any session the question appeared about the session's own autosave,
+   * and because it is a modal it tore down whatever menu was open at that moment. It was found by a
+   * submenu vanishing under the pointer in a real browser.
+   */
+  it("never offers this session's own autosave back as recovered work", async () => {
+    const dir = temp();
+    const project = makeProject(dir, "boardroom");
+    const files = new ProjectFileStore({ now: () => NOW });
+    const opened = await files.open(project);
+    const session = createSession({ files, project: opened.project, now: () => NOW });
+    expect(files.recoveryAt()).toBeNull();
+
+    session.store.apply({
+      type: "wall.create",
+      payload: {
+        levelId: session.store.project.levels[0]?.id,
+        start: { x: 0, y: 0 },
+        end: { x: 1000, y: 0 },
+      },
+    });
+    expect(await files.writeRecovery()).toBe(true);
+    expect(existsSync(join(project, "recovery.json"))).toBe(true);
+    // the file is there to be recovered from after a crash, and it is not a question for right now
+    expect(files.recoveryAt()).toBeNull();
+  });
+
+  it("saves where it is told, and is a normal project from then on", async () => {
+    const dir = temp();
+    const files = new ProjectFileStore({ now: () => NOW });
+    const session = createSession({ files, now: () => NOW });
+    await session.registry.call("project", { op: "new", name: "Untitled" });
+    const where = join(dir, "somewhere-new");
+    const saved = await session.registry.call("project", { op: "save", path: where });
+    expect(saved.ok).toBe(true);
+    expect(files.path()).toBe(where);
+    expect(session.store.modified).toBe(false);
   });
 });
 

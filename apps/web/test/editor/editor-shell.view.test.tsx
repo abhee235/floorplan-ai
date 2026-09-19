@@ -10,10 +10,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { apply } from "@fpv/commands";
 import { Project, sequentialIdGenerator } from "@fpv/ir";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AppElements } from "../../src/app.js";
+import { menus } from "../../src/editor/MainMenu.js";
 import { scaleLabel } from "../../src/editor/status.js";
 import { Replica } from "../../src/replica.js";
 
@@ -227,5 +228,67 @@ describe("switching what is on screen (ADR-017 D1)", () => {
     await user.click(screen.getByRole("button", { name: "Done" }));
     expect(plan.dataset.tool).toBe("select");
     expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  /**
+   * The menus, against the registry the SHELL builds.
+   *
+   * There is a test beside MainMenu that claims to check this, and it cannot fail: it builds its
+   * registry out of `menuCommandIds()`, so the menu is compared with itself. A line naming a command
+   * nothing registers renders as nothing at all — `Lines` skips it deliberately — which is exactly how
+   * the dead Export button survived. Counting the lines that actually rendered against the lines the
+   * definition asks for is the check that was missing.
+   *
+   * The menus are opened with the KEYBOARD, not a click, and that is not a stylistic choice.
+   * react-resizable-panels listens for pointerdown on the document and calls preventDefault when the
+   * press lands on one of its drag handles. In jsdom every getBoundingClientRect is 0×0 at 0,0 and so
+   * is the synthetic press, so every handle "contains" every press and every pointerdown in this shell
+   * comes out prevented. Radix skips its own handler on a prevented event, so no popup in this tree can
+   * ever be opened by clicking it here. A real browser has layout and is unaffected — the menus were
+   * verified open in one.
+   */
+  const rendersAs = (entries: ReturnType<typeof menus>[number]["entries"]): number =>
+    entries.reduce((n, entry) => {
+      if (typeof entry === "string") return n + 1;
+      if ("radio" in entry) return n + entry.radio.length;
+      if ("separator" in entry || "label" in entry) return n;
+      return n + 1; // a submenu, or the one dynamic line, shows as its trigger
+    }, 0);
+
+  /** Open one menu by name, the only way that works here. */
+  async function openMenu(user: ReturnType<typeof userEvent.setup>, title: string): Promise<HTMLElement> {
+    screen.getByRole("menuitem", { name: title }).focus();
+    await user.keyboard("{Enter}");
+    return screen.findByRole("menu");
+  }
+
+  it("draws every line its menus ask for, so a line naming no command cannot hide", async () => {
+    render(<EditorShell />);
+    const user = userEvent.setup();
+    for (const menu of menus("both")) {
+      const open = await openMenu(user, menu.title);
+      const lines =
+        within(open).queryAllByRole("menuitem").length + within(open).queryAllByRole("menuitemradio").length;
+      expect(lines, `${menu.title} menu`).toBe(rendersAs(menu.entries));
+      await user.keyboard("{Escape}");
+    }
+  });
+
+  it("offers the project commands a person looks in File for (ADR-012 D7)", async () => {
+    render(<EditorShell />);
+    const user = userEvent.setup();
+    const open = await openMenu(user, "File");
+    const titles = within(open)
+      .getAllByRole("menuitem")
+      .map((i) => (i.textContent ?? "").replace(/Ctrl\+\S+/, "").trim());
+    expect(titles).toEqual([
+      "New project",
+      "Open project…",
+      "Open recent",
+      "Save",
+      "Save as…",
+      "Import plan…",
+      "Export",
+    ]);
   });
 });

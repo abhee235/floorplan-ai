@@ -1,6 +1,6 @@
 // The browser's copy of the project (ADR-005 D2): applies snapshots and patch streams from the host,
 // tracks the history position, and detects when it has fallen out of sync.
-import type { ChangeSet, ChangesMsg, SnapshotMsg } from "@fpv/commands";
+import type { ChangeSet, ChangesMsg, ProjectStateMsg, SnapshotMsg } from "@fpv/commands";
 import type { Problem, Project } from "@fpv/ir";
 import { applyPatches, enablePatches } from "immer";
 
@@ -26,6 +26,8 @@ export class Replica {
   savedPosition = 0;
   problems: Problem[] = [];
   selection: string[] = [];
+  /** What is open, from the host; null until the first message arrives. */
+  projectState: ProjectStateMsg | null = null;
   private listeners = new Set<ReplicaListener>();
 
   subscribe(l: ReplicaListener): () => void {
@@ -107,6 +109,24 @@ export class Replica {
   setProblems(problems: Problem[]): void {
     this.problems = problems;
     this.notify({ commandType: "problems", added: [], updated: [], removed: [] });
+  }
+
+  /**
+   * What is open and whether it is saved (ADR-012 D7).
+   *
+   * `savedPosition` is set from here as well as from a snapshot, because saving moves it without
+   * changing the project: the file is written, the history does not move, and nothing in the change
+   * stream says so. Without this the modified mark would stay lit for the rest of the session.
+   */
+  setProjectState(state: ProjectStateMsg): void {
+    this.projectState = state;
+    this.savedPosition = state.savedPosition;
+    this.notify({ commandType: "project.state", added: [], updated: [], removed: [] });
+  }
+
+  /** Whether there is work the file on disk does not have. */
+  get modified(): boolean {
+    return this.historyPosition !== this.savedPosition;
   }
 
   /**
