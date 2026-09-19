@@ -94,16 +94,27 @@ describe("a cluster at the size the brief asks for", () => {
   it("costs about twice as much for twice as many, not four times", () => {
     // The shape of the cost, which is what a budget alone cannot catch: an arrange that looked at every
     // item already placed for each new one would show up here as a square, however fast the machine is.
-    const time = (n: number): number => {
-      const s = createStore(fixture(), ctx(10_000));
-      s.apply(arrange(areaFor(n), n), "editor"); // warm
-      const s2 = createStore(fixture(), ctx(20_000));
+    // The best of several runs, not one run. The whole suite runs in parallel workers, so any single
+    // measurement can be interrupted by another; the fastest is the one that was interrupted least, and
+    // it is the only reading here that means anything. Taking one sample made this fail under load
+    // while passing on its own, which is the worst way for a test to behave.
+    let seed = 10_000;
+    const once = (n: number): number => {
+      const s = createStore(fixture(), ctx((seed += 1000)));
       const started = performance.now();
-      s2.apply(arrange(areaFor(n), n), "editor");
+      s.apply(arrange(areaFor(n), n), "editor");
       return performance.now() - started;
     };
-    const hundred = Math.max(time(100), 0.05);
-    const fourHundred = time(400);
+    const best = (n: number): number => {
+      once(n); // warm the code paths, and throw the reading away
+      let fastest = Number.POSITIVE_INFINITY;
+      for (let i = 0; i < 3; i += 1) fastest = Math.min(fastest, once(n));
+      return fastest;
+    };
+    const hundred = best(100);
+    const fourHundred = best(400);
+    // A reading too small to divide says nothing either way, and dividing it would invent a number.
+    expect(hundred).toBeGreaterThan(0.2);
     // Four times the desks; linear would be about 4x, quadratic about 16x. Ten is a wide gate that
     // still shuts on a square.
     expect(fourHundred / hundred).toBeLessThan(10);
