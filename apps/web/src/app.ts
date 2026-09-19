@@ -1,6 +1,12 @@
 // Browser shell: renderer, controls, plan canvases, bridge connection. Everything DOM-bound lives here;
 // the binding, the plan renderer and the bridge client are testable without it.
-import { apply, type ChangeSet, type RenderRequestMsg } from "@fpv/commands";
+import {
+  type AgentEventMsg,
+  type AgentStateMsg,
+  apply,
+  type ChangeSet,
+  type RenderRequestMsg,
+} from "@fpv/commands";
 import type { Layer } from "@fpv/engine";
 import { SELECTION_PX, WALL_END_PX, wallFootprintUnjoined } from "@fpv/geometry";
 import type { Item, Point, Project, Room, Size3, Wall } from "@fpv/ir";
@@ -92,6 +98,8 @@ export interface AppElements {
    * the mapping, so it is the only thing that can say.
    */
   onPointer?: (at: { x: number; y: number } | null) => void;
+  /** What the agent is doing, for the chat window (ADR-022). */
+  onAgent?: (msg: AgentEventMsg | AgentStateMsg) => void;
 }
 
 /**
@@ -1179,6 +1187,7 @@ export function startApp(el: AppElements): {
     // Which project this tab is for, read from its own URL (ADR-020 D2, D4).
     project: projectAsked(),
     onStatus: () => updateStatus(),
+    ...(el.onAgent ? { onAgent: el.onAgent } : {}),
     onDraft: (msg) => {
       const wasActive = review.active;
       review.open(msg);

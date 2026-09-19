@@ -108,6 +108,25 @@ describe("one run at a time, per project", () => {
     expect(of("tool.started")[0]?.summary).toBe("Reading the project");
   });
 
+  it("says nothing about its own two tools: the plan card and the question are what they mean", async () => {
+    const { agent, held, done, of, events } = await setup([
+      () =>
+        reply(null, [
+          {
+            id: "c1",
+            name: "plan_work",
+            args: { items: [{ id: "a", text: "walls", status: "done" }] },
+          },
+        ]),
+      () => reply("Planned."),
+    ]);
+    agent.start(held, { text: "plan it" });
+    await done();
+    expect(of("plan.updated")).toHaveLength(1);
+    // no "plan work" row beside the plan card, saying the same thing in worse words
+    expect(events().filter((e) => e.type === "tool.started" || e.type === "tool.finished")).toEqual([]);
+  });
+
   it("refuses a second run while one is in flight, and says why", async () => {
     const { agent, held, done } = await setup([() => reply("Done.")]);
     expect(agent.start(held, { text: "one" }).ok).toBe(true);

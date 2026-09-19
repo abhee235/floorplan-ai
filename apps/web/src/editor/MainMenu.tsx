@@ -109,6 +109,10 @@ export function menus(view: string): MenuDefinition[] {
       ],
     },
     {
+      title: "Agent",
+      entries: ["agent.toggle", "agent.buildFromFile", { separator: true }, "agent.cancel"],
+    },
+    {
       title: "Help",
       entries: ["help.log", { separator: true }, "help.shortcuts", { separator: true }, "help.about"],
     },

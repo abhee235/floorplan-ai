@@ -19,6 +19,7 @@ import {
   type ChatMessage,
   type ContentPart,
   DESIGNER_SYSTEM,
+  LOOP_TOOL_NAMES,
   type PlanItem,
   type Provider,
   registryToolSpecs,
@@ -399,6 +400,10 @@ export class AgentRuns {
           ? { type: "message", step: event.step, at: event.at, text: event.text }
           : null;
       case "tool.started":
+        // The loop's own tools are not cards. plan_work speaks through the plan card it updates and
+        // ask_user through the question it asks; a "plan work" row beside them is the same thing said
+        // twice, in worse words.
+        if (LOOP_TOOL_NAMES.has(event.name)) return null;
         return {
           type: "tool.started",
           step: event.step,
@@ -409,6 +414,7 @@ export class AgentRuns {
           summary: summarise(event.name, event.args),
         };
       case "tool.finished": {
+        if (LOOP_TOOL_NAMES.has(event.name)) return null;
         const envelope = event.result as {
           ok?: boolean;
           result?: unknown;

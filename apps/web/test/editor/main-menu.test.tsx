@@ -71,7 +71,7 @@ describe("the menu bar", () => {
       within(bar)
         .getAllByRole("menuitem")
         .map((b) => b.textContent),
-    ).toEqual(["File", "Edit", "View", "3D", "Help"]);
+    ).toEqual(["File", "Edit", "View", "3D", "Agent", "Help"]);
   });
 
   it("names only commands the editor has", () => {

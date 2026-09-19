@@ -1,6 +1,8 @@
 // Bridge client (spec 06 part B): one WebSocket to the host, request ids with promises, and the
 // snapshot / changes stream feeding the replica. The socket is injected so tests run without a network.
 import {
+  type AgentEventMsg,
+  type AgentStateMsg,
   CLOSE_VERSION_MISMATCH,
   type DraftMsg,
   type HostMessage,
@@ -43,6 +45,8 @@ export interface BridgeClientOptions {
   onStatus?: (status: BridgeStatus) => void;
   /** A plan draft opened for review, or closed (draftId null). */
   onDraft?: (msg: DraftMsg) => void;
+  /** What the agent is doing, and what it is (ADR-022). */
+  onAgent?: (msg: AgentEventMsg | AgentStateMsg) => void;
 }
 
 export type BridgeStatus = "connecting" | "open" | "closed" | "version-mismatch";
@@ -98,6 +102,11 @@ export class BridgeClient {
   private setStatus(s: BridgeStatus): void {
     this.status = s;
     this.options.onStatus?.(s);
+  }
+
+  /** Start, cancel, answer or catch up on an agent run (ADR-022). */
+  agent(body: Record<string, unknown>): Promise<ResultMsg> {
+    return this.request({ type: "agent", ...body });
   }
 
   /** Send a message that expects exactly one result; it waits for the socket if it has to. */
@@ -218,6 +227,10 @@ export class BridgeClient {
         return;
       case "draft":
         this.options.onDraft?.(msg);
+        return;
+      case "agent.event":
+      case "agent.state":
+        this.options.onAgent?.(msg);
         return;
       default:
         return;

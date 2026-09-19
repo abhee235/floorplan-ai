@@ -14,6 +14,10 @@ import { CLIENT_VERSION, startApp } from "../app.js";
 import type { BridgeClient } from "../bridge/client.js";
 import { drawCompass } from "../plan/compass.js";
 import { AppBar } from "./AppBar.js";
+import { AgentPanel } from "./agent/AgentPanel.js";
+import { AgentWindow } from "./agent/AgentWindow.js";
+import { AgentStore } from "./agent/agent-store.js";
+import { useAgent } from "./agent/useAgent.js";
 import { Announcer } from "./announce.js";
 import { CatalogPanel, type CatalogSearch } from "./CatalogPanel.js";
 import { CommandPalette } from "./CommandPalette.js";
@@ -83,6 +87,11 @@ export function EditorShell(): JSX.Element {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
+  const [agentOpen, setAgentOpen] = useState(false);
+  // One store for the session: it is fed by the socket and read by the window, which may be closed
+  // while a run carries on -- a run belongs to the project, not to whether anybody is looking.
+  const agentStore = useMemo(() => new AgentStore(), []);
+  const agent = useAgent(agentStore);
   const [level, setLevel] = useState<string | null>(null);
   const [app, setApp] = useState<ReturnType<typeof startApp> | null>(null);
   const [panelTab, setPanelTab] = useState<PanelTab>("properties");
@@ -119,6 +128,10 @@ export function EditorShell(): JSX.Element {
   toolRef.current = toolId;
   const optionsRef = useRef(options);
   optionsRef.current = options;
+  // The imperative app, for callbacks registered once: a command or a chat action that closed over
+  // the first render's `app` would still be holding null after the socket connected.
+  const appRef = useRef<ReturnType<typeof startApp> | null>(null);
+  appRef.current = app;
 
   const tool = (toolById(toolId) ?? TOOLS[0]) as ToolDefinition;
 
@@ -237,6 +250,7 @@ export function EditorShell(): JSX.Element {
       onHint: setSnap,
       onSay: (text, assertive) => (assertive ? announcer.alert(text) : announcer.say(text)),
       onPointer: setPointer,
+      onAgent: (msg) => agentStore.handle(msg),
       ...(importFileRef.current ? { importFile: importFileRef.current } : {}),
     });
     setApp(started);
@@ -250,6 +264,68 @@ export function EditorShell(): JSX.Element {
       started.destroy(); // the size observer outlives the socket otherwise, one leak per remount
     };
   }, []);
+
+  /**
+   * What the chat does, in one place.
+   *
+   * Every one of these is a bridge message; none of them touches the drawing. The walls appear
+   * because the host applies the agent's commands and the change stream brings them back, which is
+   * the same path a person's own edit takes.
+   */
+  const agentActions = useMemo(
+    () => ({
+      async send(text: string, files: File[]) {
+        const client = appRef.current?.client;
+        if (!client) return;
+        const attachments = await Promise.all(
+          files.map(async (f) => ({
+            name: f.name,
+            mime: f.type || "application/octet-stream",
+            data: await base64Of(f),
+          })),
+        );
+        agentStore.said(
+          text,
+          files.map((f) => ({ name: f.name, bytes: f.size })),
+          new Date().toISOString(),
+        );
+        recordGesture("agent", { what: "send", attachments: attachments.length });
+        const r = await client.agent({
+          op: "start",
+          text,
+          ...(attachments.length ? { attachments } : {}),
+        });
+        // A refusal is said in the chat rather than thrown away: the person is watching that box.
+        if (!r.ok) {
+          agentStore.refused(r.error?.message ?? "the host refused to start a run");
+          announcer.alert(r.error?.message ?? "the agent could not start");
+        }
+      },
+      cancel() {
+        agentStore.cancelling();
+        recordGesture("agent", { what: "cancel" });
+        void appRef.current?.client.agent({ op: "cancel" });
+      },
+      answer(questionId: string, answer: string) {
+        recordGesture("agent", { what: "answer" });
+        void appRef.current?.client.agent({ op: "answer", questionId, answers: { [questionId]: answer } });
+      },
+      undoRun(checkpointId: string) {
+        void appRef.current?.client.tool("history", { op: "restore", checkpointId });
+        announcer.say("The project is back to before that run.");
+      },
+      show(ids: string[]) {
+        void appRef.current?.client.select(ids);
+      },
+      catchUp() {
+        void appRef.current?.client.agent({ op: "history", from: agentStore.state.lastSeq }).then((r) => {
+          const events = (r.result as { events?: unknown[] } | undefined)?.events ?? [];
+          for (const e of events) agentStore.handle(e as never);
+        });
+      },
+    }),
+    [agentStore, announcer],
+  );
 
   // ---- everything that used to live in main.ts ---------------------------
   useEffect(() => {
@@ -628,6 +704,33 @@ export function EditorShell(): JSX.Element {
         },
       })),
       {
+        id: "agent.toggle",
+        title: "Agent",
+        group: "Agent",
+        shortcut: "Ctrl+.",
+        detail: "ask for what you want built",
+        run: () => setAgentOpen((open) => !open),
+      },
+      {
+        id: "agent.buildFromFile",
+        title: "Build from a plan file…",
+        group: "Agent",
+        detail: "a drawing to read and copy",
+        run: () => {
+          setAgentOpen(true);
+          // The window's own attach button, so there is one file picker and not two that disagree.
+          requestAnimationFrame(() =>
+            (document.querySelector('[aria-label="Attach a plan"]') as HTMLElement | null)?.click(),
+          );
+        },
+      },
+      {
+        id: "agent.cancel",
+        title: "Stop the agent",
+        group: "Agent",
+        run: () => agentActions.cancel(),
+      },
+      {
         id: "help.log",
         title: "Session log…",
         group: "Help",
@@ -992,6 +1095,22 @@ export function EditorShell(): JSX.Element {
           onRun={(id) => void commands.run(id)}
         />
         <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} commands={commands.all()} />
+        <AgentWindow
+          open={agentOpen}
+          onClose={() => setAgentOpen(false)}
+          title="Agent"
+          subtitle={agent.available ? agent.model : "unavailable"}
+        >
+          <AgentPanel
+            state={agent}
+            onSend={(text, files) => void agentActions.send(text, files)}
+            onCancel={agentActions.cancel}
+            onAnswer={agentActions.answer}
+            onUndoRun={agentActions.undoRun}
+            onShow={agentActions.show}
+            onCatchUp={agentActions.catchUp}
+          />
+        </AgentWindow>
         <SessionLogDialog
           open={logOpen}
           onOpenChange={setLogOpen}
@@ -1102,6 +1221,15 @@ function isControl(target: HTMLElement | null): boolean {
 }
 
 /** A live region that reads and writes through a ref, so the announcer can exist before the DOM does. */
+/** A file's bytes as base64, in chunks so a large plan does not overflow the argument list. */
+async function base64Of(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000)
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(binary);
+}
+
 function region(ref: { current: HTMLElement | null }): { textContent: string | null } {
   return {
     get textContent() {
