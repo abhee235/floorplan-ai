@@ -28,6 +28,8 @@ tests.
 | [019](ADR-019-session-event-log.md) | A session event log: one JSONL line per command, tool call, refusal and gesture, with the values that changed | Proposed |
 | [020](ADR-020-project-addressing-and-storage.md) | A project is addressed by an opaque string carried in the URL; the document is stored whole and a database holds facts about it, never its entities; a session per open project when hosting needs one | Proposed |
 | [021](ADR-021-web-product-and-the-project-library.md) | This is a web product: projects live in a library the app owns, addressed by id, with no path ever sent to a browser; the person's own disk is reached by import and export | Proposed |
+| [022](ADR-022-agent-roles-and-the-checker.md) | The agent is one loop, one model and three roles: an architect that produces a measurable design, a checker that is code, a builder that draws from an approved design; the rules that keep a person's trust, each enforced somewhere named | Proposed |
+| [023](ADR-023-authorship-and-consent.md) | Every entity records who made it and who last changed it, stamped by the command layer; the agent asks before changing a person's work, and the registry refuses when it does not | Proposed |
 
 Deliberate departures from common practice, collected for review:
 millimetres and y-up (001); openings bound to walls by id (001); rejected
