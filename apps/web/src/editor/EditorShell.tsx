@@ -180,6 +180,7 @@ export function EditorShell(): JSX.Element {
       path: projectState?.path ?? null,
       modified,
       recoveryAvailable: projectState?.recoveryAvailable ?? null,
+      known: projectState !== null,
     },
     announcer,
   );

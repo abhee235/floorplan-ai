@@ -9,6 +9,7 @@
 
 import type { JSX } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { addressAsked, showAddress, titleFor } from "./address.js";
 import type { Announcer } from "./announce.js";
 import { RecoveryDialog, type UnsavedAnswer, UnsavedDialog } from "./ConfirmDialog.js";
 import { ProjectDialog, type ProjectDialogMode, type RecentProject } from "./ProjectDialog.js";
@@ -36,6 +37,12 @@ export interface ProjectFacts {
   modified: boolean;
   /** ISO time of unsaved work the host recovered, or null. */
   recoveryAvailable: string | null;
+  /**
+   * Whether the host has said what it holds yet. Until it has, `path` being null means "not asked"
+   * rather than "no file", and acting on that difference is how a URL asking for a project would open
+   * it over the one already there.
+   */
+  known: boolean;
 }
 
 export interface ProjectFilesApi {
@@ -187,6 +194,45 @@ export function useProjectFiles(
     }),
     [mayDiscard, project, openPath, announcer],
   );
+
+  // ---- the address bar (ADR-020 D2) ---------------------------------------
+
+  /** Whether the URL's request has been acted on; until it has, nothing may overwrite it. */
+  const claimed = useRef(false);
+
+  // What the URL asks for, once the host has said what it holds. A tab arriving with an address for
+  // another project opens it, which is what makes a link to a project mean anything.
+  useEffect(() => {
+    if (!host || claimed.current || !facts.known) return;
+    claimed.current = true;
+    const wanted = addressAsked();
+    if (wanted === null || wanted === facts.path) return;
+    void project({ op: "open", path: wanted })
+      .then(() => {
+        announcer.say(`Opened ${wanted}.`);
+        loadRecent();
+      })
+      .catch((e: unknown) => {
+        announcer.alert(
+          `The link asked for a project that could not be opened: ${
+            e instanceof Error ? e.message : String(e)
+          }`,
+        );
+        // put back what is actually open, so the address bar never lies about what is on screen
+        showAddress(now.current.path);
+      });
+  }, [host, facts.known, facts.path, project, announcer, loadRecent]);
+
+  // And from then on the address bar follows what is open, however it came to be open.
+  useEffect(() => {
+    if (!claimed.current) return;
+    showAddress(facts.path);
+  }, [facts.path]);
+
+  // A row of tabs is unreadable when every one of them says the same thing.
+  useEffect(() => {
+    document.title = titleFor(facts.name, facts.modified);
+  }, [facts.name, facts.modified]);
 
   // Work the host recovered after a crash. It has detected this since ADR-012 D6 and written it to
   // stderr, where nobody editing in a browser would ever see it.
