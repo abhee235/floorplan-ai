@@ -26,6 +26,7 @@ import type { Placeable } from "./item-tool.js";
 import { isInsidePopup, isTypingTarget } from "./keys.js";
 import { PropertiesPanel } from "./PropertiesPanel.js";
 import { bindRoomDrawing } from "./room-drawing.js";
+import { SessionLogDialog } from "./SessionLogDialog.js";
 import { StatusBar } from "./StatusBar.js";
 import { deleteCommands, describeEntity, kindOf, type TextureChoice } from "./selection.js";
 import { scaleLabel } from "./status.js";
@@ -77,6 +78,7 @@ export function EditorShell(): JSX.Element {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [logOpen, setLogOpen] = useState(false);
   const [level, setLevel] = useState<string | null>(null);
   const [app, setApp] = useState<ReturnType<typeof startApp> | null>(null);
   const [panelTab, setPanelTab] = useState<PanelTab>("properties");
@@ -505,6 +507,13 @@ export function EditorShell(): JSX.Element {
         },
       })),
       {
+        id: "help.log",
+        title: "Session log…",
+        group: "Help",
+        detail: "everything this run did",
+        run: () => setLogOpen(true),
+      },
+      {
         id: "help.shortcuts",
         title: "Keyboard shortcuts…",
         group: "Help",
@@ -856,6 +865,16 @@ export function EditorShell(): JSX.Element {
           onRun={(id) => void commands.run(id)}
         />
         <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} commands={commands.all()} />
+        <SessionLogDialog
+          open={logOpen}
+          onOpenChange={setLogOpen}
+          // The dialog asks; the host owns the files. A refusal comes back as the host's own sentence.
+          ask={async (body) => {
+            const reply = await (app as NonNullable<typeof app>).client.request(body);
+            if (!reply.ok) throw new Error(reply.error?.message ?? "the host refused to read the log");
+            return (reply.result ?? {}) as Record<string, unknown>;
+          }}
+        />
         <AboutDialog
           open={aboutOpen}
           onOpenChange={setAboutOpen}

@@ -86,7 +86,7 @@ export function menus(view: string): MenuDefinition[] {
     },
     {
       title: "Help",
-      entries: ["help.shortcuts", { separator: true }, "help.about"],
+      entries: ["help.log", { separator: true }, "help.shortcuts", { separator: true }, "help.about"],
     },
   ];
 }

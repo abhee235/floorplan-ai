@@ -33,6 +33,8 @@ export interface LogEntry {
 export interface EventLog {
   /** Where the lines go, or null when nothing is being written. */
   readonly path: string | null;
+  /** The directory holding this run and the ones before it, for reading them back (ADR-019 D7). */
+  readonly dir: string | null;
   readonly level: LogLevel;
   /** One line. `fields` is merged in after the common ones, and may not overwrite them. */
   write(kind: string, source: string, fields?: Record<string, unknown>): void;
@@ -51,6 +53,7 @@ export interface EventLog {
 export function silentLog(): EventLog {
   return {
     path: null,
+    dir: null,
     level: "off",
     write: () => {},
     fromStore: () => {},
@@ -109,6 +112,7 @@ export function createLog(options: LogOptions): EventLog {
   let last: Project | null = null;
   const log: EventLog = {
     path,
+    dir: options.dir,
     level,
     write(kind, source, fields) {
       seq += 1;

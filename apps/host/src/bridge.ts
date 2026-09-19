@@ -17,6 +17,7 @@ import {
 import type { DraftPresentation, RenderedImage, RenderRequest, ViewerRenderer } from "@fpv/tools";
 import type { WebSocket } from "ws";
 import { plainDetail } from "./log.js";
+import { entriesFrom, pickRun, runs } from "./log-read.js";
 import type { Session } from "./session.js";
 import { staleness, stalenessNote } from "./staleness.js";
 
@@ -274,6 +275,45 @@ export class Bridge implements ViewerRenderer {
             ? { result: r }
             : { error: { code: r.error.code, message: r.error.message, hint: r.error.hint } },
         );
+        return;
+      }
+      case "log": {
+        // Reading the log back in the editor (ADR-019 D7). The host owns the files; the tab asks.
+        const dir = this.session.log.dir;
+        if (!dir) {
+          this.reply(state, msg.id, false, {
+            error: {
+              code: "unavailable",
+              message: "this session is not writing a log",
+              hint: "start the host without --log off",
+            },
+          });
+          return;
+        }
+        if (msg.op === "runs") {
+          this.reply(state, msg.id, true, {
+            result: {
+              runs: runs(dir).map((r) => ({
+                name: r.name,
+                at: r.at ? r.at.toISOString() : null,
+                bytes: r.bytes,
+                current: r.path === this.session.log.path,
+              })),
+            },
+          });
+          return;
+        }
+        const run = pickRun(dir, msg.run ?? null);
+        if (!run) {
+          this.reply(state, msg.id, false, {
+            error: { code: "not-found", message: "there is no such run", hint: null },
+          });
+          return;
+        }
+        const read = entriesFrom(run.path, msg.from ?? 0, msg.limit ?? 500);
+        this.reply(state, msg.id, true, {
+          result: { path: run.path, name: run.name, ...read },
+        });
         return;
       }
       case "gesture": {

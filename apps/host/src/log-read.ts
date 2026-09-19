@@ -210,3 +210,37 @@ export function readFrom(path: string, from: number): { text: string; end: numbe
     }
   }
 }
+
+/** One line of a run, as the object it was written as. */
+export interface LogLine {
+  [field: string]: unknown;
+}
+
+/**
+ * The entries of a run from a byte offset, for the editor's own log view (ADR-019 D7).
+ *
+ * The browser gets the objects rather than the formatted text: a terminal and a panel are different
+ * media, and the panel can colour a kind and fold a change list in ways a line of text cannot. The
+ * data is the same file either way, so the two presentations cannot disagree about what happened.
+ */
+export function entriesFrom(
+  path: string,
+  from: number,
+  limit: number,
+): { entries: LogLine[]; end: number; dropped: number } {
+  const { text, end } = readFrom(path, from);
+  const lines = text.split("\n").filter((l) => l.trim().length > 0);
+  // The tail, not the head: a run opened after an hour's work should show what just happened, and the
+  // rest is a scroll away in the file itself.
+  const dropped = Math.max(0, lines.length - limit);
+  const entries: LogLine[] = [];
+  for (const line of lines.slice(dropped)) {
+    try {
+      const parsed = JSON.parse(line) as unknown;
+      if (parsed && typeof parsed === "object") entries.push(parsed as LogLine);
+    } catch {
+      // a torn last line: it will be whole on the next read
+    }
+  }
+  return { entries, end, dropped };
+}

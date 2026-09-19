@@ -62,6 +62,16 @@ export const ClientMessage = z.discriminatedUnion("type", [
     ),
   }),
   z.object({ id: Id, type: z.literal("tool"), name: z.string(), args: z.record(z.unknown()) }),
+  // Reading the session log back in the editor (ADR-019 D7). `runs` lists them; `read` returns the
+  // entries of one, from a byte offset so following a live run sends only what is new.
+  z.object({
+    id: Id,
+    type: z.literal("log"),
+    op: z.enum(["runs", "read"]),
+    run: z.string().optional(),
+    from: z.number().int().min(0).optional(),
+    limit: z.number().int().min(1).max(2000).optional(),
+  }),
   // The one client message that expects no result: there is nothing to wait for, and a round trip per
   // click would make the log something the editor pays for.
   z.object({
