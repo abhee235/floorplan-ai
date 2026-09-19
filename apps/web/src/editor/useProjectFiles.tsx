@@ -62,6 +62,7 @@ export interface ProjectFilesApi {
     save: () => Promise<void>;
     saveAs: () => Promise<void>;
     closeProject: () => Promise<void>;
+    switchTo: (projectId: string) => Promise<void>;
   };
   /** The lately-opened projects, for the Open recent submenu. */
   recent: RecentProject[];
@@ -223,6 +224,17 @@ export function useProjectFiles(
       },
       saveAs: async (): Promise<void> => {
         setMode("save");
+      },
+      switchTo: async (projectId: string): Promise<void> => {
+        // Nothing is saved, closed or discarded: this tab simply looks at another project the host is
+        // already holding, and the one it leaves keeps everything in it (ADR-020 D4).
+        if (projectId === now.current.projectId) return;
+        try {
+          const moved = await workspace({ op: "attach", project: projectId });
+          announcer.say(`Looking at ${moved.name}.`);
+        } catch (e) {
+          announcer.alert(`Could not switch: ${e instanceof Error ? e.message : String(e)}`);
+        }
       },
       closeProject: async (): Promise<void> => {
         if (!(await mayDiscard("Closing it"))) return;

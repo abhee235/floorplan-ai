@@ -1,6 +1,6 @@
 // The browser's copy of the project (ADR-005 D2): applies snapshots and patch streams from the host,
 // tracks the history position, and detects when it has fallen out of sync.
-import type { ChangeSet, ChangesMsg, ProjectStateMsg, SnapshotMsg } from "@fpv/commands";
+import type { ChangeSet, ChangesMsg, ProjectStateMsg, SnapshotMsg, WorkspaceStateMsg } from "@fpv/commands";
 import type { Problem, Project } from "@fpv/ir";
 import { applyPatches, enablePatches } from "immer";
 
@@ -28,6 +28,8 @@ export class Replica {
   selection: string[] = [];
   /** What is open, from the host; null until the first message arrives. */
   projectState: ProjectStateMsg | null = null;
+  /** Every project this host has open (ADR-020 D4), for the switcher. */
+  openProjects: WorkspaceStateMsg["open"] = [];
   private listeners = new Set<ReplicaListener>();
 
   subscribe(l: ReplicaListener): () => void {
@@ -122,6 +124,12 @@ export class Replica {
     this.projectState = state;
     this.savedPosition = state.savedPosition;
     this.notify({ commandType: "project.state", added: [], updated: [], removed: [] });
+  }
+
+  /** Which projects the host has open; pushed whenever the set changes, from any tab. */
+  setOpenProjects(open: WorkspaceStateMsg["open"]): void {
+    this.openProjects = open;
+    this.notify({ commandType: "workspace.state", added: [], updated: [], removed: [] });
   }
 
   /** Whether there is work the file on disk does not have. */

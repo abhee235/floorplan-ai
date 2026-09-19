@@ -5,7 +5,7 @@
 // tearing. Every hook here takes a selector and returns a primitive or a stable reference, so a patch that
 // changes one wall does not redraw the whole chrome: the properties panel and the status bar subscribe to
 // different slices and re-render only when their own slice changes.
-import type { ProjectStateMsg } from "@fpv/commands";
+import type { ProjectStateMsg, WorkspaceStateMsg } from "@fpv/commands";
 import type { Problem, Project } from "@fpv/ir";
 import { useCallback, useSyncExternalStore } from "react";
 import type { Replica } from "../replica.js";
@@ -68,6 +68,19 @@ export function useProjectState(replica: Replica | null): ProjectStateMsg | null
   const snapshot = useCallback(() => (replica ? replica.projectState : null), [replica]);
   return useSyncExternalStore(subscribe, snapshot);
 }
+
+/** Every project this host has open (ADR-020 D4), for the switcher. */
+export function useOpenProjects(replica: Replica | null): WorkspaceStateMsg["open"] {
+  const subscribe = useCallback(
+    (onChange: () => void) => (replica ? replica.subscribe(onChange) : () => {}),
+    [replica],
+  );
+  const snapshot = useCallback(() => (replica ? replica.openProjects : NONE), [replica]);
+  return useSyncExternalStore(subscribe, snapshot);
+}
+
+/** A stable empty list: returning a new [] from a snapshot would re-render for ever. */
+const NONE: WorkspaceStateMsg["open"] = [];
 
 /** Whether there is work the file on disk does not have; a boolean, so the title redraws rarely. */
 export function useModified(replica: Replica | null): boolean {

@@ -137,6 +137,7 @@ export class Bridge {
       render: (req) => this.renderFor(held, req),
       presentDraft: (presentation) => this.presentDraftFor(held, presentation),
     };
+    this.announceWorkspace();
     this.stopFollowing.set(held.id, () => {
       unsubscribe();
       unwatchFiles?.();
@@ -178,6 +179,19 @@ export class Bridge {
     return next;
   }
 
+  /** To every tab, whatever it is looking at: which projects this host has open (ADR-020 D4). */
+  private announceWorkspace(): void {
+    const msg: HostMessage = {
+      type: "workspace.state",
+      open: this.workspace.list().map((h) => ({
+        projectId: h.id,
+        name: h.session.store.project.meta.name,
+        address: h.files.path(),
+      })),
+    };
+    for (const c of this.clients) if (c.hello) this.send(c, msg);
+  }
+
   /** To the tabs looking at this project, and to no others (ADR-020 D4). */
   private broadcast(held: Held, msg: HostMessage): void {
     for (const c of this.clients) if (c.hello && c.held?.id === held.id) this.send(c, msg);
@@ -192,6 +206,7 @@ export class Bridge {
     this.send(state, { type: "selection", ids: held.session.store.selection });
     const draft = this.drafts.get(held.id);
     if (draft) this.send(state, draft);
+    this.announceWorkspace();
   }
 
   private reply(
@@ -363,7 +378,10 @@ export class Bridge {
         );
         // `project new` replaces the project without touching a file, so the files' own watcher never
         // fires; the saved position still moved and every tab needs the new answer.
-        if (msg.name === "project") this.broadcast(held, this.projectState(held));
+        if (msg.name === "project") {
+          this.broadcast(held, this.projectState(held));
+          this.announceWorkspace();
+        }
         return;
       }
       case "files": {
@@ -570,6 +588,7 @@ export class Bridge {
             // rather than a tab attached to nothing, which nothing in the editor is built to draw.
             const left = this.workspace.default() ?? this.workspace.create();
             for (const c of this.clients) if (c.hello && !c.held) this.showProjectTo(c, left);
+            this.announceWorkspace();
           }
           this.reply(state, msg.id, true, { result: { open: this.workspace.list().map(describe) } });
           return;

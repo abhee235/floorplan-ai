@@ -203,6 +203,9 @@ export class BridgeClient {
       case "project.state":
         this.replica.setProjectState(msg);
         return;
+      case "workspace.state":
+        this.replica.setOpenProjects(msg.open);
+        return;
       case "selection":
         this.replica.setSelection(msg.ids);
         return;

@@ -44,7 +44,7 @@ export type MenuEntry =
    * and changes while the app runs. So it is marked as data, the walker that checks the menus against
    * the registry skips it, and it is the only kind of line allowed to be dynamic.
    */
-  | { title: string; dynamic: "recent" };
+  | { title: string; dynamic: "recent" | "open" };
 
 export interface MenuDefinition {
   title: string;
@@ -87,6 +87,9 @@ export function menus(view: string): MenuDefinition[] {
         { radio: ["view.plan", "view.both", "view.3d"], current: `view.${view}` },
         { separator: true },
         "view.fit",
+        { separator: true },
+        // Where a desktop application puts "switch windows", because that is where people look.
+        { title: "Switch project", dynamic: "open" },
         { separator: true },
         "view.commands",
       ],
@@ -145,9 +148,21 @@ interface LinesProps {
   /** The lately-opened projects, for the one dynamic line there is. */
   recent: { id: string; address: string; name: string; lastOpenedAt: string }[];
   openRecent: (address: string) => void;
+  /** The projects this host has open, and which of them this tab is looking at (ADR-020 D4). */
+  open: { projectId: string; name: string; address: string | null }[];
+  currentProject: string;
+  switchProject: (projectId: string) => void;
 }
 
-function Lines({ entries, commands, recent, openRecent }: LinesProps): JSX.Element {
+function Lines({
+  entries,
+  commands,
+  recent,
+  openRecent,
+  open,
+  currentProject,
+  switchProject,
+}: LinesProps): JSX.Element {
   const run = (id: string) => void commands.run(id);
   // A menu holding a radio or checkbox line indents every other line to match, so the titles form one
   // column rather than stepping in and out around the marks. The shadcn menubar does this with `inset`.
@@ -178,6 +193,30 @@ function Lines({ entries, commands, recent, openRecent }: LinesProps): JSX.Eleme
             <MenubarLabel key={key} inset={inset}>
               {entry.label}
             </MenubarLabel>
+          );
+        if ("dynamic" in entry && entry.dynamic === "open")
+          return (
+            <MenubarSub key={key}>
+              {/* Never disabled: there is always at least one project open, and a submenu that greys
+                  out when there is only one hides the answer to "what else is open?". */}
+              <MenubarSubTrigger inset={inset}>{entry.title}</MenubarSubTrigger>
+              <MenubarSubContent className="max-w-[28rem]">
+                <MenubarRadioGroup value={currentProject}>
+                  {open.map((o) => (
+                    <MenubarRadioItem
+                      key={o.projectId}
+                      value={o.projectId}
+                      onSelect={() => switchProject(o.projectId)}
+                    >
+                      <span className="truncate">{o.name}</span>
+                      {o.address === null ? (
+                        <span className="ml-2 shrink-0 text-[11px] text-muted-foreground">not saved</span>
+                      ) : null}
+                    </MenubarRadioItem>
+                  ))}
+                </MenubarRadioGroup>
+              </MenubarSubContent>
+            </MenubarSub>
           );
         if ("dynamic" in entry)
           return (
@@ -218,7 +257,15 @@ function Lines({ entries, commands, recent, openRecent }: LinesProps): JSX.Eleme
           <MenubarSub key={key}>
             <MenubarSubTrigger inset={inset}>{entry.title}</MenubarSubTrigger>
             <MenubarSubContent>
-              <Lines entries={entry.entries} commands={commands} recent={recent} openRecent={openRecent} />
+              <Lines
+                entries={entry.entries}
+                commands={commands}
+                recent={recent}
+                openRecent={openRecent}
+                open={open}
+                currentProject={currentProject}
+                switchProject={switchProject}
+              />
             </MenubarSubContent>
           </MenubarSub>
         );
@@ -240,6 +287,9 @@ export function MainMenu(): JSX.Element {
               commands={editor.commands}
               recent={editor.recent}
               openRecent={editor.openRecent}
+              open={editor.open}
+              currentProject={editor.currentProject}
+              switchProject={editor.switchProject}
             />
           </MenubarContent>
         </MenubarMenu>

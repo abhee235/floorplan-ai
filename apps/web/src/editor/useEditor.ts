@@ -27,6 +27,12 @@ export interface Editor {
   recent: { id: string; address: string; name: string; lastOpenedAt: string }[];
   /** Opens one of them, asking about unsaved work first. */
   openRecent: (address: string) => void;
+  /** Every project this host has open (ADR-020 D4), for the switcher. */
+  open: { projectId: string; name: string; address: string | null }[];
+  /** Which of them this tab is looking at. */
+  currentProject: string;
+  /** Look at another of them; nothing is closed and nothing is lost. */
+  switchProject: (projectId: string) => void;
   /** What a snap caught, or what is being drawn, for the status bar. */
   snap: string;
   setSnap: (text: string) => void;

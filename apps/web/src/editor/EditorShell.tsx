@@ -43,7 +43,7 @@ import {
 } from "./tools.js";
 import { type Editor, EditorContext, type ViewMode } from "./useEditor.js";
 import { useProjectFiles } from "./useProjectFiles.js";
-import { useModified, useProjectState } from "./useReplica.js";
+import { useModified, useOpenProjects, useProjectState } from "./useReplica.js";
 import { bindWallDrawing } from "./wall-drawing.js";
 import { bindZoneDrawing, type ZoneDrawing } from "./zone-drawing.js";
 import type { ZonePattern } from "./zone-tool.js";
@@ -173,6 +173,7 @@ export function EditorShell(): JSX.Element {
   // changing at all.
   const projectState = useProjectState(app?.replica ?? null);
   const modified = useModified(app?.replica ?? null);
+  const openProjects = useOpenProjects(app?.replica ?? null);
   const files = useProjectFiles(
     app?.client ?? null,
     {
@@ -192,7 +193,10 @@ export function EditorShell(): JSX.Element {
   const editor: Editor = {
     commands,
     recent: files.recent,
-    openRecent: (path) => void filesRef.current.openPath(path),
+    openRecent: (address) => void filesRef.current.openPath(address),
+    open: openProjects,
+    currentProject: projectState?.projectId ?? "",
+    switchProject: (projectId) => void filesRef.current.switchTo(projectId),
     announcer,
     tool,
     setTool,

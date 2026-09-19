@@ -187,6 +187,16 @@ export interface ProjectStateMsg {
   recoveryAvailable: string | null;
   modifiedOutside: boolean;
 }
+/**
+ * Which projects this host has open (ADR-020 D4), sent to every tab whenever the set changes.
+ *
+ * Pushed rather than asked for, because the set changes when ANOTHER tab opens or closes something:
+ * a tab that only refreshed its own list would show a switcher that quietly went out of date.
+ */
+export interface WorkspaceStateMsg {
+  type: "workspace.state";
+  open: { projectId: string; name: string; address: string | null }[];
+}
 export interface RenderRequestMsg {
   type: "render.request";
   requestId: string;
@@ -231,6 +241,7 @@ export type HostMessage =
   | ChangesMsg
   | ProblemsMsg
   | ProjectStateMsg
+  | WorkspaceStateMsg
   | RenderRequestMsg
   | SelectionMsg
   | AgentEventMsg
