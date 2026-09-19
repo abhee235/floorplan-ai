@@ -85,7 +85,7 @@ export function runDesigner(
     ...rest,
     provider,
     tools: registryToolSpecs(registry, profile),
-    callTool: (name, args) => registry.call(name, args),
+    callTool: (name, args, released) => registry.call(name, args, { released }),
     system:
       system ?? designerSystem({ vision: provider.profile.vision, low: profile === "low", ...(world ?? {}) }),
     task,

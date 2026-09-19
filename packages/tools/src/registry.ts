@@ -2,7 +2,7 @@
 // optional MCP adapter in the host, by external agents (ADR-005 D1, ADR-006 D1).
 import { checkDesign } from "@fpv/catalog";
 import { type ChangeSet, CommandError, type Origin } from "@fpv/commands";
-import { type Problem, validate } from "@fpv/ir";
+import { type Problem, type Project, validate } from "@fpv/ir";
 import type { z } from "zod";
 import { sizesFor, type ToolContext } from "./context.js";
 import {
@@ -38,6 +38,13 @@ export type AnyObjectSchema = z.ZodObject<z.ZodRawShape>;
 /** What a caller says about itself. Anything that does not say is the agent, which is the common case. */
 export interface CallOptions {
   origin?: Origin;
+  /**
+   * Entity ids this call may change although a person made or touched them (ADR-023 D3).
+   *
+   * The run's selection when it started, plus whatever a consent question has since released.
+   * Empty and absent mean the same thing, and both are the safe answer.
+   */
+  released?: ReadonlySet<string>;
 }
 
 export interface ToolDef<I extends AnyObjectSchema = AnyObjectSchema, O = unknown> {
@@ -90,6 +97,22 @@ const LOW_PROFILE = new Set([
 ]);
 const MEDIUM_HIDDEN = new Set(["modify_wall"]);
 
+/**
+ * Fields one entity recomputes because another changed, which nobody chose: a wall's mitres, a
+ * room's list of its walls, the room an item is found to stand in, and the stamp itself.
+ */
+const DERIVED = new Set(["joins", "boundingWallIds", "roomId", "by"]);
+
+/** The same entity but for the fields nobody edits directly. */
+function sameButForDerived(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const k of keys) {
+    if (DERIVED.has(k)) continue;
+    if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) return false;
+  }
+  return true;
+}
+
 export class Registry {
   private readonly tools = new Map<string, ToolDef>();
   private seq = 0;
@@ -122,7 +145,18 @@ export class Registry {
   async call(name: string, rawArgs: unknown, options: CallOptions = {}): Promise<ToolResult> {
     const started = Date.now();
     const origin = options.origin ?? "agent";
-    const result = await this.invoke(name, rawArgs, origin);
+    const before = this.ctx.store.historyPosition;
+    const was = this.ctx.store.project;
+    let result = await this.invoke(name, rawArgs, origin);
+    if (result.ok && origin === "agent") {
+      const trespass = this.trespass(was, result.changed, options.released);
+      if (trespass) {
+        // Take the call back before answering. A tool does not know what it will touch until it
+        // has, and the store knows how to undo; the model then asks, and repeats the call.
+        while (this.ctx.store.historyPosition > before) this.ctx.store.undo();
+        result = fail(trespass, result.warnings);
+      }
+    }
     this.ctx.transcript?.record({
       seq: (this.seq += 1),
       tool: name,
@@ -221,6 +255,61 @@ export class Registry {
       const message = e instanceof Error ? e.message : String(e);
       return fail({ code: "internal", message: `${name}: ${message}`, entityId: null, hint: null }, warnings);
     }
+  }
+
+  /**
+   * The person's work this change set touched without leave, as the error to answer with (ADR-023 D4).
+   *
+   * The rule is enforced here rather than in the prompt because a rule that lives only in a prompt
+   * is a rule the model keeps most of the time, and "most of the time" is exactly the failure that
+   * costs a person their trust in the thing.
+   */
+  private trespass(
+    was: Project,
+    changed: ChangeSet | null,
+    released: ReadonlySet<string> = new Set(),
+  ): { code: string; message: string; entityId: string | null; hint: string } | null {
+    if (!changed) return null;
+    // "meta" is the project itself, which nobody authored: it is how a restore reports that the
+    // whole document was replaced, and an undo is not a change of authorship.
+    const suspects = [...changed.updated, ...changed.removed].filter(
+      (r) => r.type !== "meta" && !released.has(r.id),
+    );
+    if (suspects.length === 0) return null;
+    const now = this.ctx.store.project;
+    const index = (p: Project) => {
+      const m = new Map<string, Record<string, unknown>>();
+      for (const list of [p.levels, p.walls, p.openings, p.rooms, p.items, p.zones, p.annotations])
+        for (const e of list as unknown as Record<string, unknown>[]) m.set(e.id as string, e);
+      return m;
+    };
+    const before = index(was);
+    const after = index(now);
+    const theirs = suspects
+      .filter((r) => {
+        // A removed entity is gone from the project, so it is read from the copy taken before the
+        // call; one neither copy knows is left alone rather than guessed at.
+        const by = (before.get(r.id) ?? after.get(r.id))?.by as
+          | { touchedByPerson: boolean; createdBy: string }
+          | undefined;
+        if (!by || !(by.touchedByPerson || by.createdBy === "import")) return false;
+        const old = before.get(r.id);
+        const fresh = after.get(r.id);
+        // Still theirs, but did this call really change it? Moving one wall re-mitres the walls it
+        // joins, and creating a room adopts the items standing in it. Asking leave for those would
+        // be asking about work nobody did, which teaches a person to wave the question away.
+        return !old || !fresh || !sameButForDerived(old, fresh);
+      })
+      .map((r) => r.id);
+    if (theirs.length === 0) return null;
+    const named = theirs.slice(0, 3).join(", ");
+    const more = theirs.length > 3 ? ` and ${theirs.length - 3} more` : "";
+    return {
+      code: "consent.needed",
+      message: `${named}${more} ${theirs.length === 1 ? "was" : "were"} made or changed by the person; ask before changing ${theirs.length === 1 ? "it" : "them"}`,
+      entityId: theirs[0] ?? null,
+      hint: "call ask_user with kind 'consent' and these ids, then make this call again",
+    };
   }
 
   /** IR validation plus the rules pack's design rules (spec 07 section 4) when a pack is loaded. */

@@ -17,6 +17,7 @@ import {
   type AgentEvent,
   type AskRequest,
   type ChatMessage,
+  CONSENT_OPTIONS,
   type ContentPart,
   designerSystem,
   LOOP_TOOL_NAMES,
@@ -300,7 +301,7 @@ export class AgentRuns {
       const run = await runAgent({
         provider: req.provider,
         tools: registryToolSpecs(registry, req.reliability),
-        callTool: (name, args) => registry.call(name, args, { origin: "agent" }),
+        callTool: (name, args, released) => registry.call(name, args, { origin: "agent", released }),
         // The prompt is built for this session, not for every session: a model that cannot see is
         // never told to look at a render, and a session without a rules pack is never told to
         // furnish a room from one.
@@ -314,6 +315,9 @@ export class AgentRuns {
             sourceImage: req.attached.some((a) => a.mime.startsWith("image/")),
           }),
         task: taskOf(req.text, req.attached, session.store.selection, req.provider, mine),
+        // What they had selected when they asked is what they were pointing at: consent for this
+        // run, without a question (ADR-023 D3).
+        released: session.store.selection,
         history: mine.conversation,
         ...(this.options.maxSteps ? { maxSteps: this.options.maxSteps } : {}),
         signal: active.controller.signal,
@@ -331,8 +335,12 @@ export class AgentRuns {
                 id: request.id,
                 text: request.question,
                 kind: request.kind,
-                options: request.options,
+                options:
+                  request.kind === "consent" && request.options.length === 0
+                    ? CONSENT_OPTIONS
+                    : request.options,
                 draftId: request.draftId,
+                ids: request.ids,
               });
             }),
         },

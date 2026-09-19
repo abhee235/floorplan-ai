@@ -235,6 +235,7 @@ describe("a question", () => {
       { id: "b", label: "Huddle" },
     ],
     draftId: null,
+    ids: [],
   });
 
   it("puts the run in waiting, and shows what was answered", () => {

@@ -150,6 +150,10 @@ export function checking(o: WorldOptions): Section {
 
 export function asking(o: WorldOptions): Section {
   return section("# Asking the person", [
+    "Anything the drawing says a person made or changed is theirs. Before you change, move or delete one of those, ask with ask_user kind 'consent', naming the ids and saying what you want to do with them and why.",
+    "A view shows `by` with `askFirst: true` on exactly those things. Nothing else needs a question, and the registry refuses a call that changes one without leave, so asking is faster than not.",
+    'What they had selected when they asked you is already yours for this run: selecting the sofa and saying "turn this round" is the answer to the question you would have asked.',
+    'An answer covers that run and no more. Do not carry "yes, move it" into the next thing you feel like moving.',
     "ask_user when a choice changes what gets built and you cannot reasonably decide: a plan's scale, a plot size nobody gave you, which of two rooms they meant.",
     'A word that means different rooms to different people is worth one question. In an Indian brief a "hall" is the living room and a "lobby" is the entrance foyer; in a British one a "hall" is the corridor by the front door.',
     "Do not ask permission to carry on, do not ask which colour, do not report progress as a question. One question, then build.",

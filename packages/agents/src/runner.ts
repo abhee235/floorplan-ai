@@ -10,6 +10,8 @@ import {
   type AskRequest,
   answerText,
   applyPlan,
+  CONSENT_NO,
+  CONSENT_NONE,
   describePlan,
   LOOP_TOOL_NAMES,
   PLAN_WORK,
@@ -88,8 +90,14 @@ export interface AgentOptions {
   provider: Provider;
   /** Tools advertised to the model; calls to other names still reach `callTool`, which rejects them. */
   tools: readonly ToolSpec[];
-  /** Runs one call and returns its envelope; expected not to throw (the registry never does). */
-  callTool(name: string, args: unknown): Promise<unknown>;
+  /**
+   * Runs one call and returns its envelope; expected not to throw (the registry never does).
+   *
+   * `released` is the set of entity ids the person has allowed this run to change although they
+   * made or touched them (ADR-023 D3). The loop keeps it and grows it as consent is given; the
+   * registry is what enforces it.
+   */
+  callTool(name: string, args: unknown, released: ReadonlySet<string>): Promise<unknown>;
   system: string;
   /** What to do. Image parts carry an attached plan to a model that can see one. */
   task: string | ContentPart[];
@@ -115,6 +123,11 @@ export interface AgentOptions {
   };
   /** Which gates may speak; both do unless a caller says otherwise. */
   gates?: { plan?: boolean; verify?: boolean };
+  /**
+   * Entities this run may change from the start, whoever made them: what the person had selected
+   * when they asked. Selecting a thing and saying "turn this round" is consent (ADR-023 D3).
+   */
+  released?: Iterable<string>;
   /** Tool names that change the project, and the ones that check it, for the verify gate. */
   mutatingTools?: ReadonlySet<string>;
   verifyingTools?: ReadonlySet<string>;
@@ -321,6 +334,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
   const messages: ChatMessage[] = [...(options.history ?? []), { role: "user", content: options.task }];
   const usage: Usage = { promptTokens: 0, completionTokens: 0 };
   let plan: PlanItem[] = [...(options.loop?.plan ?? [])];
+  const released = new Set<string>(options.released ?? []);
   let gates: GateState = newGateState();
   const mutating = options.mutatingTools ?? new Set<string>();
   const verifying = options.verifyingTools ?? new Set<string>();
@@ -334,6 +348,8 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
   let lastPromptTokens = 0;
   let warnedTruncation = false;
   let stall: string | null = null;
+  // The person said "leave all my work alone": every later consent question is answered for them.
+  let consentWithheld = false;
 
   const emit = (event: AgentEvent) => {
     events.push(event);
@@ -490,7 +506,15 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
         }
       } else if (call.name === ASK_USER && options.loop?.ask) {
         const asked = parseAsk(parsed.value, call.id);
-        if (!asked.ok) {
+        if (asked.ok && asked.request.kind === "consent" && consentWithheld) {
+          // They have already said to leave their work alone. Asking again is the second question,
+          // and the second question is what makes a person stop reading them.
+          result = {
+            ok: true,
+            result: { answered: answerText(asked.request, { [asked.request.id]: CONSENT_NONE }) },
+            warnings: [],
+          };
+        } else if (!asked.ok) {
           result = {
             ok: false,
             error: { code: "ask.invalid", message: asked.error, entityId: null, hint: asked.hint },
@@ -503,6 +527,12 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
             // the run rather than leaving it waiting for someone who has gone.
             const answers = await options.loop.ask(asked.request);
             emit({ type: "question.answered", step: steps, at: now(), id: call.id, answers });
+            if (asked.request.kind === "consent") {
+              const said = answers[asked.request.id] ?? answers.answer ?? Object.values(answers)[0] ?? "";
+              // "none" answers every later question too: being asked twice is what stops a person reading.
+              if (said === CONSENT_NONE) consentWithheld = true;
+              else if (said !== CONSENT_NO) for (const id of asked.request.ids) released.add(id);
+            }
             result = { ok: true, result: { answered: answerText(asked.request, answers) }, warnings: [] };
           } catch (e) {
             if (options.signal?.aborted) return finish("aborted");
@@ -519,7 +549,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
           }
         }
       } else {
-        result = await options.callTool(call.name, parsed.value);
+        result = await options.callTool(call.name, parsed.value, released);
       }
       const ok = isOk(result);
       if (!ok) failedCalls += 1;

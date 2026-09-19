@@ -144,7 +144,7 @@ export async function runAgentTask(
     tools,
     system,
     task,
-    callTool: (name, args) => session.registry.call(name, args),
+    callTool: (name, args, released) => session.registry.call(name, args, { released }),
     now,
     ...(options.maxSteps !== undefined ? { maxSteps: options.maxSteps } : {}),
     ...(options.signal ? { signal: options.signal } : {}),

@@ -106,7 +106,13 @@ describe("viewer bridge over a real WebSocket (ADR-005 D4, D5, spec 06 B)", () =
     await client.send({ type: "hello", clientVersion: "t", capabilities: ["plan"] });
     await client.next("snapshot");
     const changes = client.next("changes");
-    const r = await session.registry.call("modify_wall", { wallId: "wall_000004", thickness: 200 });
+    // the fixture is a migrated file, so its walls are the person's; a run releases what it was
+    // given before it may change any of them (ADR-023 D3)
+    const r = await session.registry.call(
+      "modify_wall",
+      { wallId: "wall_000004", thickness: 200 },
+      { released: new Set(["wall_000004"]) },
+    );
     expect(r.ok).toBe(true);
     const msg = await changes;
     expect(msg).toMatchObject({ seq: 1, origin: "agent", historyPosition: 1 });

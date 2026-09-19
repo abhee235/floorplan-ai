@@ -36,9 +36,11 @@ export type AgentItem =
       id: string;
       questionId: string;
       text: string;
-      ask: "text" | "choice" | "scale";
+      ask: "text" | "choice" | "scale" | "consent";
       options: { id: string; label: string; description?: string }[];
       draftId: string | null;
+      /** For "consent": the entities the agent wants to change, so the card can name and show them. */
+      ids: string[];
       answered: string | null;
     }
   | { kind: "note"; id: string; tone: "warning" | "reminder" | "retry" | "error" | "done"; text: string };
@@ -246,6 +248,7 @@ export function reduce(state: AgentState, msg: AgentEventMsg | AgentStateMsg): A
             id: nextId("q"),
             questionId: event.id,
             text: event.text,
+            ids: event.ids ?? [],
             ask: event.kind,
             options: event.options,
             draftId: event.draftId,

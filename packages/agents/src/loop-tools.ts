@@ -53,15 +53,16 @@ export const PLAN_WORK_SPEC: ToolSpec = {
 export const ASK_USER_SPEC: ToolSpec = {
   name: ASK_USER,
   description:
-    "Ask the person a question and wait for the answer. Use it only when a choice changes what gets built and you cannot reasonably decide — a plan's scale, which room they meant, a size they alone know. Do not use it to report progress or to ask permission to carry on.",
+    "Ask the person a question and wait for the answer. Use it when a choice changes what gets built and you cannot reasonably decide — a plan's scale, which room they meant, a size they alone know — and always with kind 'consent' before you change anything they made or altered themselves, naming the ids. Do not use it to report progress or to ask permission to carry on with your own work.",
   parameters: {
     type: "object",
     properties: {
       question: { type: "string", description: "one question, in a sentence" },
       kind: {
         type: "string",
-        enum: ["text", "choice", "scale"],
-        description: "'choice' offers options, 'scale' asks about an imported plan's units",
+        enum: ["text", "choice", "scale", "consent"],
+        description:
+          "'choice' offers options, 'scale' asks about an imported plan's units, 'consent' asks leave to change the entities in 'ids'",
       },
       options: {
         type: "array",
@@ -73,6 +74,11 @@ export const ASK_USER_SPEC: ToolSpec = {
         },
       },
       draftId: { type: "string", description: "for kind 'scale': the draft being reviewed" },
+      ids: {
+        type: "array",
+        description: "for kind 'consent': the entity ids you want to change",
+        items: { type: "string" },
+      },
     },
     required: ["question"],
   },
@@ -81,9 +87,11 @@ export const ASK_USER_SPEC: ToolSpec = {
 export interface AskRequest {
   id: string;
   question: string;
-  kind: "text" | "choice" | "scale";
+  kind: "text" | "choice" | "scale" | "consent";
   options: { id: string; label: string; description?: string }[];
   draftId: string | null;
+  /** For kind "consent": what the model is asking leave to change (ADR-023 D3). */
+  ids: string[];
 }
 
 export type PlanResult =
@@ -176,10 +184,23 @@ export function planForPrompt(items: readonly PlanItem[]): string {
 export type AskResult = { ok: true; request: AskRequest } | { ok: false; error: string; hint: string };
 
 export function parseAsk(raw: unknown, id: string): AskResult {
-  const a = (raw ?? {}) as { question?: unknown; kind?: unknown; options?: unknown; draftId?: unknown };
+  const a = (raw ?? {}) as {
+    question?: unknown;
+    kind?: unknown;
+    options?: unknown;
+    draftId?: unknown;
+    ids?: unknown;
+  };
   const question = typeof a.question === "string" ? a.question.trim() : "";
   if (!question) return { ok: false, error: "there is no question", hint: "ask one question, in a sentence" };
-  const kind = a.kind === "choice" || a.kind === "scale" ? a.kind : "text";
+  const kind = a.kind === "choice" || a.kind === "scale" || a.kind === "consent" ? a.kind : "text";
+  const ids = Array.isArray(a.ids) ? a.ids.filter((x): x is string => typeof x === "string") : [];
+  if (kind === "consent" && ids.length === 0)
+    return {
+      ok: false,
+      error: "a consent question has to name what it is asking about",
+      hint: "pass ids: the entities you want to change",
+    };
   const options = Array.isArray(a.options)
     ? a.options.flatMap((o) => {
         const x = o as { id?: unknown; label?: unknown; description?: unknown };
@@ -207,6 +228,7 @@ export function parseAsk(raw: unknown, id: string): AskResult {
       kind,
       options,
       draftId: typeof a.draftId === "string" ? a.draftId : null,
+      ids,
     },
   };
 }
@@ -215,6 +237,29 @@ export function parseAsk(raw: unknown, id: string): AskResult {
 export function answerText(request: AskRequest, answers: Record<string, string>): string {
   const given = answers[request.id] ?? answers.answer ?? Object.values(answers)[0] ?? "";
   if (!given) return "The person did not answer; decide for yourself and say what you assumed.";
+  if (request.kind === "consent") {
+    if (given === CONSENT_NO)
+      return `The person said to leave ${request.ids.join(", ")} as they are. Work round them and say so in your answer.`;
+    if (given === CONSENT_NONE)
+      return "The person said to leave everything of theirs alone for the rest of this run. Change only what you made yourself.";
+    return `The person agreed: you may change ${request.ids.join(", ")} in this run.`;
+  }
   const chosen = request.options.find((o) => o.id === given);
   return `The person answered: ${chosen ? chosen.label : given}`;
 }
+
+/** The three answers a consent question takes (ADR-023 D3). */
+export const CONSENT_YES = "yes";
+export const CONSENT_NO = "no";
+export const CONSENT_NONE = "none";
+
+/** The options a consent question offers, so every tab draws the same three. */
+export const CONSENT_OPTIONS: { id: string; label: string; description?: string }[] = [
+  { id: CONSENT_YES, label: "Change them" },
+  { id: CONSENT_NO, label: "Leave them as they are" },
+  {
+    id: CONSENT_NONE,
+    label: "Leave all my work alone",
+    description: "for the rest of this run, so you are not asked again",
+  },
+];

@@ -48,6 +48,13 @@ describe("what the prompt tells the model", () => {
     expect(full).toMatch(/creating and deleting the same thing a third time/);
   });
 
+  it("says whose work it must ask about before touching", () => {
+    expect(full).toMatch(/ask with ask_user kind 'consent', naming the ids/);
+    expect(full).toMatch(/askFirst: true/);
+    expect(full).toMatch(/selecting the sofa and saying "turn this round"/);
+    expect(full).toMatch(/An answer covers that run and no more/);
+  });
+
   it("asks for an honest summary rather than a hopeful one", () => {
     expect(full).toMatch(/Report what happened, not what you meant to happen/);
     expect(full).toMatch(/do not hedge work that is done/i);

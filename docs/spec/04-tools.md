@@ -32,6 +32,36 @@ RoomView    = { id, levelId, name, purpose, capacity, areaM2, perimeterMm, bound
 ItemView    = { id, levelId, productId | recipe, name, category, position, rotation, elevation, size, footprint: Point[], bounds3, roomId, parentId, mount, verified }
 ```
 
+## 1a. Consent: whose work the agent may change
+
+A call made with `origin: "agent"` that updates or removes an entity whose `by`
+says a person made or touched it, or that an import brought in, is refused and
+taken back (ADR-023 D4):
+
+```json
+{ "ok": false, "error": {
+  "code": "consent.needed",
+  "message": "item_000031 was made or changed by the person; ask before changing it",
+  "entityId": "item_000031",
+  "hint": "call ask_user with kind 'consent' and these ids, then make this call again" } }
+```
+
+After the call rather than before it, because a tool does not know what it will
+touch until it has, and the store already knows how to take a call back.
+
+`CallOptions.released` carries the ids this run may change anyway: what the
+person had selected when they asked, plus whatever a consent question has since
+released. The agent loop keeps that set and grows it; the registry enforces it.
+
+Changes nobody chose do not count. Moving one wall re-mitres the walls it joins
+and creating a room adopts the items standing in it, so an entity whose only
+difference is `joins`, `boundingWallIds`, `roomId` or the stamp itself is not a
+change to ask about. A call from the editor is never refused: the editor is the
+person's.
+
+Views carry `by` only when the answer is "ask first", so a model reading back
+its own work sees nothing extra.
+
 ## 2. Inspect tools (tier: both)
 
 ### get_scene

@@ -298,9 +298,11 @@ export type AgentWireEvent =
       step: number;
       id: string;
       text: string;
-      kind: "text" | "choice" | "scale";
+      kind: "text" | "choice" | "scale" | "consent";
       options: { id: string; label: string; description?: string }[];
       draftId: string | null;
+      /** For kind "consent": what the agent is asking leave to change (ADR-023 D3). */
+      ids: string[];
     }
   | { type: "question.answered"; id: string; answers: Record<string, string>; by: "person" | "review" }
   | { type: "reminder"; step: number; gate: "plan" | "verify"; text: string }

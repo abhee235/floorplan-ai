@@ -268,6 +268,7 @@ describe("answering it", () => {
       { id: "b", label: "Huddle" },
     ],
     draftId: null,
+    ids: [],
   };
 
   it("offers the choices as buttons", async () => {
