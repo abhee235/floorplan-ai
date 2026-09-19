@@ -13,6 +13,7 @@ import {
   Menubar,
   MenubarContent,
   MenubarItem,
+  MenubarLabel,
   MenubarMenu,
   MenubarRadioGroup,
   MenubarRadioItem,
@@ -31,6 +32,8 @@ export type MenuEntry =
   | string
   | { separator: true }
   | { title: string; entries: MenuEntry[] }
+  /** A heading over the lines beneath it, as the shadcn menubar puts one over a radio group. */
+  | { label: string }
   /** A set of commands where one is the state the editor is in, shown with the mark beside it. */
   | { radio: string[]; current: string };
 
@@ -62,6 +65,7 @@ export function menus(view: string): MenuDefinition[] {
     {
       title: "View",
       entries: [
+        { label: "Layout" },
         { radio: ["view.plan", "view.both", "view.3d"], current: `view.${view}` },
         { separator: true },
         "view.fit",
@@ -95,6 +99,7 @@ export function menuCommandIds(view = "both"): string[] {
       if (typeof entry === "string") out.push(entry);
       else if ("radio" in entry) out.push(...entry.radio);
       else if ("entries" in entry) walk(entry.entries);
+      // a label names nothing and runs nothing
     }
   };
   for (const menu of menus(view)) walk(menu.entries);
@@ -107,6 +112,7 @@ function keyed(entries: MenuEntry[]): { entry: MenuEntry; key: string }[] {
   return entries.map((entry) => {
     if (typeof entry === "string") return { entry, key: entry };
     if ("separator" in entry) return { entry, key: `separator-${(separators += 1)}` };
+    if ("label" in entry) return { entry, key: `label-${entry.label}` };
     if ("radio" in entry) return { entry, key: entry.radio.join("|") };
     return { entry, key: entry.title };
   });
@@ -114,6 +120,9 @@ function keyed(entries: MenuEntry[]): { entry: MenuEntry; key: string }[] {
 
 function Lines({ entries, commands }: { entries: MenuEntry[]; commands: CommandRegistry }): JSX.Element {
   const run = (id: string) => void commands.run(id);
+  // A menu holding a radio or checkbox line indents every other line to match, so the titles form one
+  // column rather than stepping in and out around the marks. The shadcn menubar does this with `inset`.
+  const inset = entries.some((e) => typeof e === "object" && "radio" in e);
   return (
     <>
       {keyed(entries).map(({ entry, key }) => {
@@ -123,13 +132,24 @@ function Lines({ entries, commands }: { entries: MenuEntry[]; commands: CommandR
           // this replaces. It is skipped here and caught by a test rather than shown.
           if (!command) return null;
           return (
-            <MenubarItem key={entry} disabled={!(command.enabled?.() ?? true)} onSelect={() => run(entry)}>
+            <MenubarItem
+              key={entry}
+              inset={inset}
+              disabled={!(command.enabled?.() ?? true)}
+              onSelect={() => run(entry)}
+            >
               {command.title}
               {command.shortcut ? <MenubarShortcut>{command.shortcut}</MenubarShortcut> : null}
             </MenubarItem>
           );
         }
         if ("separator" in entry) return <MenubarSeparator key={key} />;
+        if ("label" in entry)
+          return (
+            <MenubarLabel key={key} inset={inset} className="text-muted-foreground text-xs">
+              {entry.label}
+            </MenubarLabel>
+          );
         if ("radio" in entry)
           return (
             <MenubarRadioGroup key={key} value={entry.current}>
@@ -145,7 +165,7 @@ function Lines({ entries, commands }: { entries: MenuEntry[]; commands: CommandR
           );
         return (
           <MenubarSub key={key}>
-            <MenubarSubTrigger>{entry.title}</MenubarSubTrigger>
+            <MenubarSubTrigger inset={inset}>{entry.title}</MenubarSubTrigger>
             <MenubarSubContent>
               <Lines entries={entry.entries} commands={commands} />
             </MenubarSubContent>

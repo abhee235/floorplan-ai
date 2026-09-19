@@ -40,7 +40,7 @@ function MenubarTrigger({ className, ...props }: React.ComponentProps<typeof Men
       // h-7 to match the app bar's other controls; quiet until pointed at, and wearing the same accent
       // as an open menu's items so the open one is plainly the open one.
       className={cn(
-        "flex h-7 cursor-default items-center rounded-sm px-2 text-sm font-normal outline-hidden select-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground",
+        "flex h-7 cursor-default items-center rounded-sm px-3 py-1 text-sm font-medium outline-hidden select-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground",
         className,
       )}
       {...props}
