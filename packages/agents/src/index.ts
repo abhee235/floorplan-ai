@@ -53,8 +53,10 @@ export {
 export {
   DESIGNER_SYSTEM,
   type DesignerOptions,
+  designerSystem,
   registryToolSpecs,
   runDesigner,
+  type WorldOptions,
 } from "./roles/designer.js";
 export {
   type PlanReaderOptions,

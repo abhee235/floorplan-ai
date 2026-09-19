@@ -7,7 +7,7 @@ import { join } from "node:path";
 import {
   type AgentEvent,
   type AgentRun,
-  DESIGNER_SYSTEM,
+  designerSystem,
   type Provider,
   type ProviderConfig,
   registryToolSpecs,
@@ -109,7 +109,14 @@ export async function runAgentTask(
   const now = options.now ?? (() => new Date().toISOString());
   const reliability = options.reliability ?? provider.profile.toolReliability;
   const tools = registryToolSpecs(session.registry, reliability);
-  const system = options.system ?? DESIGNER_SYSTEM;
+  const system =
+    options.system ??
+    designerSystem({
+      vision: provider.profile.vision,
+      low: reliability === "low",
+      rules: Boolean(session.ctx.rules),
+      viewer: Boolean(session.ctx.viewer),
+    });
   let transcriptPath: string | null = null;
   const write = (record: unknown) => {
     if (transcriptPath)

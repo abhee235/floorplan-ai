@@ -18,7 +18,7 @@ import {
   type AskRequest,
   type ChatMessage,
   type ContentPart,
-  DESIGNER_SYSTEM,
+  designerSystem,
   LOOP_TOOL_NAMES,
   type PlanItem,
   type Provider,
@@ -301,7 +301,18 @@ export class AgentRuns {
         provider: req.provider,
         tools: registryToolSpecs(registry, req.reliability),
         callTool: (name, args) => registry.call(name, args, { origin: "agent" }),
-        system: this.options.system ?? DESIGNER_SYSTEM,
+        // The prompt is built for this session, not for every session: a model that cannot see is
+        // never told to look at a render, and a session without a rules pack is never told to
+        // furnish a room from one.
+        system:
+          this.options.system ??
+          designerSystem({
+            vision: req.provider.profile.vision,
+            low: req.reliability === "low",
+            rules: Boolean(session.ctx.rules),
+            viewer: Boolean(session.ctx.viewer),
+            sourceImage: req.attached.some((a) => a.mime.startsWith("image/")),
+          }),
         task: taskOf(req.text, req.attached, session.store.selection, req.provider, mine),
         history: mine.conversation,
         ...(this.options.maxSteps ? { maxSteps: this.options.maxSteps } : {}),

@@ -1,17 +1,54 @@
-// The Space Designer role (ADR-007 D3): the workflow prompt, the registry's tools for the provider's reliability
-// profile (ADR-006 D6) as JSON Schema, and the runner calling the registry in-process.
-import { type Registry, type ToolReliability, WORKFLOW_PROMPT } from "@fpv/tools";
+// The Space Designer role (ADR-007 D3): the system prompt, the registry's tools for the provider's
+// reliability profile (ADR-006 D6) as JSON Schema, and the runner calling the registry in-process.
+import type { Registry, ToolReliability } from "@fpv/tools";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import type { Provider, ToolSpec } from "../provider.js";
 import { type AgentOptions, type AgentRun, runAgent } from "../runner.js";
+import {
+  asking,
+  checking,
+  choosing,
+  designing,
+  dwellings,
+  envelope,
+  IDENTITY,
+  join,
+  order,
+  reporting,
+  theModel,
+  type WorldOptions,
+  workplaces,
+} from "./sections.js";
 
-export const DESIGNER_SYSTEM = [
-  WORKFLOW_PROMPT,
-  "You are the Space Designer: you change the project only through the tools, and every length is in millimetres.",
-  "Each tool returns a JSON envelope. When ok is false, read error.message and error.hint and correct the call; never repeat a failing call unchanged.",
-  "Tools that need a service this session lacks (a viewer for render, a search provider for verify_product) say so; skip them and carry on.",
-  "When the task is done, reply in plain text without calling a tool: what you built, any validation problems left, and any unverified bill of materials lines.",
-].join("\n\n");
+export type { WorldOptions } from "./sections.js";
+
+/**
+ * The prompt for one session's world.
+ *
+ * The first version of this was eight lines long and described an office. It produced, from "a three
+ * bedroom apartment with hall and lobby", three 8 m² bedrooms, no kitchen, no bathroom, and
+ * twenty-four walls around nothing -- not because the model was weak but because nothing had told it
+ * how big a bedroom is, that a hall is a living room, or that a plan is designed before it is drawn.
+ * Most of what is below is that missing knowledge.
+ */
+export function designerSystem(world: WorldOptions = {}): string {
+  return join([
+    IDENTITY,
+    theModel(),
+    envelope(world),
+    order(world),
+    designing(),
+    dwellings(),
+    workplaces(),
+    choosing(world),
+    checking(world),
+    asking(world),
+    reporting(),
+  ]);
+}
+
+/** The prompt with nothing connected: the one MCP advertises and the tests pin. */
+export const DESIGNER_SYSTEM = designerSystem({ rules: true, viewer: true, vision: true });
 
 /** The registry's advertised tools for a reliability profile, as OpenAI function parameters. */
 export function registryToolSpecs(registry: Registry, profile: ToolReliability): ToolSpec[] {
@@ -31,6 +68,8 @@ export type DesignerOptions = Omit<AgentOptions, "provider" | "tools" | "callToo
   /** Overrides the provider profile's reliability for which tools are advertised. */
   reliability?: ToolReliability;
   system?: string;
+  /** What this session has, for the prompt; ignored when `system` is given. */
+  world?: WorldOptions;
 };
 
 /** Run one design task against a session's registry. */
@@ -40,13 +79,15 @@ export function runDesigner(
   task: string,
   options: DesignerOptions = {},
 ): Promise<AgentRun> {
-  const { reliability, system, ...rest } = options;
+  const { reliability, system, world, ...rest } = options;
+  const profile = reliability ?? provider.profile.toolReliability;
   return runAgent({
     ...rest,
     provider,
-    tools: registryToolSpecs(registry, reliability ?? provider.profile.toolReliability),
+    tools: registryToolSpecs(registry, profile),
     callTool: (name, args) => registry.call(name, args),
-    system: system ?? DESIGNER_SYSTEM,
+    system:
+      system ?? designerSystem({ vision: provider.profile.vision, low: profile === "low", ...(world ?? {}) }),
     task,
   });
 }

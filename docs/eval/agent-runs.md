@@ -78,3 +78,36 @@ and profile.
 - **Local speed.** With the full prompt, qwen3.8:27b on this machine keeps 12 of
   19 GB on the GPU and reads prompts at about 20 tokens per second, so one turn
   takes about three minutes. Local rows are added when that run finishes.
+
+## The three-bedroom brief, before and after the prompt (2026-09-20)
+
+One brief, "build a 3 bedroom apartment with hall and lobby", run twice through
+the chat agent against gpt-5.6-luna, on either side of the residential
+vocabulary and the sectioned system prompt.
+
+| | before | after |
+|---|---|---|
+| rooms | 5 | 9 |
+| bedroom areas | 8 m² each | 11.6, 12.9, 14.9 m² |
+| kitchen, bathroom | neither | both, plus a separate toilet |
+| items placed | 0 | 20, in every room |
+| walls left around nothing | 24 | 0 |
+| failed tool calls | many, uncounted | 0 of 53 |
+| steps | 40, the budget | 25, finished |
+| prompt tokens | about 760,000 | 420,000 |
+| summary | claimed a finished flat | named the two warnings it left |
+
+Before, "hall" was read as a corridor, `create_room_from_brief` assumed a
+meeting room for every brief, and rooms were deleted and redrawn five times
+over. After, the model read the hall as the living room and the lobby as the
+foyer without being asked, kept a seven-item plan, and its answer said which
+warnings it was leaving behind.
+
+What the run still gets wrong, and what the design phase is for: the plan is a
+three-by-three grid with a room in each cell, so the bathroom is 13.4 m² and the
+toilet 14.1 m² while the living room is 9.8 m². There is no corridor; rooms open
+into one another. Five of the nine rooms have a side with no wall along it,
+because the model drew five interior walls where nine rooms need more, and
+nothing in `validate` says a room's polygon must be fenced in. Room areas by
+purpose, wall enclosure and a reachable route from the entrance are checks a
+program can make, and the architect step is where they belong.
