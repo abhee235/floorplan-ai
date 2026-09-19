@@ -2,13 +2,14 @@
 // actions. Every button runs a registered command rather than calling the bridge itself, so the palette,
 // the keyboard and the mouse all take one path (ADR-018 D3).
 
-import { Box, Columns2, Download, type LucideIcon, Map as MapIcon, Redo2, Undo2, Upload } from "lucide-react";
+import { Box, Columns2, type LucideIcon, Map as MapIcon, Redo2, Undo2 } from "lucide-react";
 import type { JSX } from "react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { Replica } from "../replica.js";
+import { MainMenu } from "./MainMenu.js";
 import { StaleNote } from "./StaleNote.js";
 import type { ViewMode } from "./useEditor.js";
 import { useEditor } from "./useEditor.js";
@@ -20,7 +21,6 @@ export interface AppBarProps {
   stale?: string | null;
   level: string | null;
   onLevel: (levelId: string) => void;
-  onImport: () => void;
 }
 
 const VIEWS: [ViewMode, string, LucideIcon][] = [
@@ -38,7 +38,7 @@ const VIEWS: [ViewMode, string, LucideIcon][] = [
  *  usual 1.2x of a 13px label. */
 const CONTROL = "h-7 gap-1.5 px-2.5 font-normal";
 
-export function AppBar({ replica, stale = null, level, onLevel, onImport }: AppBarProps): JSX.Element {
+export function AppBar({ replica, stale = null, level, onLevel }: AppBarProps): JSX.Element {
   const editor = useEditor();
   const project = useProject(replica);
   const levels = [...(project?.levels ?? [])].sort((a, b) => a.index - b.index);
@@ -47,6 +47,10 @@ export function AppBar({ replica, stale = null, level, onLevel, onImport }: AppB
   return (
     <header className="flex h-10 items-center gap-2 border-b bg-card px-3">
       <strong className="truncate font-semibold">{project?.meta.name ?? "floorplan-ai"}</strong>
+
+      <Separator orientation="vertical" className="mx-1 h-4" />
+
+      <MainMenu />
 
       <Separator orientation="vertical" className="mx-1 h-4" />
 
@@ -104,17 +108,6 @@ export function AppBar({ replica, stale = null, level, onLevel, onImport }: AppB
           </ToggleGroupItem>
         ))}
       </ToggleGroup>
-
-      <Separator orientation="vertical" className="mx-1 h-4" />
-
-      <Button variant="outline" className={CONTROL} onClick={onImport}>
-        <Upload aria-hidden />
-        Import plan…
-      </Button>
-      <Button className={CONTROL} onClick={() => run("file.export")}>
-        <Download aria-hidden />
-        Export
-      </Button>
     </header>
   );
 }

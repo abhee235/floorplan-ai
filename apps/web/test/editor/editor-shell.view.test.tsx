@@ -21,6 +21,7 @@ const handed: AppElements[] = [];
 const started: { replica: Replica }[] = [];
 
 vi.mock("../../src/app.js", () => ({
+  CLIENT_VERSION: "0.0.0-test",
   startApp: (el: AppElements) => {
     handed.push(el);
     for (const host of [el.plan, el.viewport]) {

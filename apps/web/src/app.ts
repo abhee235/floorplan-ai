@@ -1,6 +1,6 @@
 // Browser shell: renderer, controls, plan canvases, bridge connection. Everything DOM-bound lives here;
 // the binding, the plan renderer and the bridge client are testable without it.
-import { apply, type ChangeSet } from "@fpv/commands";
+import { apply, type ChangeSet, type RenderRequestMsg } from "@fpv/commands";
 import type { Layer } from "@fpv/engine";
 import { SELECTION_PX, WALL_END_PX, wallFootprintUnjoined } from "@fpv/geometry";
 import type { Item, Project, Size3, Wall } from "@fpv/ir";
@@ -36,7 +36,7 @@ import { Replica } from "./replica.js";
 import { mountReviewPanel } from "./review-panel.js";
 import { frameScheduler, SceneBinding } from "./viewer/binding.js";
 import { clippingFor } from "./viewer/clipping.js";
-import { renderViews } from "./viewer/render.js";
+import { type CapturedImage, renderViews } from "./viewer/render.js";
 
 export const CLIENT_VERSION = "0.0.1";
 
@@ -78,6 +78,13 @@ export function startApp(el: AppElements): {
   preview: (command: { type: string; payload: unknown } | null) => void;
   /** Paint the drag ghost; the shell composes this into its single overlay painter. */
   drawSelectionDrag: (ctx: Ctx2D, view: PlanView) => void;
+  /**
+   * Frame the whole model in the 3D view. The Fit button has always done this as well as fitting the
+   * plan; the F key and the view.fit command did not, so the two quietly meant different things.
+   */
+  fitCamera: () => void;
+  /** Render one view and hand it to the browser to save; resolves with the file name, or null. */
+  saveImage: (view: string, focusId: string | null) => Promise<string | null>;
   /** Release what startApp attached to the document: the size observer and the window listener. */
   destroy: () => void;
 } {
@@ -852,6 +859,49 @@ export function startApp(el: AppElements): {
       : `bridge ${client.status}`;
   };
 
+  /** Render a request on the live renderer, restoring the viewport afterwards. */
+  const renderRequest = async (req: RenderRequestMsg): Promise<CapturedImage[]> => {
+    // capture each view at the requested size on the live renderer, then restore the viewport
+    const capture = async (camera: THREE.Camera, name: string, w: number, h: number) => {
+      if (name === "plan") return capturePlan(w, h);
+      renderer.setSize(w, h, false);
+      if (camera instanceof THREE.PerspectiveCamera) {
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+      }
+      binding.updateCamera(camera);
+      renderer.render(binding.scene, camera);
+      return renderer.domElement.toDataURL("image/png").split(",")[1] ?? "";
+    };
+    try {
+      return await renderViews(binding, replica.project, req, capture);
+    } finally {
+      resize();
+    }
+  };
+
+  /**
+   * Render one view and hand it to the browser to save. The same path the agent's render tool takes,
+   * so a picture saved from the menu cannot differ from one the agent asks for.
+   */
+  const saveImage = async (view: string, focusId: string | null): Promise<string | null> => {
+    const [image] = await renderRequest({
+      type: "render.request",
+      requestId: "save",
+      views: [{ name: view }],
+      hideWalls: false,
+      focusId,
+      width: 1600,
+    });
+    if (!image) return null;
+    const name = `${(replica.project?.meta.name ?? "plan").replace(/[^\w-]+/g, "-")}-${view}.png`;
+    const link = document.createElement("a");
+    link.href = `data:image/png;base64,${image.pngBase64}`;
+    link.download = name;
+    link.click();
+    return name;
+  };
+
   // ---- bridge ----
   const socket = new WebSocket(bridgeUrl(window.location));
   const client = new BridgeClient(socket, replica, {
@@ -872,25 +922,7 @@ export function startApp(el: AppElements): {
         planDirty = true;
       }
     },
-    onRender: async (req) => {
-      // capture each view at the requested size on the live renderer, then restore the viewport
-      const capture = async (camera: THREE.Camera, name: string, w: number, h: number) => {
-        if (name === "plan") return capturePlan(w, h);
-        renderer.setSize(w, h, false);
-        if (camera instanceof THREE.PerspectiveCamera) {
-          camera.aspect = w / h;
-          camera.updateProjectionMatrix();
-        }
-        binding.updateCamera(camera);
-        renderer.render(binding.scene, camera);
-        return renderer.domElement.toDataURL("image/png").split(",")[1] ?? "";
-      };
-      try {
-        return await renderViews(binding, replica.project, req, capture);
-      } finally {
-        resize();
-      }
-    },
+    onRender: renderRequest,
   });
   const selectionPoll = () => {
     binding.setSelection(replica.selection);
@@ -976,6 +1008,8 @@ export function startApp(el: AppElements): {
     review,
     client,
     preview,
+    fitCamera,
+    saveImage,
     // React drives the zoom dock, and `planDirty` is a closure variable in here. Without this the dock's
     // buttons changed plan.view and nothing ever flushed, so zooming by button did nothing at all while
     // the wheel — which sets planDirty itself — worked fine.

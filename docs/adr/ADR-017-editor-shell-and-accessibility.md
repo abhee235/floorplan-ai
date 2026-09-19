@@ -35,6 +35,27 @@ Nothing floats over the canvas except the zoom cluster, the command palette and
 transient drawing feedback. Panels are always present rather than summoned:
 discoverability beats canvas area for a tool people use daily.
 
+Amendment 2026-09-19: a menu bar — File, Edit, View, 3D, Help — inside the app
+bar's existing row. The editor had no menus at all, so anything without a
+button or a key was reachable only by knowing it was there; the session log
+could be read only from a terminal, and settings had nowhere to live.
+
+It takes no new row. A warning strip once did take one and had to be undone,
+and the same objection applies harder to permanent furniture: the plan is the
+working surface and rows above it come out of the work. The menus pay for
+their horizontal space by absorbing Import and Export, so the bar ends up
+holding fewer controls than before. Undo, Redo and the view switch keep their
+buttons: the first two are the most-pressed controls in an editor, and the
+switch reports the current mode as well as setting it, which a menu cannot do
+while closed.
+
+Every line is a registered command, addressed by id (ADR-018 D3), and a menu
+naming a command the editor does not have fails a test. This is not
+bureaucracy: the bar shipped an Export button wired to `file.export`, which was
+registered nowhere, so every click did nothing at all and said nothing. One
+list of commands feeds the menus, the palette, the shortcut sheet and the key
+handler, so a command cannot be in one and missing from another.
+
 ### D2. Tools are modes with their own options bar
 
 Select, wall, room, opening, item, measure, annotate, and pan. One letter each

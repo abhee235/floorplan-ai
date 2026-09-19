@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { startApp } from "../app.js";
+import { CLIENT_VERSION, startApp } from "../app.js";
 import type { BridgeClient } from "../bridge/client.js";
 import { drawCompass } from "../plan/compass.js";
 import { AppBar } from "./AppBar.js";
@@ -20,6 +20,7 @@ import { CommandPalette } from "./CommandPalette.js";
 import { pageOf } from "./catalog.js";
 import { CommandRegistry } from "./commands.js";
 import { GestureLog, recordGesture, setGestureLog } from "./gestures.js";
+import { AboutDialog, ShortcutsDialog } from "./HelpDialogs.js";
 import { bindItemPlacing, type ItemPlacing } from "./item-placing.js";
 import type { Placeable } from "./item-tool.js";
 import { isInsidePopup, isTypingTarget } from "./keys.js";
@@ -74,6 +75,8 @@ export function EditorShell(): JSX.Element {
   const [pointer, setPointer] = useState<{ x: number; y: number } | null>(null);
   const [scale, setScale] = useState(0);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [level, setLevel] = useState<string | null>(null);
   const [app, setApp] = useState<ReturnType<typeof startApp> | null>(null);
   const [panelTab, setPanelTab] = useState<PanelTab>("properties");
@@ -435,6 +438,84 @@ export function EditorShell(): JSX.Element {
         detail: "a DXF, a PDF or an image",
         run: () => importFileRef.current?.click(),
       },
+      // Export was a button running `file.export`, which was registered nowhere: every click did
+      // nothing, silently. These are the three formats the host can actually write today; the drawing
+      // formats arrive with P3-7 and will be added here then rather than offered and refused.
+      ...(
+        [
+          ["csv", "Bill of materials (CSV)"],
+          ["xlsx", "Bill of materials (Excel)"],
+          ["glb", "3D model (GLB)"],
+        ] as const
+      ).map(([format, title]) => ({
+        id: `file.export.${format}`,
+        title,
+        group: "File",
+        detail: "written beside the project",
+        run: async () => {
+          const name = (replica.project?.meta.name ?? "project").replace(/[^\w-]+/g, "-").toLowerCase();
+          announcer.say(`Writing the ${format.toUpperCase()}…`);
+          // includeUnverified: a line whose product is unverified is HIGHLIGHTED in the file, which is
+          // the designed behaviour (ADR-013). Refusing the person's own Export over it would only send
+          // them round the same loop. Validation errors still refuse, because a broken project must not
+          // be exported quietly.
+          const reply = await client.tool("export", {
+            format,
+            path: `${name}.${format}`,
+            includeUnverified: true,
+            overwrite: true,
+          });
+          if (!reply.ok) {
+            announcer.alert(`Nothing was written: ${reply.error?.message ?? "the host refused the export"}`);
+            return;
+          }
+          const out = (reply.result as { result?: { path?: string; bytes?: number } } | undefined)?.result;
+          announcer.say(`Written to ${out?.path ?? "the project folder"}.`);
+        },
+      })),
+      {
+        id: "camera.fit",
+        title: "Fit the 3D view to the model",
+        group: "3D",
+        run: () => {
+          app?.fitCamera();
+          announcer.say("3D view fitted to the model.");
+        },
+      },
+      ...(
+        [
+          ["plan", "Of the plan"],
+          ["model", "Of the model"],
+          ["eye", "At eye level"],
+        ] as const
+      ).map(([which, title]) => ({
+        id: `image.${which}`,
+        title,
+        group: "3D",
+        detail: "saved as a PNG",
+        run: async () => {
+          if (!app) return;
+          // "model" is the three-quarter view the render tool calls "room"; focused on the selection
+          // when a room is picked, and on everything when nothing is.
+          const view = which === "model" ? "room" : which;
+          const room = replica.selection.find((id) => id.startsWith("room_")) ?? null;
+          announcer.say("Rendering…");
+          const saved = await app.saveImage(view, room);
+          announcer.say(saved ? `Saved ${saved}.` : "Nothing was rendered.");
+        },
+      })),
+      {
+        id: "help.shortcuts",
+        title: "Keyboard shortcuts…",
+        group: "Help",
+        run: () => setShortcutsOpen(true),
+      },
+      {
+        id: "help.about",
+        title: "About floorplan-ai…",
+        group: "Help",
+        run: () => setAboutOpen(true),
+      },
     );
     for (const t of TOOLS)
       commands.add({
@@ -586,7 +667,6 @@ export function EditorShell(): JSX.Element {
                 app?.plan.setLevel(id);
                 setLevel(id);
               }}
-              onImport={() => importFileRef.current?.click()}
             />
           ) : (
             <header className="flex h-10 items-center border-b bg-card px-3">
@@ -775,6 +855,20 @@ export function EditorShell(): JSX.Element {
           open={paletteOpen}
           onOpenChange={setPaletteOpen}
           onRun={(id) => void commands.run(id)}
+        />
+        <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} commands={commands.all()} />
+        <AboutDialog
+          open={aboutOpen}
+          onOpenChange={setAboutOpen}
+          facts={{
+            appVersion: CLIENT_VERSION,
+            hostVersion: app?.client.welcome?.hostVersion ?? null,
+            protocolVersion: app?.client.welcome?.protocolVersion ?? null,
+            projectName: app?.replica.project?.meta.name ?? null,
+            projectPath: app?.client.welcome?.path ?? null,
+            stale: app?.client.welcome?.stale ?? null,
+            bridge: app?.client.status ?? "not connected",
+          }}
         />
       </TooltipProvider>
     </EditorContext.Provider>
