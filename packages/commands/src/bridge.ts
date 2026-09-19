@@ -72,6 +72,16 @@ export const ClientMessage = z.discriminatedUnion("type", [
     from: z.number().int().min(0).optional(),
     limit: z.number().int().min(1).max(2000).optional(),
   }),
+  // Looking around the host's folders so a project can be opened or saved by name (ADR-012 D7). A tab
+  // cannot show a native picker for a directory on the machine running the host, so the host lists and
+  // the tab draws. `browse` lists one directory; `recent` returns the remembered projects and the
+  // shortcuts to start from.
+  z.object({
+    id: Id,
+    type: z.literal("files"),
+    op: z.enum(["browse", "recent"]),
+    path: z.string().optional(),
+  }),
   // The one client message that expects no result: there is nothing to wait for, and a round trip per
   // click would make the log something the editor pays for.
   z.object({
@@ -131,6 +141,25 @@ export interface ProblemsMsg {
   type: "problems";
   problems: Problem[];
 }
+/**
+ * What is open and whether it is saved (ADR-012 D7). Sent on connecting and whenever the answer
+ * changes: a project opened, a save finished, a recovery file appeared.
+ *
+ * `savedPosition` is here because saving emits no change — the store's history does not move when the
+ * file is written, so a replica watching only the change stream would show a modified mark for the rest
+ * of the session. The mark is `historyPosition !== savedPosition`, and both sides count the same way.
+ */
+export interface ProjectStateMsg {
+  type: "project.state";
+  path: string | null;
+  name: string;
+  historyPosition: number;
+  savedPosition: number;
+  lastSavedAt: string | null;
+  /** ISO time of a recovery file newer than the saved project, or null. */
+  recoveryAvailable: string | null;
+  modifiedOutside: boolean;
+}
 export interface RenderRequestMsg {
   type: "render.request";
   requestId: string;
@@ -174,6 +203,7 @@ export type HostMessage =
   | SnapshotMsg
   | ChangesMsg
   | ProblemsMsg
+  | ProjectStateMsg
   | RenderRequestMsg
   | SelectionMsg
   | AgentEventMsg

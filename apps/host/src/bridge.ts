@@ -11,11 +11,13 @@ import {
   type DraftMsg,
   type HostMessage,
   PROTOCOL_VERSION,
+  type ProjectStateMsg,
   parseClientMessage,
   type ResultMsg,
 } from "@fpv/commands";
 import type { DraftPresentation, RenderedImage, RenderRequest, ViewerRenderer } from "@fpv/tools";
 import type { WebSocket } from "ws";
+import { browse, places, startingDir } from "./browse.js";
 import { plainDetail } from "./log.js";
 import { entriesFrom, pickRun, runs } from "./log-read.js";
 import type { Session } from "./session.js";
@@ -49,6 +51,18 @@ interface ClientState {
   hello: boolean;
 }
 
+/** One project this installation opened lately, as the editor's Open dialog shows it. */
+export interface RecentEntry {
+  path: string;
+  name: string;
+  at: string;
+}
+
+export interface BridgeOptions {
+  /** The lately-opened projects, read fresh each time so another host's opens are seen too. */
+  recent?: () => RecentEntry[];
+}
+
 export class Bridge implements ViewerRenderer {
   private readonly clients = new Set<ClientState>();
   private seq = 0;
@@ -58,13 +72,19 @@ export class Bridge implements ViewerRenderer {
     { resolve: (images: RenderedImage[]) => void; reject: (e: Error) => void }
   >();
   private readonly unsubscribe: () => void;
+  private readonly unwatchFiles: (() => void) | null;
   /** The draft under review, sent to clients that connect while it is open. */
   private draft: DraftMsg | null = null;
 
   constructor(
     private readonly session: Session,
     private readonly projectPath: () => string | null = () => null,
+    private readonly options: BridgeOptions = {},
   ) {
+    // What is open and whether it is saved changes without the history moving — a save, an open, a
+    // recovery write — so none of it appears in the change stream below (ADR-012 D7).
+    const files = session.ctx.files;
+    this.unwatchFiles = files?.watch ? files.watch(() => this.broadcast(this.projectState())) : null;
     this.unsubscribe = session.store.subscribe((e) => {
       const msg: ChangesMsg = {
         type: "changes",
@@ -115,6 +135,22 @@ export class Bridge implements ViewerRenderer {
     body: Omit<ResultMsg, "id" | "type" | "ok"> = {},
   ): void {
     this.send(state, { id, type: "result", ok, ...body });
+  }
+
+  /** What is open and whether it is saved, as the editor's title and File menu need it. */
+  private projectState(): ProjectStateMsg {
+    const store = this.session.store;
+    const files = this.session.ctx.files;
+    return {
+      type: "project.state",
+      path: files?.path() ?? this.projectPath(),
+      name: store.project.meta.name,
+      historyPosition: store.historyPosition,
+      savedPosition: store.savedPosition,
+      lastSavedAt: files?.lastSavedAt() ?? null,
+      recoveryAvailable: files?.recoveryAt() ?? null,
+      modifiedOutside: files?.modifiedOutside ?? false,
+    };
   }
 
   private snapshot(): HostMessage {
@@ -188,6 +224,7 @@ export class Bridge implements ViewerRenderer {
           stale: behind,
         });
         this.send(state, this.snapshot());
+        this.send(state, this.projectState());
         this.send(state, { type: "problems", problems: this.session.registry.problems() });
         this.send(state, { type: "selection", ids: store.selection });
         if (this.draft) this.send(state, this.draft);
@@ -275,6 +312,28 @@ export class Bridge implements ViewerRenderer {
             ? { result: r }
             : { error: { code: r.error.code, message: r.error.message, hint: r.error.hint } },
         );
+        // `project new` replaces the project without touching a file, so the files' own watcher never
+        // fires; the saved position still moved and every tab needs the new answer.
+        if (msg.name === "project") this.broadcast(this.projectState());
+        return;
+      }
+      case "files": {
+        // The host lists its own folders so the editor can offer a picker (ADR-012 D7). A browser
+        // cannot show one for a directory on this machine, and `project open` takes any path already.
+        if (msg.op === "recent") {
+          const current = this.session.ctx.files?.path() ?? this.projectPath();
+          this.reply(state, msg.id, true, {
+            result: {
+              recent: this.options.recent?.() ?? [],
+              places: await places(current),
+              start: startingDir(current),
+              current,
+            },
+          });
+          return;
+        }
+        const where = msg.path ?? startingDir(this.session.ctx.files?.path() ?? this.projectPath());
+        this.reply(state, msg.id, true, { result: await browse(where) });
         return;
       }
       case "log": {
@@ -396,6 +455,7 @@ export class Bridge implements ViewerRenderer {
 
   close(): void {
     this.unsubscribe();
+    this.unwatchFiles?.();
     for (const c of this.clients) c.socket.close(1001, "host closing");
     this.clients.clear();
     if (this.session.ctx.viewer === this) this.session.ctx.viewer = null;

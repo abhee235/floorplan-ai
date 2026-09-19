@@ -137,6 +137,15 @@ export interface ProjectFiles {
   recoveryAt(): string | null;
   open(path: string, options?: OpenOptions): Promise<OpenInfo>;
   save(path: string | null, options?: { signal?: AbortSignal }): Promise<{ path: string; bytes: number }>;
+  /** Whether the file on disk no longer matches the manifest hash; absent when the host cannot tell. */
+  readonly modifiedOutside?: boolean;
+  /**
+   * Called when what is open, or whether it is saved, changes — an open, a save, a recovery file
+   * written. The viewer bridge uses it to tell connected tabs, because none of these move the store's
+   * history and so none of them appear in the change stream. Optional: a session without files, or one
+   * whose files nobody is watching, works exactly as before.
+   */
+  watch?(listener: () => void): () => void;
 }
 
 /**

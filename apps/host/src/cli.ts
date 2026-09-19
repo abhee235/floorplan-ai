@@ -19,6 +19,7 @@ import { serveStdio } from "./mcp.js";
 import { dataPaths } from "./paths.js";
 import { FilePlanReader } from "./plans.js";
 import { createReader, loadReaderConfig } from "./reader.js";
+import { noteRecent, readRecentPresent, recentPath } from "./recent.js";
 import { DEFAULT_PORT, serve } from "./server.js";
 import { createSession } from "./session.js";
 import { TextureImages } from "./textures.js";
@@ -214,7 +215,11 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     argv: [...argv],
   });
   // one file store per session; a project given on the command line is opened before anything listens
-  const files = new ProjectFileStore();
+  // Every project this session opens or saves is remembered for File ▸ Open recent (ADR-012 D7).
+  const recentFile = recentPath(catalog.dir);
+  const files = new ProjectFileStore({
+    remember: (entry) => void noteRecent(recentFile, entry),
+  });
   const opened = args.project ? await files.open(args.project) : null;
   if (opened?.recoveryAt)
     process.stderr.write(
@@ -255,6 +260,8 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
       port: args.port,
       projectPath: () => files.path(),
       textures: (id) => images.image(id),
+      // Read fresh per request: another host may have opened something since this one started.
+      recent: () => readRecentPresent(recentFile),
     });
     // stdout may be the MCP transport, so the URL goes to stderr
     process.stderr.write(`floorplan-ai viewer: ${served.url}\n`);

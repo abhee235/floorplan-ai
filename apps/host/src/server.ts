@@ -5,7 +5,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
-import { Bridge } from "./bridge.js";
+import { Bridge, type RecentEntry } from "./bridge.js";
 import type { Session } from "./session.js";
 
 export const DEFAULT_PORT = 4310;
@@ -31,6 +31,8 @@ export interface ServeOptions {
   projectPath?: () => string | null;
   /** Texture images by id, served at /textures/<id> for the viewer (P3-5). */
   textures?: (id: string) => { bytes: Uint8Array; type: string } | null;
+  /** The lately-opened projects, for File ▸ Open recent; read fresh on every request. */
+  recent?: () => RecentEntry[];
 }
 
 export interface Served {
@@ -97,7 +99,9 @@ function serveTexture(textures: ServeOptions["textures"], req: IncomingMessage, 
 export function serve(session: Session, options: ServeOptions = {}): Promise<Served> {
   const webDir = resolve(options.webDir ?? defaultWebDir());
   const host = options.host ?? "127.0.0.1";
-  const bridge = new Bridge(session, options.projectPath ?? (() => null));
+  const bridge = new Bridge(session, options.projectPath ?? (() => null), {
+    ...(options.recent ? { recent: options.recent } : {}),
+  });
   const server = createServer((req, res) => {
     if (req.url?.startsWith("/bridge")) {
       res.writeHead(426, { "content-type": "text/plain" }).end("websocket only");

@@ -100,6 +100,14 @@ export interface ProjectFileStoreOptions {
   autosaveMs?: number;
   /** Override for tests: pretend the volume has this many free bytes. */
   freeBytes?: (dir: string) => Promise<number | null>;
+  /**
+   * Told about each project this session opens or saves, so File ▸ Open recent has something to offer.
+   * The hook lives here rather than at the call sites because a project is opened and saved from four
+   * of them — the command line, the editor, the MCP adapter and the in-app agent — and a list that only
+   * some of them updated would be worse than none. Keeping it a callback leaves this class knowing
+   * nothing about where the list is written.
+   */
+  remember?: (entry: { path: string; name: string; at: string }) => void;
 }
 
 /** Owns the on-disk form of the open project; implements the tools' ProjectFiles hook. */
@@ -113,6 +121,8 @@ export class ProjectFileStore implements ProjectFiles {
   private readonly appVersion: string;
   private readonly autosaveMs: number;
   private readonly free: (dir: string) => Promise<number | null>;
+  private readonly note: ((entry: { path: string; name: string; at: string }) => void) | null;
+  private readonly watchers = new Set<() => void>();
   /** Transient flags of the open project (P-011 reversed: never written). */
   modifiedOutside = false;
   manifestMissing = false;
@@ -122,6 +132,36 @@ export class ProjectFileStore implements ProjectFiles {
     this.appVersion = options.appVersion ?? "0.0.1";
     this.autosaveMs = options.autosaveMs ?? AUTOSAVE_MS;
     this.free = options.freeBytes ?? freeBytes;
+    this.note = options.remember ?? null;
+  }
+
+  /**
+   * Be told when what is open, or whether it is saved, changes. None of these move the store's history,
+   * so none of them reach a replica through the change stream (ADR-012 D7).
+   */
+  watch(listener: () => void): () => void {
+    this.watchers.add(listener);
+    return () => this.watchers.delete(listener);
+  }
+
+  private changed(): void {
+    // A listener that throws is its own problem; it must not fail the save that told it.
+    for (const w of this.watchers)
+      try {
+        w();
+      } catch {
+        // deliberately ignored
+      }
+  }
+
+  /** Remember a project directory as lately used; never worth failing an open or a save over. */
+  private remember(dir: string, name: string): void {
+    if (!this.note) return;
+    try {
+      this.note({ path: dir, name, at: this.now() });
+    } catch {
+      // deliberately ignored
+    }
   }
 
   /** The store whose project is saved; set once the session exists. */
@@ -197,6 +237,8 @@ export class ProjectFileStore implements ProjectFiles {
     } catch {
       this.savedAt = null;
     }
+    this.remember(dir, parsed.project.meta.name);
+    this.changed();
     return {
       project: parsed.project,
       path: dir,
@@ -257,6 +299,8 @@ export class ProjectFileStore implements ProjectFiles {
     this.modifiedOutside = false;
     this.manifestMissing = false;
     store.markSaved();
+    this.remember(dir, store.project.meta.name);
+    this.changed();
     return { path: dir, bytes };
   }
 
@@ -266,6 +310,7 @@ export class ProjectFileStore implements ProjectFiles {
     if (!this.dir || !store.modified) return false;
     await writeAtomic(join(this.dir, RECOVERY_FILE), serialize(store.project));
     this.recovery = this.now();
+    this.changed();
     return true;
   }
 
