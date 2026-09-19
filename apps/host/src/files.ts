@@ -137,7 +137,7 @@ export class ProjectFileStore implements ProjectFiles {
 
   /**
    * Be told when what is open, or whether it is saved, changes. None of these move the store's history,
-   * so none of them reach a replica through the change stream (ADR-012 D7).
+   * so none of them reach a replica through the change stream (ADR-012 D8).
    */
   watch(listener: () => void): () => void {
     this.watchers.add(listener);
@@ -174,7 +174,7 @@ export class ProjectFileStore implements ProjectFiles {
     return this.dir;
   }
 
-  /** Let go of the open project's directory; a new project has never been saved anywhere (ADR-012 D7). */
+  /** Let go of the open project's directory; a new project has never been saved anywhere (ADR-012 D8). */
   forget(): void {
     this.dir = null;
     this.savedAt = null;

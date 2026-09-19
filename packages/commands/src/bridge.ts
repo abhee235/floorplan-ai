@@ -72,7 +72,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
     from: z.number().int().min(0).optional(),
     limit: z.number().int().min(1).max(2000).optional(),
   }),
-  // Looking around the host's folders so a project can be opened or saved by name (ADR-012 D7). A tab
+  // Looking around the host's folders so a project can be opened or saved by name (ADR-012 D8). A tab
   // cannot show a native picker for a directory on the machine running the host, so the host lists and
   // the tab draws. `browse` lists one directory; `recent` returns the remembered projects and the
   // shortcuts to start from.
@@ -142,7 +142,7 @@ export interface ProblemsMsg {
   problems: Problem[];
 }
 /**
- * What is open and whether it is saved (ADR-012 D7). Sent on connecting and whenever the answer
+ * What is open and whether it is saved (ADR-012 D8). Sent on connecting and whenever the answer
  * changes: a project opened, a save finished, a recovery file appeared.
  *
  * `savedPosition` is here because saving emits no change — the store's history does not move when the

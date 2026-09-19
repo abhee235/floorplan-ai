@@ -1,4 +1,4 @@
-// File ▸ Open… and File ▸ Save as… (ADR-012 D7): choosing a project directory on the machine running
+// File ▸ Open… and File ▸ Save as… (ADR-012 D8): choosing a project directory on the machine running
 // the host.
 //
 // A browser cannot show a native picker for a directory on that machine. Its own file input returns

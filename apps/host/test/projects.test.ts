@@ -1,4 +1,4 @@
-// Managing several projects from the editor (ADR-012 D7): the remembered list, looking around the
+// Managing several projects from the editor (ADR-012 D8): the remembered list, looking around the
 // machine's folders, and the message that tells a tab what is open and whether it is saved.
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -25,7 +25,7 @@ function makeProject(root: string, name: string): string {
   return dir;
 }
 
-describe("the remembered projects (ADR-012 D7)", () => {
+describe("the remembered projects (ADR-012 D8)", () => {
   it("keeps the newest first, never repeats one, and stops at the limit", async () => {
     const dir = temp();
     const file = join(dir, "recent.json");
@@ -75,7 +75,7 @@ describe("the remembered projects (ADR-012 D7)", () => {
   });
 });
 
-describe("a new project has no file (ADR-012 D7)", () => {
+describe("a new project has no file (ADR-012 D8)", () => {
   /**
    * `project new` used to leave the file store pointing at whatever was open before it, so the very
    * next save wrote a blank project over that one without a word. File > New followed by Ctrl+S
@@ -146,7 +146,7 @@ describe("a new project has no file (ADR-012 D7)", () => {
   });
 });
 
-describe("looking around the host's folders (ADR-012 D7)", () => {
+describe("looking around the host's folders (ADR-012 D8)", () => {
   it("lists directories, marks the ones that are projects, and sorts those first", async () => {
     const dir = temp();
     makeProject(dir, "zebra-project");
@@ -231,7 +231,7 @@ afterEach(async () => {
   served = null;
 });
 
-describe("what is open, over the bridge (ADR-012 D7)", () => {
+describe("what is open, over the bridge (ADR-012 D8)", () => {
   it("says what is open on connecting, and again when a save moves the saved position", async () => {
     const dir = temp();
     const project = makeProject(dir, "boardroom");

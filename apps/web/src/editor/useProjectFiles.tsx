@@ -1,4 +1,4 @@
-// File ▸ New, Open…, Open recent, Save, Save as… (ADR-012 D7): several projects in one session.
+// File ▸ New, Open…, Open recent, Save, Save as… (ADR-012 D8): several projects in one session.
 //
 // The host has done all of this since the file format was built — the `project` tool takes new, open,
 // save and info, writes atomically, keeps a manifest and autosaves a recovery file. None of it had a

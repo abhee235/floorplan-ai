@@ -215,7 +215,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     argv: [...argv],
   });
   // one file store per session; a project given on the command line is opened before anything listens
-  // Every project this session opens or saves is remembered for File ▸ Open recent (ADR-012 D7).
+  // Every project this session opens or saves is remembered for File ▸ Open recent (ADR-012 D8).
   const recentFile = recentPath(catalog.dir);
   const files = new ProjectFileStore({
     remember: (entry) => void noteRecent(recentFile, entry),

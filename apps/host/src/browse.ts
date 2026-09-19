@@ -1,4 +1,4 @@
-// Looking around the machine's folders from the editor (ADR-012 D7).
+// Looking around the machine's folders from the editor (ADR-012 D8).
 //
 // A project lives in a directory on the machine running the host, and a browser tab cannot show a
 // native picker for one: the file input it does have returns files the BROWSER chose, with no path the

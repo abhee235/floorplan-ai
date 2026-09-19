@@ -168,7 +168,7 @@ export function EditorShell(): JSX.Element {
     setView(mode);
   }, []);
 
-  // What is open, and whether it is saved (ADR-012 D7). Read through the replica rather than kept
+  // What is open, and whether it is saved (ADR-012 D8). Read through the replica rather than kept
   // here: the host is the authority on both, and a save moves the saved position without the project
   // changing at all.
   const projectState = useProjectState(app?.replica ?? null);
@@ -456,7 +456,7 @@ export function EditorShell(): JSX.Element {
         run: () => chooseView("both"),
       },
       { id: "view.3d", title: "Show the 3D view only", group: "View", run: () => chooseView("3d") },
-      // Several projects in one session (ADR-012 D7). Ctrl+N is the browser's own new window and
+      // Several projects in one session (ADR-012 D8). Ctrl+N is the browser's own new window and
       // cannot be taken, so New uses Ctrl+Alt+N; the rest are the shortcuts every editor has.
       {
         id: "file.new",

@@ -1,4 +1,4 @@
-// "You have unsaved work" (ADR-012 D7), before anything that would throw it away.
+// "You have unsaved work" (ADR-012 D8), before anything that would throw it away.
 //
 // Three answers, not two. A confirm with only Discard and Cancel makes the person cancel, save by hand
 // and start again, so the common case — yes, keep it, then carry on — costs three steps. Save and

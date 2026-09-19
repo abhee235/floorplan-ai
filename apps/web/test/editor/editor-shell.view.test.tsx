@@ -274,7 +274,7 @@ describe("switching what is on screen (ADR-017 D1)", () => {
     }
   });
 
-  it("offers the project commands a person looks in File for (ADR-012 D7)", async () => {
+  it("offers the project commands a person looks in File for (ADR-012 D8)", async () => {
     render(<EditorShell />);
     const user = userEvent.setup();
     const open = await openMenu(user, "File");

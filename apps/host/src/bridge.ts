@@ -82,7 +82,7 @@ export class Bridge implements ViewerRenderer {
     private readonly options: BridgeOptions = {},
   ) {
     // What is open and whether it is saved changes without the history moving — a save, an open, a
-    // recovery write — so none of it appears in the change stream below (ADR-012 D7).
+    // recovery write — so none of it appears in the change stream below (ADR-012 D8).
     const files = session.ctx.files;
     this.unwatchFiles = files?.watch ? files.watch(() => this.broadcast(this.projectState())) : null;
     this.unsubscribe = session.store.subscribe((e) => {
@@ -318,7 +318,7 @@ export class Bridge implements ViewerRenderer {
         return;
       }
       case "files": {
-        // The host lists its own folders so the editor can offer a picker (ADR-012 D7). A browser
+        // The host lists its own folders so the editor can offer a picker (ADR-012 D8). A browser
         // cannot show one for a directory on this machine, and `project open` takes any path already.
         if (msg.op === "recent") {
           const current = this.session.ctx.files?.path() ?? this.projectPath();

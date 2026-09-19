@@ -1,4 +1,4 @@
-// The projects this installation has opened lately (ADR-012 D7), so File ▸ Open recent has something to
+// The projects this installation has opened lately (ADR-012 D8), so File ▸ Open recent has something to
 // offer and the Open dialog does not start on an empty folder.
 //
 // One small JSON file in the data directory, beside the catalog. It is a convenience, never a source of

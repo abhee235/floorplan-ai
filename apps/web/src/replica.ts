@@ -112,7 +112,7 @@ export class Replica {
   }
 
   /**
-   * What is open and whether it is saved (ADR-012 D7).
+   * What is open and whether it is saved (ADR-012 D8).
    *
    * `savedPosition` is set from here as well as from a snapshot, because saving moves it without
    * changing the project: the file is written, the history does not move, and nothing in the change

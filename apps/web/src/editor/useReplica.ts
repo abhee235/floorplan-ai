@@ -55,7 +55,7 @@ export function useHistoryPosition(replica: Replica): number {
 }
 
 /**
- * What is open and whether it is saved (ADR-012 D7).
+ * What is open and whether it is saved (ADR-012 D8).
  *
  * Takes a null replica for the same reason `useProject` does: the app bar is drawn before the app has
  * connected, and the title has to say something in the meantime.
