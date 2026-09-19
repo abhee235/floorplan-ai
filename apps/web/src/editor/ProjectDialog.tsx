@@ -43,10 +43,12 @@ export interface Listing {
   problem?: string;
 }
 
+/** A project the host knows about. `address` is opaque here; `id` is what a link says (ADR-020 D1). */
 export interface RecentProject {
-  path: string;
+  id: string;
+  address: string;
   name: string;
-  at: string;
+  lastOpenedAt: string;
 }
 
 export interface Place {
@@ -232,14 +234,14 @@ export function ProjectDialog({
                 <p className="px-1 pb-1 text-[11px] font-medium text-muted-foreground uppercase">Recent</p>
                 {recent.map((r) => (
                   <button
-                    key={r.path}
+                    key={r.id}
                     type="button"
-                    title={r.path}
+                    title={r.address}
                     className="flex w-full flex-col items-start rounded px-1.5 py-1 text-left hover:bg-accent"
-                    onClick={() => void act(r.path)}
+                    onClick={() => void act(r.address)}
                   >
                     <span className="w-full truncate text-[13px]">{r.name}</span>
-                    <span className="w-full truncate text-[11px] text-muted-foreground">{r.path}</span>
+                    <span className="w-full truncate text-[11px] text-muted-foreground">{r.address}</span>
                   </button>
                 ))}
               </nav>

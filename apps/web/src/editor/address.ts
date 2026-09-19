@@ -1,35 +1,38 @@
-// Naming the open project from outside itself (ADR-020 D2).
+// Naming the open project from outside itself (ADR-020 D2): `/p/<project id>`.
 //
-// The editor served one URL and showed whatever the host had open, so two tabs were identical, a
-// bookmark meant "whatever that host holds", and nothing could ask for a different project. The address
-// goes in the URL and the name goes in the page title.
+// The first version of this put the project's DIRECTORY in a query parameter. That worked and was
+// wrong: it wrote the machine's layout into browser history and bookmarks, broke the moment a folder
+// moved, and could not be sent to anyone. ADR-020 D1 asked for an opaque address and then handed it the
+// least opaque thing available.
 //
-// The address is opaque here, exactly as ADR-020 D1 requires: today it is a directory path, in a hosted
-// store it will be an identifier, and nothing in this file parses, splits or joins one. It is a string
-// that goes into a query parameter and comes back out.
+// A project now carries its own id, so that is what a link says. Nothing here knows where a project
+// lives; the host resolves an id to a location, which is the whole point — the same link keeps working
+// after the folder is dragged somewhere else, and it says nothing about the machine it was made on.
 
-/** The query parameter carrying the open project's address. */
-export const PROJECT_PARAM = "project";
+/** The path a project's URL takes. */
+export const PROJECT_PREFIX = "/p/";
+/** Twelve base36 characters, as minted in the IR. Anything else is not a project id. */
+const ID = /^[0-9a-z]{12}$/;
 
-/** The address a URL asks for, or null when it names none. */
-export function addressIn(href: string): string | null {
+/** The project a URL names, or null when it names none. */
+export function projectIdIn(href: string): string | null {
+  let path: string;
   try {
-    const value = new URL(href).searchParams.get(PROJECT_PARAM);
-    return value !== null && value.length > 0 ? value : null;
+    path = new URL(href).pathname;
   } catch {
-    // not a URL we can read; the same as asking for nothing
     return null;
   }
+  if (!path.startsWith(PROJECT_PREFIX)) return null;
+  // Only the segment after the prefix; anything deeper is not an address this understands.
+  const rest = path.slice(PROJECT_PREFIX.length).split("/")[0] ?? "";
+  const id = decodeURIComponent(rest);
+  return ID.test(id) ? id : null;
 }
 
-/**
- * The same URL with the address set, or removed when there is none — a project that has never been
- * saved has no address, so the parameter goes rather than standing empty.
- */
-export function withAddress(href: string, address: string | null): string {
+/** The same URL pointing at a project, or at the root when there is none to point at. */
+export function withProjectId(href: string, id: string | null): string {
   const url = new URL(href);
-  if (address === null || address.length === 0) url.searchParams.delete(PROJECT_PARAM);
-  else url.searchParams.set(PROJECT_PARAM, address);
+  url.pathname = id === null || id.length === 0 ? "/" : `${PROJECT_PREFIX}${id}`;
   return url.toString();
 }
 
@@ -42,23 +45,23 @@ export function titleFor(name: string, modified: boolean): string {
   return `${modified ? "• " : ""}${called} — floorplan-ai`;
 }
 
-/** What this tab's URL asks for. */
-export function addressAsked(location: { href: string } = window.location): string | null {
-  return addressIn(location.href);
+/** The project this tab's URL names. */
+export function projectAsked(location: { href: string } = window.location): string | null {
+  return projectIdIn(location.href);
 }
 
 /**
- * Put the open project's address in the address bar.
+ * Put the open project in the address bar.
  *
  * `replaceState`, never `pushState`: a history entry per project would put "reopen the previous
  * project" on the Back button, and Back is pressed by accident. Discarding unsaved work to a stray
  * keystroke is not a trade worth the convenience (ADR-020 D2).
  */
-export function showAddress(
-  address: string | null,
+export function showProject(
+  id: string | null,
   view: { location: { href: string }; history: { replaceState: History["replaceState"] } } = window,
 ): void {
-  const next = withAddress(view.location.href, address);
+  const next = withProjectId(view.location.href, id);
   if (next === view.location.href) return;
   view.history.replaceState(null, "", next);
 }

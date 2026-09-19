@@ -9,7 +9,7 @@ import { WebSocket } from "ws";
 import { browse, places, startingDir } from "../src/browse.js";
 import { ProjectFileStore } from "../src/files.js";
 import { createSession, type Served, serve } from "../src/index.js";
-import { noteRecent, RECENT_LIMIT, readRecent, readRecentPresent } from "../src/recent.js";
+import { ProjectRegistry, RECENT_LIMIT } from "../src/projects.js";
 
 const NOW = "2026-09-19T10:00:00.000Z";
 
@@ -25,53 +25,102 @@ function makeProject(root: string, name: string): string {
   return dir;
 }
 
-describe("the remembered projects (ADR-012 D8)", () => {
-  it("keeps the newest first, never repeats one, and stops at the limit", async () => {
-    const dir = temp();
-    const file = join(dir, "recent.json");
-    for (const n of ["a", "b", "c"]) await noteRecent(file, { path: `/p/${n}`, name: n, at: NOW });
-    expect(readRecent(file).map((r) => r.name)).toEqual(["c", "b", "a"]);
+/** The id inside a project on disk; everything is keyed by it now (ADR-020 D1). */
+function idOf(dir: string): string {
+  return (JSON.parse(readFileSync(join(dir, "project.json"), "utf8")) as { meta: { id: string } }).meta.id;
+}
 
-    // opening one again moves it to the top rather than adding a second line for it
-    await noteRecent(file, { path: "/p/a", name: "a", at: NOW });
-    expect(readRecent(file).map((r) => r.name)).toEqual(["a", "c", "b"]);
+describe("the projects this installation knows (ADR-020 D1, D3)", () => {
+  it("keeps the newest first and moves a project rather than repeating it", () => {
+    const db = ProjectRegistry.memory();
+    for (const [i, n] of ["a", "b", "c"].entries())
+      db.remember({
+        id: `id${n}aaaaaaaaa`,
+        address: `/p/${n}`,
+        name: n,
+        at: `2026-01-0${i + 1}T00:00:00.000Z`,
+      });
+    expect(db.recent().map((r) => r.name)).toEqual(["c", "b", "a"]);
 
+    // opening one again moves it to the top; the same project is one row, not two
+    db.remember({ id: "idaaaaaaaaaa", address: "/p/a", name: "a", at: "2026-02-01T00:00:00.000Z" });
+    expect(db.recent().map((r) => r.name)).toEqual(["a", "c", "b"]);
+    expect(db.recent()).toHaveLength(3);
+    db.close();
+  });
+
+  it("follows a project that moved, because the id is the key and not the address", () => {
+    // A registry keyed by location orphans a link the moment a folder is dragged; this is the whole
+    // reason the id lives in the document (ADR-020 D1).
+    const db = ProjectRegistry.memory();
+    db.remember({ id: "movedproject", address: "/old/place", name: "Boardroom", at: NOW });
+    db.remember({ id: "movedproject", address: "/new/place", name: "Boardroom", at: NOW });
+    expect(db.recent()).toHaveLength(1);
+    expect(db.byId("movedproject")?.address).toBe("/new/place");
+    db.close();
+  });
+
+  it("keeps the date a project was first seen when it is opened again", () => {
+    const db = ProjectRegistry.memory();
+    db.remember({ id: "firstseenaaa", address: "/p/a", name: "a", at: "2026-01-01T00:00:00.000Z" });
+    db.remember({ id: "firstseenaaa", address: "/p/a", name: "a", at: "2026-06-01T00:00:00.000Z" });
+    const row = db.byId("firstseenaaa");
+    expect(row?.createdAt).toBe("2026-01-01T00:00:00.000Z");
+    expect(row?.lastOpenedAt).toBe("2026-06-01T00:00:00.000Z");
+    db.close();
+  });
+
+  it("answers for an id it has never seen with nothing, rather than guessing", () => {
+    const db = ProjectRegistry.memory();
+    expect(db.byId("neverseenaaa")).toBeNull();
+    expect(db.recent()).toEqual([]);
+    db.close();
+  });
+
+  it("stops at the limit", () => {
+    const db = ProjectRegistry.memory();
     for (let i = 0; i < RECENT_LIMIT + 5; i += 1)
-      await noteRecent(file, { path: `/p/n${i}`, name: `n${i}`, at: NOW });
-    expect(readRecent(file)).toHaveLength(RECENT_LIMIT);
+      db.remember({
+        id: `bulk${String(i).padStart(8, "0")}`,
+        address: `/p/n${i}`,
+        name: `n${i}`,
+        at: `2026-01-01T00:00:${String(i).padStart(2, "0")}.000Z`,
+      });
+    expect(db.recent()).toHaveLength(RECENT_LIMIT);
+    db.close();
   });
 
-  it("reads an absent or corrupt file as nothing remembered rather than failing", () => {
+  it("hides projects that are no longer on disk without forgetting them", () => {
     const dir = temp();
-    expect(readRecent(join(dir, "nothing.json"))).toEqual([]);
-    const bad = join(dir, "bad.json");
-    writeFileSync(bad, "{ not json", "utf8");
-    expect(readRecent(bad)).toEqual([]);
-  });
-
-  it("drops entries whose project has gone, but only when the list is read", async () => {
-    const dir = temp();
-    const file = join(dir, "recent.json");
+    const db = ProjectRegistry.memory();
     const live = makeProject(dir, "still-here");
-    await noteRecent(file, { path: live, name: "still-here", at: NOW });
-    await noteRecent(file, { path: join(dir, "deleted"), name: "deleted", at: NOW });
-    // the file still holds both: a project on a drive that is not plugged in today is worth keeping
-    expect(readRecent(file)).toHaveLength(2);
-    expect(readRecentPresent(file).map((r) => r.name)).toEqual(["still-here"]);
+    db.remember({ id: idOf(live), address: live, name: "still-here", at: NOW });
+    db.remember({ id: "goneprojecta", address: join(dir, "deleted"), name: "deleted", at: NOW });
+    // both are still known: a project on a drive that is not plugged in today is worth remembering
+    expect(db.recent()).toHaveLength(2);
+    expect(db.recentPresent().map((r) => r.name)).toEqual(["still-here"]);
+    db.close();
+  });
+
+  it("survives being reopened, which a JSON list read and rewritten in place would race over", () => {
+    const dir = temp();
+    const first = ProjectRegistry.open(dir);
+    first.remember({ id: "persistedaaa", address: "/p/a", name: "Kept", at: NOW });
+    first.close();
+    const second = ProjectRegistry.open(dir);
+    expect(second.byId("persistedaaa")?.name).toBe("Kept");
+    second.close();
   });
 
   it("is written by the file store itself, so an open from anywhere is remembered", async () => {
     const dir = temp();
-    const file = join(dir, "recent.json");
+    const db = ProjectRegistry.memory();
     const project = makeProject(dir, "boardroom");
-    const files = new ProjectFileStore({
-      now: () => NOW,
-      remember: (entry) => void noteRecent(file, entry),
-    });
+    const files = new ProjectFileStore({ now: () => NOW, remember: (entry) => db.remember(entry) });
     await files.open(project);
-    // the write is deliberately not awaited by open; give the microtask its turn
-    await new Promise((r) => setTimeout(r, 20));
-    expect(readRecent(file).map((r) => r.path)).toEqual([project]);
+    expect(db.recent().map((r) => r.address)).toEqual([project]);
+    expect(db.byId(idOf(project))?.name).toBe("boardroom");
+    db.close();
   });
 });
 
@@ -231,6 +280,26 @@ afterEach(async () => {
   served = null;
 });
 
+describe("a project's URL is a route, not a file (ADR-020 D2)", () => {
+  it("answers /p/<id> with the app, and a missing asset with a 404", async () => {
+    const dir = temp();
+    // a stand-in for the built web app
+    mkdirSync(join(dir, "web"), { recursive: true });
+    writeFileSync(join(dir, "web", "index.html"), "<!doctype html><title>app</title>", "utf8");
+    const session = createSession({ now: () => NOW });
+    served = await serve(session, { port: 0, webDir: join(dir, "web") });
+
+    const route = await fetch(`http://127.0.0.1:${served.port}/p/g0z9i3cvo7qx`);
+    expect(route.status).toBe(200);
+    expect(await route.text()).toContain("<title>app</title>");
+
+    // the root still works, and a missing script is still missing rather than answered with a page
+    expect((await fetch(`http://127.0.0.1:${served.port}/`)).status).toBe(200);
+    const asset = await fetch(`http://127.0.0.1:${served.port}/assets/not-there.js`);
+    expect(asset.status).toBe(404);
+  });
+});
+
 describe("what is open, over the bridge (ADR-012 D8)", () => {
   it("says what is open on connecting, and again when a save moves the saved position", async () => {
     const dir = temp();
@@ -275,10 +344,12 @@ describe("what is open, over the bridge (ADR-012 D8)", () => {
     const dir = temp();
     const project = makeProject(dir, "boardroom");
     mkdirSync(join(dir, "plain-folder"));
+    const known = { id: idOf(project), address: project, name: "boardroom", lastOpenedAt: NOW };
     const session = createSession({ now: () => NOW });
     served = await serve(session, {
       port: 0,
-      recent: () => [{ path: project, name: "boardroom", at: NOW }],
+      recent: () => [known],
+      resolve: (id) => (id === known.id ? known : null),
     });
     const tab = new Tab(`ws://127.0.0.1:${served.port}/bridge`);
     await tab.open();
@@ -291,10 +362,22 @@ describe("what is open, over the bridge (ADR-012 D8)", () => {
     expect(listing.entries.find((e) => e.name === "plain-folder")?.project).toBe(false);
 
     const recent = await tab.send({ type: "files", op: "recent" });
-    const body = recent.result as { recent: { name: string }[]; places: unknown[]; start: string };
+    const body = recent.result as {
+      recent: { id: string; name: string }[];
+      places: unknown[];
+      start: string;
+    };
     expect(body.recent.map((r) => r.name)).toEqual(["boardroom"]);
+    // the list carries ids, because that is what a link and a menu line ask for (ADR-020 D1)
+    expect(body.recent[0]?.id).toBe(known.id);
     expect(body.places.length).toBeGreaterThan(0);
     expect(body.start).toBeTruthy();
+
+    // and an id resolves to where that project lives, which is how a link is followed
+    const found = await tab.send({ type: "files", op: "resolve", project: known.id });
+    expect((found.result as { project: { address: string } | null }).project?.address).toBe(project);
+    const missing = await tab.send({ type: "files", op: "resolve", project: "neverseenaaa" });
+    expect((missing.result as { project: unknown }).project).toBeNull();
     await tab.close();
   });
 

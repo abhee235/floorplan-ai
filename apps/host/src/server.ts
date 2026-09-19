@@ -33,6 +33,8 @@ export interface ServeOptions {
   textures?: (id: string) => { bytes: Uint8Array; type: string } | null;
   /** The lately-opened projects, for File ▸ Open recent; read fresh on every request. */
   recent?: () => RecentEntry[];
+  /** Where a project id lives, for a link that names one (ADR-020 D2). */
+  resolve?: (id: string) => RecentEntry | null;
 }
 
 export interface Served {
@@ -65,6 +67,14 @@ function serveStatic(webDir: string, req: IncomingMessage, res: ServerResponse):
   if (!existsSync(file) || !statSync(file).isFile()) {
     if (path === "/index.html") {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(NOT_BUILT);
+      return;
+    }
+    // A project's URL is `/p/<id>` (ADR-020 D2), which is not a file and never will be: the address
+    // names a project, and the app resolves it once it is running. Anything without an extension is a
+    // route and gets the app; anything with one is a missing asset and stays a 404, so a mistyped
+    // script name fails loudly instead of being answered with a page.
+    if (!extname(path)) {
+      serveStatic(webDir, { ...req, url: "/index.html" } as IncomingMessage, res);
       return;
     }
     res.writeHead(404, { "content-type": "text/plain" }).end("not found");
@@ -101,6 +111,7 @@ export function serve(session: Session, options: ServeOptions = {}): Promise<Ser
   const host = options.host ?? "127.0.0.1";
   const bridge = new Bridge(session, options.projectPath ?? (() => null), {
     ...(options.recent ? { recent: options.recent } : {}),
+    ...(options.resolve ? { resolve: options.resolve } : {}),
   });
   const server = createServer((req, res) => {
     if (req.url?.startsWith("/bridge")) {

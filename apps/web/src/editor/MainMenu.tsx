@@ -141,8 +141,8 @@ interface LinesProps {
   entries: MenuEntry[];
   commands: CommandRegistry;
   /** The lately-opened projects, for the one dynamic line there is. */
-  recent: { path: string; name: string; at: string }[];
-  openRecent: (path: string) => void;
+  recent: { id: string; address: string; name: string; lastOpenedAt: string }[];
+  openRecent: (address: string) => void;
 }
 
 function Lines({ entries, commands, recent, openRecent }: LinesProps): JSX.Element {
@@ -188,12 +188,12 @@ function Lines({ entries, commands, recent, openRecent }: LinesProps): JSX.Eleme
                   // The name reads as the line and the path sits under it: several projects can share a
                   // name, and the path is the only thing that says which one this is.
                   <MenubarItem
-                    key={r.path}
+                    key={r.id}
                     className="flex-col items-start gap-0"
-                    onSelect={() => openRecent(r.path)}
+                    onSelect={() => openRecent(r.address)}
                   >
                     <span className="w-full truncate">{r.name}</span>
-                    <span className="w-full truncate text-[11px] text-muted-foreground">{r.path}</span>
+                    <span className="w-full truncate text-[11px] text-muted-foreground">{r.address}</span>
                   </MenubarItem>
                 ))}
               </MenubarSubContent>

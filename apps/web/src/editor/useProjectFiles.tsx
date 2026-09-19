@@ -9,7 +9,7 @@
 
 import type { JSX } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { addressAsked, showAddress, titleFor } from "./address.js";
+import { projectAsked, showProject, titleFor } from "./address.js";
 import type { Announcer } from "./announce.js";
 import { RecoveryDialog, type UnsavedAnswer, UnsavedDialog } from "./ConfirmDialog.js";
 import { ProjectDialog, type ProjectDialogMode, type RecentProject } from "./ProjectDialog.js";
@@ -32,6 +32,8 @@ export interface ProjectHost {
 }
 
 export interface ProjectFacts {
+  /** The open project's own id (ADR-020 D1); this is what the URL carries. */
+  projectId: string;
   name: string;
   path: string | null;
   modified: boolean;
@@ -197,37 +199,59 @@ export function useProjectFiles(
 
   // ---- the address bar (ADR-020 D2) ---------------------------------------
 
-  /** Whether the URL's request has been acted on; until it has, nothing may overwrite it. */
-  const claimed = useRef(false);
+  /**
+   * Whether the URL's request has been acted on; until it has, nothing may overwrite it.
+   *
+   * State rather than a ref, and that is not a style choice. The writer below runs on a change to the
+   * open project's id — but the id arrives with the SNAPSHOT, one message before the host says what it
+   * holds, so by the time claiming finished the writer's dependency had already changed and settled.
+   * It never ran, and a tab opened at the bare root kept a bare root in the address bar for the whole
+   * session. A ref cannot wake an effect; state can.
+   */
+  const [claimed, setClaimed] = useState(false);
 
-  // What the URL asks for, once the host has said what it holds. A tab arriving with an address for
-  // another project opens it, which is what makes a link to a project mean anything.
+  // What the URL asks for, once the host has said what it holds. A tab arriving with a link to another
+  // project opens it, which is what makes a link to a project mean anything.
+  //
+  // The link names an id and nothing else, so the host is asked where that project lives. A link made
+  // on another machine, or before the folder was moved, still resolves — which a URL holding a path
+  // could never do.
   useEffect(() => {
-    if (!host || claimed.current || !facts.known) return;
-    claimed.current = true;
-    const wanted = addressAsked();
-    if (wanted === null || wanted === facts.path) return;
-    void project({ op: "open", path: wanted })
-      .then(() => {
-        announcer.say(`Opened ${wanted}.`);
+    if (!host || claimed || !facts.known) return;
+    setClaimed(true);
+    const wanted = projectAsked();
+    if (wanted === null || wanted === facts.projectId) return;
+    void (async () => {
+      try {
+        const body = await ask({ type: "files", op: "resolve", project: wanted });
+        const known = body.project as { address: string; name: string } | null;
+        if (!known) {
+          announcer.alert(
+            `That link names a project this installation has not opened before, so there is nothing to open. Use File ▸ Open to find it once, and the link will work from then on.`,
+          );
+          showProject(now.current.projectId);
+          return;
+        }
+        await project({ op: "open", path: known.address });
+        announcer.say(`Opened ${known.name}.`);
         loadRecent();
-      })
-      .catch((e: unknown) => {
+      } catch (e) {
         announcer.alert(
           `The link asked for a project that could not be opened: ${
             e instanceof Error ? e.message : String(e)
           }`,
         );
         // put back what is actually open, so the address bar never lies about what is on screen
-        showAddress(now.current.path);
-      });
-  }, [host, facts.known, facts.path, project, announcer, loadRecent]);
+        showProject(now.current.projectId);
+      }
+    })();
+  }, [host, claimed, facts.known, facts.projectId, ask, project, announcer, loadRecent]);
 
   // And from then on the address bar follows what is open, however it came to be open.
   useEffect(() => {
-    if (!claimed.current) return;
-    showAddress(facts.path);
-  }, [facts.path]);
+    if (!claimed) return;
+    showProject(facts.projectId.length > 0 ? facts.projectId : null);
+  }, [claimed, facts.projectId]);
 
   // A row of tabs is unreadable when every one of them says the same thing.
   useEffect(() => {

@@ -176,6 +176,7 @@ export function EditorShell(): JSX.Element {
   const files = useProjectFiles(
     app?.client ?? null,
     {
+      projectId: projectState?.projectId ?? app?.replica.project?.meta.id ?? "",
       name: projectState?.name ?? app?.replica.project?.meta.name ?? "Untitled",
       path: projectState?.path ?? null,
       modified,

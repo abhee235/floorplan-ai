@@ -107,7 +107,7 @@ export interface ProjectFileStoreOptions {
    * some of them updated would be worse than none. Keeping it a callback leaves this class knowing
    * nothing about where the list is written.
    */
-  remember?: (entry: { path: string; name: string; at: string }) => void;
+  remember?: (entry: { id: string; address: string; name: string; at: string }) => void;
 }
 
 /** Owns the on-disk form of the open project; implements the tools' ProjectFiles hook. */
@@ -121,7 +121,7 @@ export class ProjectFileStore implements ProjectFiles {
   private readonly appVersion: string;
   private readonly autosaveMs: number;
   private readonly free: (dir: string) => Promise<number | null>;
-  private readonly note: ((entry: { path: string; name: string; at: string }) => void) | null;
+  private readonly note: ((entry: { id: string; address: string; name: string; at: string }) => void) | null;
   private readonly watchers = new Set<() => void>();
   /** Transient flags of the open project (P-011 reversed: never written). */
   modifiedOutside = false;
@@ -154,11 +154,11 @@ export class ProjectFileStore implements ProjectFiles {
       }
   }
 
-  /** Remember a project directory as lately used; never worth failing an open or a save over. */
-  private remember(dir: string, name: string): void {
+  /** Remember a project as lately used, by its own id; never worth failing an open or a save over. */
+  private remember(address: string, project: { meta: { id: string; name: string } }): void {
     if (!this.note) return;
     try {
-      this.note({ path: dir, name, at: this.now() });
+      this.note({ id: project.meta.id, address, name: project.meta.name, at: this.now() });
     } catch {
       // deliberately ignored
     }
@@ -248,7 +248,7 @@ export class ProjectFileStore implements ProjectFiles {
     } catch {
       this.savedAt = null;
     }
-    this.remember(dir, parsed.project.meta.name);
+    this.remember(dir, parsed.project);
     this.changed();
     return {
       project: parsed.project,
@@ -310,7 +310,7 @@ export class ProjectFileStore implements ProjectFiles {
     this.modifiedOutside = false;
     this.manifestMissing = false;
     store.markSaved();
-    this.remember(dir, store.project.meta.name);
+    this.remember(dir, store.project);
     this.changed();
     return { path: dir, bytes };
   }

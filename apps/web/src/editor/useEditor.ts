@@ -23,10 +23,10 @@ export interface Editor {
   setOption: (toolId: ToolId, optionId: string, value: string | number | boolean) => void;
   /** Opens the command palette. */
   openPalette: () => void;
-  /** The projects this installation has opened lately, for File ▸ Open recent (ADR-012 D8). */
-  recent: { path: string; name: string; at: string }[];
+  /** The projects this installation has opened lately, for File ▸ Open recent (ADR-020 D1). */
+  recent: { id: string; address: string; name: string; lastOpenedAt: string }[];
   /** Opens one of them, asking about unsaved work first. */
-  openRecent: (path: string) => void;
+  openRecent: (address: string) => void;
   /** What a snap caught, or what is being drawn, for the status bar. */
   snap: string;
   setSnap: (text: string) => void;

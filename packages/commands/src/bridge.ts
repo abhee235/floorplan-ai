@@ -79,8 +79,10 @@ export const ClientMessage = z.discriminatedUnion("type", [
   z.object({
     id: Id,
     type: z.literal("files"),
-    op: z.enum(["browse", "recent"]),
+    op: z.enum(["browse", "recent", "resolve"]),
     path: z.string().optional(),
+    /** For `resolve`: the project id from a link, answered with where that project lives. */
+    project: z.string().optional(),
   }),
   // The one client message that expects no result: there is nothing to wait for, and a round trip per
   // click would make the log something the editor pays for.
@@ -104,6 +106,7 @@ export interface WelcomeMsg {
   type: "welcome";
   hostVersion: string;
   protocolVersion: number;
+  /** The open project's own id. It carried the project's NAME until ADR-020 D1 gave projects ids. */
   projectId: string;
   path: string | null;
   /**
@@ -151,6 +154,8 @@ export interface ProblemsMsg {
  */
 export interface ProjectStateMsg {
   type: "project.state";
+  /** The project's own id (ADR-020 D1); this is what a link carries, never the path. */
+  projectId: string;
   path: string | null;
   name: string;
   historyPosition: number;

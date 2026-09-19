@@ -1,46 +1,64 @@
-// Naming the open project from outside itself (ADR-020 D2).
+// Naming the open project from outside itself (ADR-020 D2): `/p/<project id>`.
 import { describe, expect, it } from "vitest";
-import { addressIn, PROJECT_PARAM, showAddress, titleFor, withAddress } from "../../src/editor/address.js";
+import {
+  PROJECT_PREFIX,
+  projectIdIn,
+  showProject,
+  titleFor,
+  withProjectId,
+} from "../../src/editor/address.js";
 
 const BASE = "http://127.0.0.1:4360/";
-/** A Windows directory, which is what an address is today and why none of this may parse one. */
-const WINDOWS = "C:\\Users\\abhis\\Documents\\Floor plans\\boardroom.fpviz";
-const POSIX = "/home/abhis/floor plans/boardroom.fpviz";
+const ID = "g0z9i3cvo7qx";
 
-describe("the address in the URL (ADR-020 D2)", () => {
-  it("carries an address through the URL unchanged, whatever is in it", () => {
-    for (const address of [WINDOWS, POSIX, "project id 7", "a&b=c?d#e", "café/naïve"]) {
-      const href = withAddress(BASE, address);
-      expect(addressIn(href), address).toBe(address);
-    }
+describe("the project in the URL (ADR-020 D2)", () => {
+  it("carries a project id and reads it back", () => {
+    const href = withProjectId(BASE, ID);
+    expect(href).toBe(`http://127.0.0.1:4360${PROJECT_PREFIX}${ID}`);
+    expect(projectIdIn(href)).toBe(ID);
   });
 
-  it("escapes what it puts in, so a path never breaks the query string", () => {
-    const href = withAddress(BASE, WINDOWS);
-    expect(href).not.toContain("\\");
-    expect(href).toContain(`${PROJECT_PARAM}=`);
+  it("says nothing about the machine it was made on", () => {
+    // The whole reason this replaced a query parameter holding a directory.
+    const href = withProjectId(BASE, ID);
+    for (const leak of ["Users", "abhis", "C:", "\\", "Documents", ".fpviz"])
+      expect(href, leak).not.toContain(leak);
   });
 
-  it("reads no address as null, including an empty one", () => {
-    expect(addressIn(BASE)).toBeNull();
-    expect(addressIn(`${BASE}?${PROJECT_PARAM}=`)).toBeNull();
-    expect(addressIn(`${BASE}?something=else`)).toBeNull();
-    expect(addressIn("not a url at all")).toBeNull();
+  it("reads no project where there is none", () => {
+    expect(projectIdIn(BASE)).toBeNull();
+    expect(projectIdIn(`${BASE}p/`)).toBeNull();
+    expect(projectIdIn(`${BASE}something/else`)).toBeNull();
+    expect(projectIdIn("not a url at all")).toBeNull();
   });
 
-  it("drops the parameter for a project that has no address yet", () => {
-    const withOne = withAddress(BASE, WINDOWS);
-    expect(addressIn(withOne)).toBe(WINDOWS);
-    const withNone = withAddress(withOne, null);
-    expect(addressIn(withNone)).toBeNull();
-    expect(withNone).not.toContain(PROJECT_PARAM);
+  it("refuses anything that is not a project id, rather than asking the host about it", () => {
+    for (const bad of [
+      "short",
+      "UPPERCASE123",
+      "twelve-chars",
+      "../../etc/passwd",
+      "C%3A%5CUsers%5Cabhis",
+      "g0z9i3cvo7qxg0z9i3cvo7qx",
+    ])
+      expect(projectIdIn(`${BASE}p/${encodeURIComponent(bad)}`), bad).toBeNull();
   });
 
-  it("leaves everything else in the URL alone", () => {
-    const href = withAddress(`${BASE}?debug=1#somewhere`, POSIX);
+  it("ignores anything deeper than the project itself", () => {
+    expect(projectIdIn(`${BASE}p/${ID}/something`)).toBe(ID);
+  });
+
+  it("goes back to the root for a project with no id to show", () => {
+    const at = withProjectId(`${BASE}p/${ID}`, null);
+    expect(new URL(at).pathname).toBe("/");
+    expect(projectIdIn(at)).toBeNull();
+  });
+
+  it("leaves the query and the fragment alone", () => {
+    const href = withProjectId(`${BASE}?debug=1#somewhere`, ID);
     expect(href).toContain("debug=1");
     expect(href).toContain("#somewhere");
-    expect(addressIn(href)).toBe(POSIX);
+    expect(projectIdIn(href)).toBe(ID);
   });
 
   it("replaces the history entry rather than adding one", () => {
@@ -56,12 +74,12 @@ describe("the address in the URL (ADR-020 D2)", () => {
         }) as unknown as History["replaceState"],
       },
     };
-    showAddress(WINDOWS, view);
+    showProject(ID, view);
     expect(calls).toHaveLength(1);
-    expect(addressIn(calls[0] as string)).toBe(WINDOWS);
+    expect(projectIdIn(calls[0] as string)).toBe(ID);
 
     // and saying the same thing twice writes nothing
-    showAddress(WINDOWS, view);
+    showProject(ID, view);
     expect(calls).toHaveLength(1);
   });
 });
@@ -69,7 +87,6 @@ describe("the address in the URL (ADR-020 D2)", () => {
 describe("the page title (ADR-020 D2)", () => {
   it("leads with the project's name, so truncated tabs stay distinguishable", () => {
     expect(titleFor("Boardroom task card", false)).toBe("Boardroom task card — floorplan-ai");
-    expect(titleFor("Boardroom task card", false).indexOf("Boardroom")).toBeLessThan(2);
   });
 
   it("marks unsaved work where it is visible at any width", () => {

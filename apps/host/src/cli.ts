@@ -18,8 +18,8 @@ import { formatEntry, formatRuns, pickRun, readFrom, readRun, runs } from "./log
 import { serveStdio } from "./mcp.js";
 import { dataPaths } from "./paths.js";
 import { FilePlanReader } from "./plans.js";
+import { ProjectRegistry } from "./projects.js";
 import { createReader, loadReaderConfig } from "./reader.js";
-import { noteRecent, readRecentPresent, recentPath } from "./recent.js";
 import { DEFAULT_PORT, serve } from "./server.js";
 import { createSession } from "./session.js";
 import { TextureImages } from "./textures.js";
@@ -215,11 +215,10 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     argv: [...argv],
   });
   // one file store per session; a project given on the command line is opened before anything listens
-  // Every project this session opens or saves is remembered for File ▸ Open recent (ADR-012 D8).
-  const recentFile = recentPath(catalog.dir);
-  const files = new ProjectFileStore({
-    remember: (entry) => void noteRecent(recentFile, entry),
-  });
+  // Every project this session opens or saves is remembered by its own id (ADR-020 D1), so a link
+  // keeps working after the folder is moved and File ▸ Open recent has something to offer.
+  const projects = ProjectRegistry.open(catalog.dir);
+  const files = new ProjectFileStore({ remember: (entry) => projects.remember(entry) });
   const opened = args.project ? await files.open(args.project) : null;
   if (opened?.recoveryAt)
     process.stderr.write(
@@ -261,7 +260,8 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
       projectPath: () => files.path(),
       textures: (id) => images.image(id),
       // Read fresh per request: another host may have opened something since this one started.
-      recent: () => readRecentPresent(recentFile),
+      recent: () => projects.recentPresent(),
+      resolve: (id) => projects.byId(id),
     });
     // stdout may be the MCP transport, so the URL goes to stderr
     process.stderr.write(`floorplan-ai viewer: ${served.url}\n`);

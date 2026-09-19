@@ -53,14 +53,18 @@ interface ClientState {
 
 /** One project this installation opened lately, as the editor's Open dialog shows it. */
 export interface RecentEntry {
-  path: string;
+  /** The project's own id (ADR-020 D1): what a link carries and what the editor asks for. */
+  id: string;
+  address: string;
   name: string;
-  at: string;
+  lastOpenedAt: string;
 }
 
 export interface BridgeOptions {
   /** The lately-opened projects, read fresh each time so another host's opens are seen too. */
   recent?: () => RecentEntry[];
+  /** Where a project id lives, for a link that names one (ADR-020 D2). */
+  resolve?: (id: string) => RecentEntry | null;
 }
 
 export class Bridge implements ViewerRenderer {
@@ -143,6 +147,7 @@ export class Bridge implements ViewerRenderer {
     const files = this.session.ctx.files;
     return {
       type: "project.state",
+      projectId: store.project.meta.id,
       path: files?.path() ?? this.projectPath(),
       name: store.project.meta.name,
       historyPosition: store.historyPosition,
@@ -217,7 +222,7 @@ export class Bridge implements ViewerRenderer {
           type: "welcome",
           hostVersion: HOST_VERSION,
           protocolVersion: PROTOCOL_VERSION,
-          projectId: store.project.meta.name,
+          projectId: store.project.meta.id,
           path: this.projectPath(),
           // Worked out per connection, not at startup: the code changes while the host runs, which is
           // the whole point of asking.
@@ -330,6 +335,13 @@ export class Bridge implements ViewerRenderer {
               current,
             },
           });
+          return;
+        }
+        if (msg.op === "resolve") {
+          // A link names a project by id; this says where that project is, or that nothing here knows
+          // it — which is a different answer from "it is missing" and reads differently to the person.
+          const known = msg.project ? (this.options.resolve?.(msg.project) ?? null) : null;
+          this.reply(state, msg.id, true, { result: { project: known } });
           return;
         }
         const where = msg.path ?? startingDir(this.session.ctx.files?.path() ?? this.projectPath());
