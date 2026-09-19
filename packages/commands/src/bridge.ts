@@ -108,12 +108,30 @@ export const ClientMessage = z.discriminatedUnion("type", [
     type: z.literal("gesture"),
     gestures: z.array(GestureItem).min(1).max(GESTURES_PER_FRAME),
   }),
+  // The in-app agent (ADR-022). One run at a time per project: `start` begins one, `cancel` ends it,
+  // `answer` replies to a question it asked, `history` catches a tab up after a reload, `clear`
+  // forgets the conversation so a new one starts from nothing.
   z.object({
     id: Id,
     type: z.literal("agent"),
-    op: z.enum(["start", "cancel"]),
-    brief: z.string().optional(),
-    roomId: z.string().optional(),
+    op: z.enum(["start", "cancel", "answer", "history", "clear"]),
+    text: z.string().max(20_000).optional(),
+    /** Files the person attached, base64. The bytes stay with the host; a model names an id. */
+    attachments: z
+      .array(
+        z.object({
+          name: z.string().min(1).max(200),
+          mime: z.string().max(100),
+          data: z.string(),
+        }),
+      )
+      .max(3)
+      .optional(),
+    reliability: z.enum(["high", "medium", "low"]).optional(),
+    questionId: z.string().optional(),
+    answers: z.record(z.string()).optional(),
+    /** For `history`: the sequence number a tab already has. */
+    from: z.number().int().min(0).optional(),
   }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
@@ -204,10 +222,127 @@ export interface SelectionMsg {
   type: "selection";
   ids: string[];
 }
+/** One job in the plan the agent keeps for itself (ADR-022). */
+export interface AgentPlanItem {
+  id: string;
+  text: string;
+  status: "pending" | "doing" | "done" | "skipped";
+}
+
+/** Why a run stopped. */
+export type AgentStopReason = "done" | "step-budget" | "provider-error" | "stalled" | "aborted";
+
+/**
+ * Something a tab can draw that the model never sees.
+ *
+ * A render is a picture in the chat and a line of text to the model; a draft is a review overlay and
+ * a draft id. Keeping the two apart is what stops a tool result being written twice, once for each
+ * audience, and disagreeing with itself.
+ */
+export type AgentToolDisplay =
+  | { kind: "image"; dataUrl: string; caption: string }
+  | { kind: "draft"; draftId: string };
+
+/**
+ * What a run is doing, as it does it (ADR-022).
+ *
+ * Only `run.finished` means the work is over. Everything else means it is still going, which is the
+ * rule that keeps a multi-minute build from looking hung, and the one a tab must not invent
+ * exceptions to.
+ */
+export type AgentWireEvent =
+  | {
+      type: "run.started";
+      at: string;
+      text: string;
+      attachments: { id: string; name: string; mime: string; bytes: number }[];
+      model: string;
+      reliability: string;
+      /** Restoring this takes the project back to before the run; null when the host could not mark one. */
+      checkpointId: string | null;
+    }
+  | { type: "step.started"; step: number; at: string }
+  | { type: "text.delta"; step: number; text: string }
+  | { type: "reasoning.delta"; step: number; text: string }
+  /** The step's finished text, which is what a tab keeps once the deltas have been drawn. */
+  | { type: "message"; step: number; at: string; text: string }
+  | {
+      type: "tool.started";
+      step: number;
+      at: string;
+      id: string;
+      name: string;
+      args: unknown;
+      summary: string;
+    }
+  | {
+      type: "tool.finished";
+      step: number;
+      at: string;
+      id: string;
+      name: string;
+      ok: boolean;
+      /** A short line for the card; never the whole result, and never image bytes. */
+      preview: string;
+      error: { code: string; message: string; hint: string | null } | null;
+      warnings: string[];
+      problems: { errors: number; warnings: number };
+      /** What moved, so a card can select it and the plan can flash it. */
+      changed: ChangeSet | null;
+      durationMs: number;
+      display?: AgentToolDisplay;
+    }
+  | { type: "plan.updated"; step: number; items: AgentPlanItem[] }
+  | {
+      type: "question";
+      step: number;
+      id: string;
+      text: string;
+      kind: "text" | "choice" | "scale";
+      options: { id: string; label: string; description?: string }[];
+      draftId: string | null;
+    }
+  | { type: "question.answered"; id: string; answers: Record<string, string>; by: "person" | "review" }
+  | { type: "reminder"; step: number; gate: "plan" | "verify"; text: string }
+  | { type: "context"; step: number; promptTokens: number; contextTokens: number }
+  | { type: "retry"; step: number; error: string; waitMs: number }
+  | { type: "warning"; step: number; message: string }
+  | {
+      type: "run.finished";
+      at: string;
+      reason: AgentStopReason;
+      steps: number;
+      toolCalls: number;
+      failedCalls: number;
+      usage: { promptTokens: number; completionTokens: number };
+      text: string | null;
+      error: string | null;
+    };
+
 export interface AgentEventMsg {
   type: "agent.event";
-  event: "step" | "tool" | "message" | "done" | "error";
-  payload: Record<string, unknown>;
+  projectId: string;
+  runId: string;
+  /** Per project and rising; a gap tells a tab it missed something and should ask for the rest. */
+  seq: number;
+  event: AgentWireEvent;
+}
+
+/**
+ * Whether there is an agent at all, and what it is doing, sent when a tab attaches to a project.
+ *
+ * The replay is how a tab that was opened or reloaded mid-run shows the run so far rather than an
+ * empty chat: the same events, through the same reducer, so the rebuilt transcript is the live one.
+ */
+export interface AgentStateMsg {
+  type: "agent.state";
+  projectId: string;
+  available: boolean;
+  model: string | null;
+  /** Why it is unavailable, or what it is, in a sentence. */
+  note: string | null;
+  run: { runId: string; status: "running" | "waiting" | "cancelling"; startedAt: string } | null;
+  replay: AgentEventMsg[];
 }
 /**
  * A plan draft under review (ADR-011 D5), or null to close the review. The draft is a PlanDraft from
@@ -240,6 +375,7 @@ export type HostMessage =
   | RenderRequestMsg
   | SelectionMsg
   | AgentEventMsg
+  | AgentStateMsg
   | DraftMsg
   | ProgressMsg;
 

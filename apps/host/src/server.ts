@@ -5,6 +5,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
+import type { AgentRuns } from "./agent-runs.js";
 import { Bridge, type RecentEntry } from "./bridge.js";
 import type { Session } from "./session.js";
 import { Workspace } from "./workspace.js";
@@ -33,6 +34,8 @@ export interface ServeOptions {
   textures?: (id: string) => { bytes: Uint8Array; type: string } | null;
   /** Everything in this installation's library, newest first; read fresh on every request. */
   library?: () => RecentEntry[];
+  /** The in-app agent (ADR-022); without one the editor is told there is none. */
+  agent?: AgentRuns | null;
 }
 
 export interface Served {
@@ -115,6 +118,7 @@ export function serve(target: Session | Workspace, options: ServeOptions = {}): 
   const workspace = target instanceof Workspace ? target : Workspace.of(target);
   const bridge = new Bridge(workspace, {
     ...(options.library ? { library: options.library } : {}),
+    ...(options.agent ? { agent: options.agent } : {}),
   });
   const server = createServer((req, res) => {
     if (req.url?.startsWith("/bridge")) {

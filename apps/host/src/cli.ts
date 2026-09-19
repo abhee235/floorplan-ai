@@ -9,6 +9,7 @@ import { CatalogStore } from "@fpv/catalog/store";
 import { PROTOCOL_VERSION } from "@fpv/commands";
 import type { ToolReliability } from "@fpv/tools";
 import { describeEvent, loadAgentConfig, runAgentTask } from "./agent.js";
+import { AgentRuns } from "./agent-runs.js";
 import { HOST_VERSION } from "./bridge.js";
 import { loadDotEnv } from "./env.js";
 import { FileExportWriter } from "./exports.js";
@@ -265,9 +266,25 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   }
   if (args.serve) {
     const images = new TextureImages(catalog.store, catalog.dir);
+    // The in-app agent (P4-1). Without a configured model the editor still opens and says why the
+    // chat is unavailable, which is more use than a chat box that refuses every message.
+    const agentConfig = loadAgentConfig({ dataDir: catalog.dir });
+    for (const note of agentConfig.notes)
+      process.stderr.write(`floorplan-ai config: ${note}
+`);
+    const agent = new AgentRuns(workspace, {
+      dataDir: catalog.dir,
+      provider: agentConfig.model ? openAICompatible(agentConfig.model) : null,
+      note: agentConfig.model
+        ? `${agentConfig.model.id}:${agentConfig.model.model}`
+        : "no agent model (set FPV_AGENT_MODEL, or a designer role in the host's config)",
+      now,
+    });
+    process.stderr.write(`floorplan-ai agent: ${agent.state("").note}
+`);
     const served = await serve(workspace, {
       port: args.port,
-
+      agent,
       textures: (id) => images.image(id),
       // Read fresh per request: another host may have opened something since this one started.
       library: () => projects.recentPresent(),

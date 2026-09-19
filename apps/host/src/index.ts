@@ -9,6 +9,13 @@ export {
   loadAgentConfig,
   runAgentTask,
 } from "./agent.js";
+export {
+  AgentRuns,
+  type AgentRunsOptions,
+  MAX_ATTACHMENT_BYTES,
+  type StartResult,
+  summarise,
+} from "./agent-runs.js";
 export { Bridge, type BridgeSocket } from "./bridge.js";
 export { main, parseArgs, readLogLevel } from "./cli.js";
 export {

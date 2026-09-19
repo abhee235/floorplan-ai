@@ -2,11 +2,13 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { DEFAULT_PROFILE } from "@fpv/agents";
 import { PROTOCOL_VERSION } from "@fpv/commands";
 import { Project, sequentialIdGenerator } from "@fpv/ir";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
-import { createSession, type Served, serve } from "../src/index.js";
+import { AgentRuns, createSession, type Served, serve } from "../src/index.js";
+import { Workspace } from "../src/workspace.js";
 
 const fixtureDir = fileURLToPath(new URL("../../../tools/fixtures/six-wall-room.fpviz/", import.meta.url));
 const fixture = () => Project.parse(JSON.parse(readFileSync(`${fixtureDir}project.json`, "utf8")));
@@ -64,13 +66,17 @@ afterEach(async () => {
   served = null;
 });
 
-async function start(webDir?: string) {
+async function start(webDir?: string, options: { agent?: unknown } = {}) {
   const session = createSession({
     project: fixture(),
     ids: sequentialIdGenerator(900),
     now: () => "2026-09-15T00:00:00.000Z",
   });
-  served = await serve(session, { port: 0, ...(webDir ? { webDir } : {}) });
+  served = await serve(session, {
+    port: 0,
+    ...(webDir ? { webDir } : {}),
+    ...(options.agent ? { agent: options.agent as never } : {}),
+  });
   const client = new TestClient(`ws://127.0.0.1:${served.port}/bridge`);
   await client.open();
   return { session, client };
@@ -203,5 +209,110 @@ describe("viewer bridge over a real WebSocket (ADR-005 D4, D5, spec 06 B)", () =
     const fallback = await (await fetch(`${(served as Served | null)?.url}`)).text();
     expect(fallback).toContain("not built");
     await c2.close();
+  });
+});
+
+// The in-app agent over the bridge (ADR-022). The run manager's own rules are tested beside it; this
+// is the part that matters to a person with two tabs open: they both watch the same build.
+describe("the agent over the bridge (P4-1)", () => {
+  /** A provider that answers once with a tool call, then finishes. */
+  const scripted = () => {
+    let i = 0;
+    return {
+      id: "fake",
+      model: "fake-1",
+      profile: { ...DEFAULT_PROFILE },
+      async complete() {
+        await new Promise((r) => setTimeout(r, 1));
+        i += 1;
+        return i === 1
+          ? {
+              text: null,
+              toolCalls: [{ id: "c1", name: "get_scene", arguments: JSON.stringify({ detail: "summary" }) }],
+              finishReason: "tool_calls",
+              usage: { promptTokens: 1, completionTokens: 1 },
+              raw: null,
+            }
+          : {
+              text: "Looked at it.",
+              toolCalls: [],
+              finishReason: "stop",
+              usage: { promptTokens: 1, completionTokens: 1 },
+              raw: null,
+            };
+      },
+    };
+  };
+
+  it("sends a run to every tab looking at that project, not only the one that asked", async () => {
+    const session = createSession({
+      project: fixture(),
+      ids: sequentialIdGenerator(900),
+      now: () => "2026-09-15T00:00:00.000Z",
+    });
+    const workspace = Workspace.of(session);
+    const agent = new AgentRuns(workspace, { provider: scripted() as never, dataDir: null });
+    served = await serve(workspace, { port: 0, agent });
+
+    const a = new TestClient(`ws://127.0.0.1:${served.port}/bridge`);
+    const b = new TestClient(`ws://127.0.0.1:${served.port}/bridge`);
+    await a.open();
+    await b.open();
+    for (const c of [a, b]) {
+      await c.send({ type: "hello", clientVersion: "t", capabilities: ["plan"] });
+      await c.next("snapshot");
+      // every tab is told what the agent is when it attaches
+      expect(await c.next("agent.state")).toMatchObject({ available: true, model: "fake-1" });
+    }
+
+    const started = await a.send({ type: "agent", op: "start", text: "look at this" });
+    expect(started).toMatchObject({ ok: true });
+
+    // the tab that did not ask sees the same run
+    const events: string[] = [];
+    while (!events.includes("run.finished")) {
+      const msg = await b.next("agent.event");
+      events.push((msg.event as { type: string }).type);
+    }
+    expect(events[0]).toBe("run.started");
+    expect(events).toContain("tool.finished");
+    await a.close();
+    await b.close();
+  });
+
+  it("refuses a second run, and cancels the one in flight", async () => {
+    const session = createSession({ project: fixture(), ids: sequentialIdGenerator(900) });
+    const workspace = Workspace.of(session);
+    // a provider that never answers, so the run is still in flight when the second arrives
+    const stuck = {
+      id: "stuck",
+      model: "stuck-1",
+      profile: { ...DEFAULT_PROFILE },
+      complete: () => new Promise<never>(() => {}),
+    };
+    const agent = new AgentRuns(workspace, { provider: stuck as never, dataDir: null });
+    served = await serve(workspace, { port: 0, agent });
+    const client = new TestClient(`ws://127.0.0.1:${served.port}/bridge`);
+    await client.open();
+    await client.send({ type: "hello", clientVersion: "t", capabilities: ["plan"] });
+    await client.next("snapshot");
+
+    expect(await client.send({ type: "agent", op: "start", text: "one" })).toMatchObject({ ok: true });
+    const second = await client.send({ type: "agent", op: "start", text: "two" });
+    expect(second).toMatchObject({ ok: false, error: { code: "agent.busy" } });
+    expect(await client.send({ type: "agent", op: "cancel" })).toMatchObject({
+      ok: true,
+      result: { cancelled: true },
+    });
+    await client.close();
+  });
+
+  it("tells a tab there is no agent, rather than leaving a chat that refuses everything", async () => {
+    const { client } = await start();
+    await client.send({ type: "hello", clientVersion: "t", capabilities: ["plan"] });
+    await client.next("snapshot");
+    const r = await client.send({ type: "agent", op: "start", text: "build something" });
+    expect(r).toMatchObject({ ok: false, error: { code: "agent.unavailable" } });
+    await client.close();
   });
 });

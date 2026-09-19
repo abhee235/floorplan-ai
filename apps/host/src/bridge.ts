@@ -17,6 +17,7 @@ import {
 } from "@fpv/commands";
 import type { DraftPresentation, RenderedImage, RenderRequest, ViewerRenderer } from "@fpv/tools";
 import type { WebSocket } from "ws";
+import type { AgentRuns } from "./agent-runs.js";
 import { plainDetail, silentLog } from "./log.js";
 import { entriesFrom, pickRun, runs } from "./log-read.js";
 import type { Session } from "./session.js";
@@ -72,6 +73,8 @@ export interface RecentEntry {
 export interface BridgeOptions {
   /** Everything in this installation's library, newest first, read fresh on every request. */
   library?: () => RecentEntry[];
+  /** The in-app agent (ADR-022); without one the agent message is refused with a reason. */
+  agent?: AgentRuns | null;
 }
 
 /**
@@ -113,7 +116,11 @@ export class Bridge {
       "__workspace",
       workspace.watch((held) => this.follow(held)),
     );
+    this.followAgent();
   }
+
+  /** Stops passing the agent's events on, when the bridge closes. */
+  private stopAgent: (() => void) | null = null;
 
   /**
    * Start sending one project's changes to the tabs looking at it.
@@ -211,6 +218,21 @@ export class Bridge {
   }
 
   /** Put a tab on a project and send it everything it needs to draw that project from nothing. */
+  /**
+   * An agent's events go to every tab looking at that project, not only the one that asked.
+   *
+   * Two tabs on one project are two people watching the same build, and the one who did not type the
+   * message has the same claim on seeing what happens as the one who did.
+   */
+  private followAgent(): void {
+    const agent = this.options.agent;
+    if (!agent) return;
+    this.stopAgent = agent.onEvent((projectId, msg) => {
+      const held = this.workspace.get(projectId);
+      if (held) this.broadcast(held, msg);
+    });
+  }
+
   private showProjectTo(state: ClientState, held: Held): void {
     state.held = held;
     this.send(state, this.snapshot(held));
@@ -219,6 +241,9 @@ export class Bridge {
     this.send(state, { type: "selection", ids: held.session.store.selection });
     const draft = this.drafts.get(held.id);
     if (draft) this.send(state, draft);
+    // What the agent is, and what it is in the middle of: a tab opened or reloaded during a run
+    // shows the run so far rather than an empty chat.
+    if (this.options.agent) this.send(state, this.options.agent.state(held.id));
     this.announceWorkspace();
   }
 
@@ -391,6 +416,13 @@ export class Bridge {
             ? { result: r }
             : { error: { code: r.error.code, message: r.error.message, hint: r.error.hint } },
         );
+        // A draft committed from the review panel is the answer to the question the model asked about
+        // its scale: one instrument for the person, and the model hears it either way (ADR-022).
+        if (msg.name === "import_plan" && r.ok) {
+          const out = (r.result as { status?: string } | undefined) ?? {};
+          if (out.status === "committed")
+            this.options.agent?.draftCommitted(held, "the person committed the draft in the review panel");
+        }
         // `project new` replaces the project without touching a file, so the files' own watcher never
         // fires; the saved position still moved and every tab needs the new answer.
         if (msg.name === "project") {
@@ -470,11 +502,58 @@ export class Bridge {
         this.reply(state, msg.id, true, { result: { accepted: p !== undefined } });
         return;
       }
-      case "agent":
-        this.reply(state, msg.id, false, {
-          error: { code: "unavailable", message: "the in-app agent arrives in phase 1", hint: null },
-        });
+      case "agent": {
+        const agent = this.options.agent;
+        if (!agent) {
+          this.reply(state, msg.id, false, {
+            error: {
+              code: "agent.unavailable",
+              message: "this host was started without an agent",
+              hint: null,
+            },
+          });
+          return;
+        }
+        switch (msg.op) {
+          case "start": {
+            const started = agent.start(held, {
+              text: msg.text ?? "",
+              ...(msg.attachments ? { attachments: msg.attachments } : {}),
+              ...(msg.reliability ? { reliability: msg.reliability } : {}),
+            });
+            if (started.ok) this.reply(state, msg.id, true, { result: { runId: started.runId } });
+            else this.reply(state, msg.id, false, { error: started.error });
+            return;
+          }
+          case "cancel":
+            this.reply(state, msg.id, true, { result: { cancelled: agent.cancel(held) } });
+            return;
+          case "answer": {
+            const answered =
+              msg.questionId !== undefined && agent.answer(held, msg.questionId, msg.answers ?? {});
+            if (answered) this.reply(state, msg.id, true, { result: { answered: true } });
+            else
+              this.reply(state, msg.id, false, {
+                error: {
+                  code: "agent.not-asked",
+                  message: "nothing is waiting for that answer",
+                  hint: "the run may have been cancelled, or somebody else answered it",
+                },
+              });
+            return;
+          }
+          case "history":
+            this.reply(state, msg.id, true, {
+              result: { events: agent.history(held.id, msg.from ?? 0) },
+            });
+            return;
+          case "clear":
+            agent.clear(held.id);
+            this.reply(state, msg.id, true, { result: { cleared: true } });
+            return;
+        }
         return;
+      }
     }
   }
 
@@ -724,6 +803,8 @@ export class Bridge {
   }
 
   close(): void {
+    this.stopAgent?.();
+    this.stopAgent = null;
     for (const stop of this.stopFollowing.values()) stop();
     this.stopFollowing.clear();
     for (const c of this.clients) c.socket.close(1001, "host closing");
