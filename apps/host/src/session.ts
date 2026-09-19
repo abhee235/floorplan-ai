@@ -90,7 +90,9 @@ export function createSession(options: SessionOptions = {}): Session {
       record(entry) {
         transcript.record(entry);
         const result = entry.result as { ok?: boolean; error?: { code?: string; message?: string } };
-        log.write("tool", "agent", {
+        // Whoever the registry was called by, not always the agent: the catalog panel and the file
+        // picker call tools too, and a log that said "agent" for those answered the wrong question.
+        log.write("tool", entry.origin ?? "agent", {
           tool: entry.tool,
           ok: result?.ok !== false,
           ms: entry.durationMs,

@@ -235,7 +235,12 @@ plan reader.
 |---|---|
 | high | all |
 | medium | all except `modify_wall`, `delete` of walls (still callable) |
-| low | `get_scene`, `describe_room`, `validate`, `render`, `search_catalog`, `create_room_from_brief`, `furnish_room`, `place_item` (anchor form only), `arrange`, `get_bom`, `history`, `batch`, `project`, `export` |
+| low | `get_scene`, `describe_room`, `validate`, `render`, `search_catalog`, `create_room_from_brief`, `furnish_room`, `place_item` (anchor form only), `arrange`, `get_bom`, `history`, `batch`, `project`, `export`, `add_level`, `import_plan`, `finish_opening`, `finish_wall` |
+
+A weak model is offered fewer ways to do a thing, never fewer things it can say. `add_level`,
+`import_plan` and the two finish tools were added to the low profile in phase 4: a storey, a plan to
+read and the colour of a pane of glass are parts of an ordinary brief, and a profile that hid them
+made "three storeys with tinted windows" unanswerable rather than merely harder.
 
 ## 10. Workflow prompt
 

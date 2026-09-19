@@ -6,9 +6,34 @@ describe("registry conventions (spec 04 section 1, ADR-006 D3, D4)", () => {
   it("registers the 23 first-release tools, import_plan and the two finish tools with descriptions", () => {
     const h = harness();
     const names = h.registry.list().map((t) => t.name);
-    expect(names).toHaveLength(28);
-    expect(new Set(names).size).toBe(28);
+    expect(names).toHaveLength(29);
+    expect(new Set(names).size).toBe(29);
     expect(TOOLS.every((t) => t.description.length > 20)).toBe(true);
+  });
+
+  it("applies as whoever called, and records it (ADR-019 D2)", async () => {
+    const h = harness();
+    // The origin rides on the store's event, which is what the session log and every tab read
+    const seen: string[] = [];
+    h.ctx.store.subscribe((e) => seen.push(e.origin));
+    await h.registry.call(
+      "create_walls",
+      {
+        levelId: "level_000000",
+        points: [
+          { x: 0, y: 0 },
+          { x: 3000, y: 0 },
+        ],
+        closed: false,
+      },
+      { origin: "editor" },
+    );
+    expect(seen).toEqual(["editor"]);
+    expect(h.transcript.entries.at(-1)?.origin).toBe("editor");
+
+    // and an agent is still the default, because that is who calls a tool when nobody says otherwise
+    await h.registry.call("get_scene", { detail: "summary" });
+    expect(h.transcript.entries.at(-1)?.origin).toBe("agent");
   });
 
   it("unknown arguments never fail a call; they are reported in warnings", async () => {
@@ -95,12 +120,16 @@ describe("registry conventions (spec 04 section 1, ADR-006 D3, D4)", () => {
 
   it("profiles advertise a subset while every tool stays callable (ADR-006 D6)", async () => {
     const h = harness();
-    expect(h.registry.advertised("high")).toHaveLength(28);
+    expect(h.registry.advertised("high")).toHaveLength(29);
     expect(h.registry.advertised("medium").map((t) => t.name)).not.toContain("modify_wall");
     const low = h.registry.advertised("low").map((t) => t.name);
-    expect(low).toHaveLength(14);
+    expect(low).toHaveLength(18);
     expect(low).not.toContain("create_walls");
     expect(low).toContain("place_item");
+    // A weak model is offered fewer ways to do a thing, never fewer things it can say: a storey, a
+    // plan to read and the colour of a pane of glass are parts of an ordinary brief.
+    for (const name of ["add_level", "import_plan", "finish_opening", "finish_wall"])
+      expect(low, name).toContain(name);
     await buildFixtureRoom(h);
     const r = await h.call("modify_wall", { wallId: "wall_000001", thickness: 150 });
     expect(r.ok).toBe(true);

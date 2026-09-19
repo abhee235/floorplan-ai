@@ -380,7 +380,9 @@ export class Bridge {
         this.broadcast(held, { type: "selection", ids: msg.ids });
         return;
       case "tool": {
-        const r = await session.registry.call(msg.name, msg.args);
+        // A tool called over the bridge is the editor calling it: the catalog's search, the file
+        // picker's import, the panel's own commands (ADR-019 D2).
+        const r = await session.registry.call(msg.name, msg.args, { origin: "editor" });
         this.reply(
           state,
           msg.id,

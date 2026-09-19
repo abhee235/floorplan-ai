@@ -95,7 +95,7 @@ export const history = defineTool({
 export const batch = defineTool({
   name: "batch",
   description:
-    "Apply several commands atomically; if any fails, none apply. Use for a whole room's items. Max 50.",
+    "Apply several commands atomically; if any fails, none apply. Use for a whole room's items, or for anything repeated across many rooms. Max 200.",
   tier: "both",
   mutating: true,
   input: z.object({
@@ -103,12 +103,12 @@ export const batch = defineTool({
     commands: z
       .array(z.object({ type: z.string(), payload: z.unknown() }))
       .min(1)
-      .max(50)
+      .max(200)
       .describe("commands as data, e.g. { type: 'item.place', payload: {...} }; see spec 03"),
   }),
   output: z.object({ applied: z.number(), changed: ChangeSetS.nullable() }),
   run(args, call) {
-    const t = call.ctx.store.transaction(args.label ?? "batch", args.commands, "agent");
+    const t = call.ctx.store.transaction(args.label ?? "batch", args.commands, call.origin);
     if (!t.ok)
       throw new ToolError(
         t.error.code,

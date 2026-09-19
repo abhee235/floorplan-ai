@@ -11,6 +11,7 @@ import { arrange, finishItem, modifyItem, placeItem } from "./tools/items.js";
 import { createRoomFromBrief, furnishRoom } from "./tools/semantic.js";
 import { batch, getBom, history, project, render, verifyProduct } from "./tools/session.js";
 import {
+  addLevel,
   addOpening,
   createRoom,
   createWalls,
@@ -53,6 +54,7 @@ export const TOOLS = [
   modifyOpening,
   finishWall,
   finishItem,
+  addLevel,
 ] as const;
 
 export function createRegistry(ctx: ToolContext): Registry {
@@ -63,6 +65,8 @@ export function createRegistry(ctx: ToolContext): Registry {
 
 export { type BriefUnderstanding, parseBrief } from "./brief.js";
 export {
+  type Attachment,
+  type AttachmentStore,
   type CatalogHit,
   type CatalogProduct,
   type CatalogSearch,
@@ -110,6 +114,7 @@ export { blankProject } from "./project.js";
 export { WORKFLOW_PROMPT, WORKFLOW_PROMPT_NAME } from "./prompt.js";
 export {
   type AnyObjectSchema,
+  type CallOptions,
   defineTool,
   Registry,
   TIMEOUTS,

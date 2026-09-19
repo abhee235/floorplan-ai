@@ -14,11 +14,14 @@ const fixture = (name: string) => readFileSync(`${DIR}${name}.dxf`, "utf8");
 function reader(files: Record<string, string> = {}): PlanReader & { reads: number } {
   const r = {
     reads: 0,
-    async read(req: { path?: string; content?: string; fileName?: string }) {
+    async read(req: { path?: string; content?: string; contentBase64?: string; fileName?: string }) {
       r.reads += 1;
       const fileName = req.fileName ?? req.path ?? "plan.dxf";
       const text =
-        req.content ?? files[req.path ?? ""] ?? (req.path ? fixture(req.path.replace(/\.dxf$/, "")) : "");
+        req.content ??
+        (req.contentBase64 ? Buffer.from(req.contentBase64, "base64").toString("utf8") : undefined) ??
+        files[req.path ?? ""] ??
+        (req.path ? fixture(req.path.replace(/\.dxf$/, "")) : "");
       try {
         return { ...readPlanText(fileName, text), image: null, fileName };
       } catch (e) {
@@ -312,5 +315,43 @@ describe("room detection on imported plans (P2-4)", () => {
     expect(bad.ok).toBe(false);
     await h.ok("import_plan", { path: "office-mm.dxf", confirm: true, gapToleranceMm: 100 });
     expect(h.ctx.store.project.rooms).toHaveLength(3);
+  });
+});
+
+// An attachment is how a plan reaches the agent: the person drops a file into the chat, the host
+// keeps the bytes, and the model names an id. Bytes inside a tool call would be echoed back through
+// the conversation on every turn, which is a context window spent on something the host already has.
+describe("import_plan from an attachment (P4-6)", () => {
+  const attached = (name: string, text: string) => ({
+    get: (id: string) =>
+      id === "a1" ? { id, name, mime: "application/dxf", bytes: new TextEncoder().encode(text) } : null,
+    list: () => [{ id: "a1", name, mime: "application/dxf", size: text.length }],
+  });
+
+  it("reads the attached file, and the draft is the one the path gives", async () => {
+    const text = fixture("office-mm");
+    const viaPath = harness(undefined, { plans: reader() });
+    const byPath = await viaPath.ok<ReviewOut>("import_plan", { path: "office-mm.dxf" });
+
+    const h = harness(undefined, { plans: reader(), attachments: attached("office-mm.dxf", text) });
+    const byAttachment = await h.ok<ReviewOut>("import_plan", { attachmentId: "a1" });
+    expect(byAttachment.result.counts).toEqual(byPath.result.counts);
+    expect(byAttachment.result.status).toBe("review");
+  });
+
+  it("names what is attached when the id is not one of them", async () => {
+    const h = harness(undefined, { plans: reader(), attachments: attached("office-mm.dxf", "") });
+    const r = await h.call("import_plan", { attachmentId: "nope" });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.code).toBe("import.attachment-unknown");
+    expect(r.error.hint).toContain("a1");
+  });
+
+  it("says so when nothing is attached to the conversation", async () => {
+    const h = harness(undefined, { plans: reader() });
+    const r = await h.call("import_plan", { attachmentId: "a1" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.hint).toContain("nothing is attached");
   });
 });

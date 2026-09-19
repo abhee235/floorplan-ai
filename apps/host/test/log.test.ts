@@ -242,6 +242,17 @@ describe("writing down what a session did", () => {
     expect(line?.because).toBe("no viewer is connected");
   });
 
+  it("says who called a tool, so an agent is not blamed for what a person did", async () => {
+    const dir = where();
+    const log = createLog({ dir });
+    const session = createSession({ log });
+    await session.registry.call("get_scene", { detail: "summary" }, { origin: "editor" });
+    await session.registry.call("get_scene", { detail: "summary" });
+    log.close();
+    const tools = lines(dir).filter((l) => l.kind === "tool");
+    expect(tools.map((l) => l.source)).toEqual(["editor", "agent"]);
+  });
+
   it("writes nothing at all when it is turned off", () => {
     const dir = where();
     const log = createLog({ dir, level: "off" });

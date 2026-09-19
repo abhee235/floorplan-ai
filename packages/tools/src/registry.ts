@@ -1,7 +1,7 @@
 // The registry: one definition per tool, called in-process by the app's agent and, through the
 // optional MCP adapter in the host, by external agents (ADR-005 D1, ADR-006 D1).
 import { checkDesign } from "@fpv/catalog";
-import { type ChangeSet, CommandError } from "@fpv/commands";
+import { type ChangeSet, CommandError, type Origin } from "@fpv/commands";
 import { type Problem, validate } from "@fpv/ir";
 import type { z } from "zod";
 import { sizesFor, type ToolContext } from "./context.js";
@@ -23,9 +23,22 @@ export interface ToolCall {
   warn(message: string): void;
   /** Report the change set of a mutation so the envelope carries it. */
   changed(cs: ChangeSet | null): void;
+  /**
+   * Who asked for this call, for the commands it applies.
+   *
+   * Every tool used to write as "agent", including the ones the editor itself calls -- the catalog
+   * panel's search, the file picker's import. The session log then said an agent had done what a
+   * person did, which is the one question a log of this kind exists to answer (ADR-019 D2).
+   */
+  origin: Origin;
 }
 
 export type AnyObjectSchema = z.ZodObject<z.ZodRawShape>;
+
+/** What a caller says about itself. Anything that does not say is the agent, which is the common case. */
+export interface CallOptions {
+  origin?: Origin;
+}
 
 export interface ToolDef<I extends AnyObjectSchema = AnyObjectSchema, O = unknown> {
   name: string;
@@ -67,6 +80,13 @@ const LOW_PROFILE = new Set([
   "batch",
   "project",
   "export",
+  // A weak model still has to be able to say the whole brief. A storey, a plan to read, and the colour
+  // of a pane of glass are not advanced moves — they are the difference between "three storeys with
+  // tinted windows" being buildable and being refused for want of a tool nobody was told about.
+  "add_level",
+  "import_plan",
+  "finish_opening",
+  "finish_wall",
 ]);
 const MEDIUM_HIDDEN = new Set(["modify_wall"]);
 
@@ -99,9 +119,10 @@ export class Registry {
   }
 
   /** Call a tool by name with raw arguments; never throws. */
-  async call(name: string, rawArgs: unknown): Promise<ToolResult> {
+  async call(name: string, rawArgs: unknown, options: CallOptions = {}): Promise<ToolResult> {
     const started = Date.now();
-    const result = await this.invoke(name, rawArgs);
+    const origin = options.origin ?? "agent";
+    const result = await this.invoke(name, rawArgs, origin);
     this.ctx.transcript?.record({
       seq: (this.seq += 1),
       tool: name,
@@ -109,11 +130,12 @@ export class Registry {
       result,
       at: this.ctx.now(),
       durationMs: Date.now() - started,
+      origin,
     });
     return result;
   }
 
-  private async invoke(name: string, rawArgs: unknown): Promise<ToolResult> {
+  private async invoke(name: string, rawArgs: unknown, origin: Origin): Promise<ToolResult> {
     const warnings: string[] = [];
     const def = this.tools.get(name);
     if (!def) {
@@ -157,6 +179,7 @@ export class Registry {
       changed: (cs) => {
         changed = cs;
       },
+      origin,
     };
     try {
       const value = await withTimeout(Promise.resolve(def.run(parsed.data, call)), def.timeoutMs, name);

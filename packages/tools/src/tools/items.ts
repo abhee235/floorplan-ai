@@ -236,7 +236,7 @@ export const modifyItem = defineTool({
       commands.push({ type: "item.mirror", payload: { itemIds: ids } });
     if (args.tags !== undefined) call.warn("tags cannot be changed after placement yet; ignored");
     if (commands.length === 0) throw invalidArg("changes", "give at least one field to change");
-    const t = call.ctx.store.transaction("modify_item", commands, "agent");
+    const t = call.ctx.store.transaction("modify_item", commands, call.origin);
     if (!t.ok) throw new ToolError(t.error.code, t.error.message, t.error.entityId, t.error.hint);
     call.changed(t.entry?.changes ?? null);
     const p = call.ctx.store.project;

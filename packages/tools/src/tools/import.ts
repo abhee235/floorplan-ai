@@ -4,7 +4,7 @@ import type { Store } from "@fpv/commands";
 import { applyAnswers, draftId as idOf, PlanDraft, scaleStatus, withScale } from "@fpv/importers";
 import { derive } from "@fpv/ir";
 import { z } from "zod";
-import type { DraftPresentation } from "../context.js";
+import type { Attachment, DraftPresentation, ToolContext } from "../context.js";
 import { invalidArg, ToolError, unavailable } from "../envelope.js";
 import { CommitError, commitDraft } from "../import.js";
 import { defineTool, TIMEOUTS } from "../registry.js";
@@ -90,6 +90,10 @@ export const importPlan = defineTool({
     path: z.string().optional().describe("plan file path, e.g. plans/level1.dxf"),
     content: z.string().optional().describe("the file's text instead of a path"),
     contentBase64: z.string().optional().describe("the file's bytes in base64 instead of a path, for images"),
+    attachmentId: z
+      .string()
+      .optional()
+      .describe("a file the person attached to the conversation, by its id; never paste its bytes"),
     fileName: z.string().optional().describe("names the content's format, e.g. level1.dxf"),
     page: z.number().int().min(1).optional(),
     draftId: z.string().optional().describe("the draft returned by an earlier call"),
@@ -113,8 +117,8 @@ export const importPlan = defineTool({
     const source =
       args.path !== undefined
         ? `path:${args.path}#${args.page ?? 1}`
-        : args.content !== undefined
-          ? null
+        : args.attachmentId !== undefined
+          ? `attachment:${args.attachmentId}#${args.page ?? 1}`
           : null;
     let kept: Kept | undefined;
     let fileName: string | null = null;
@@ -142,15 +146,24 @@ export const importPlan = defineTool({
       };
     } else if (args.draftId !== undefined && keep(store).byId.has(args.draftId)) {
       kept = keep(store).byId.get(args.draftId);
-    } else if (args.path !== undefined || args.content !== undefined || args.contentBase64 !== undefined) {
+    } else if (
+      args.path !== undefined ||
+      args.content !== undefined ||
+      args.contentBase64 !== undefined ||
+      args.attachmentId !== undefined
+    ) {
       const known = source ? keep(store).bySource.get(source) : undefined;
       if (known && args.confirm && keep(store).byId.has(known)) kept = keep(store).byId.get(known);
       else {
         if (!ctx.plans) throw unavailable("import_plan", "this session has no plan reader");
+        // An attachment is resolved to bytes here, so everything below this line reads one kind of
+        // input. The id is what a model carries; the bytes never go back through the conversation.
+        const attached = args.attachmentId !== undefined ? attachmentOrThrow(ctx, args.attachmentId) : null;
         const read = await ctx.plans.read({
           ...(args.path !== undefined ? { path: args.path } : {}),
           ...(args.content !== undefined ? { content: args.content } : {}),
           ...(args.contentBase64 !== undefined ? { contentBase64: args.contentBase64 } : {}),
+          ...(attached ? { contentBase64: base64Of(attached.bytes), fileName: attached.name } : {}),
           ...(args.fileName !== undefined ? { fileName: args.fileName } : {}),
           ...(args.page !== undefined ? { page: args.page } : {}),
         });
@@ -180,8 +193,8 @@ export const importPlan = defineTool({
     } else
       throw invalidArg(
         "path",
-        "give path, content with fileName, or a draftId",
-        'e.g. path: "plans/level1.dxf"',
+        "give attachmentId, path, content with fileName, or a draftId",
+        'e.g. attachmentId: "a1", or path: "plans/level1.dxf"',
       );
 
     let draft = (kept as Kept).draft;
@@ -285,3 +298,23 @@ export const importPlan = defineTool({
     };
   },
 });
+
+/** The attached file, or a refusal naming what is attached. */
+function attachmentOrThrow(ctx: ToolContext, id: string): Attachment {
+  const found = ctx.attachments?.get(id) ?? null;
+  if (found) return found;
+  const have = (ctx.attachments?.list() ?? []).map((a) => `${a.id} (${a.name})`);
+  throw new ToolError(
+    "import.attachment-unknown",
+    `no attachment "${id}" in this conversation`,
+    null,
+    have.length ? `attached: ${have.join(", ")}` : "nothing is attached to this conversation",
+  );
+}
+
+function base64Of(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000)
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(binary);
+}

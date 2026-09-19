@@ -2,7 +2,7 @@
 // Everything here is an in-process object; nothing is a network client.
 
 import type { RulesPack, VerifyOutcome, VerifyRequest } from "@fpv/catalog";
-import type { Store } from "@fpv/commands";
+import type { Origin, Store } from "@fpv/commands";
 import type { PlanDraft, PlanPreview } from "@fpv/importers";
 import type { PrimitiveRecipe, Project, Size3 } from "@fpv/ir";
 import { derive } from "@fpv/ir";
@@ -113,6 +113,26 @@ export interface PlanReader {
   read(req: PlanReadRequest): Promise<PlanReadOutcome>;
 }
 
+/** A file somebody attached to a message for the agent. */
+export interface Attachment {
+  id: string;
+  name: string;
+  mime: string;
+  bytes: Uint8Array;
+}
+
+/**
+ * The files attached to the conversation, by id.
+ *
+ * A model names an id and never carries the bytes: an image inside a tool call would be echoed back
+ * through the conversation on every turn, which is how a context window is spent on something the
+ * host already has.
+ */
+export interface AttachmentStore {
+  get(id: string): Attachment | null;
+  list(): readonly { id: string; name: string; mime: string; size: number }[];
+}
+
 export interface OpenOptions {
   /** Load the newer recovery file instead of project.json (ADR-012 D6). */
   recover?: boolean;
@@ -182,6 +202,8 @@ export interface TranscriptEntry {
   result: unknown;
   at: string;
   durationMs: number;
+  /** Who asked: the editor, the agent, an import. Absent in entries recorded before this was carried. */
+  origin?: Origin;
 }
 
 /** Every tool call is recorded for cross-provider replay (ADR-007 D4). */
@@ -201,6 +223,8 @@ export interface ToolContext {
   writer: ExportWriter | null;
   /** Reads plan files for import_plan; absent or null in a session without one. */
   plans?: PlanReader | null;
+  /** Files attached to the agent's conversation; absent in a session nobody is talking to. */
+  attachments?: AttachmentStore | null;
   transcript: TranscriptRecorder | null;
   now(): string;
 }

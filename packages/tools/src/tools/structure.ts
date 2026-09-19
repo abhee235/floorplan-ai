@@ -26,7 +26,7 @@ const RefS = z.object({ type: z.string(), id: z.string() });
 
 /** Apply one command through the store as the agent; failures become tool errors. */
 export function run(call: ToolCall, command: unknown): Extract<ApplyResult, { ok: true }> {
-  const r = call.ctx.store.apply(command, "agent");
+  const r = call.ctx.store.apply(command, call.origin);
   if (!r.ok) throw new ToolError(r.error.code, r.error.message, r.error.entityId, r.error.hint);
   for (const w of r.warnings) call.warn(w);
   call.changed(r.changes);
@@ -39,7 +39,7 @@ export function runAll(
   label: string,
   commands: unknown[],
 ): Extract<ApplyResult, { ok: true }>[] {
-  const t = call.ctx.store.transaction(label, commands, "agent");
+  const t = call.ctx.store.transaction(label, commands, call.origin);
   if (!t.ok)
     throw new ToolError(
       t.error.code,
@@ -415,6 +415,71 @@ export function hingeEndFor(p: Project, w: Wall, side: "north" | "south" | "east
     `use hingeSide "${toStart}" or "${toEnd}"`,
   );
 }
+
+const LevelViewS = z.object({
+  id: z.string(),
+  name: z.string(),
+  elevation: z.number(),
+  height: z.number(),
+  floorThickness: z.number(),
+});
+
+/**
+ * Another storey (spec 03 section 2; ledger R-103..R-105).
+ *
+ * The command has been there since phase 0 and nothing offered it to a model, so "three storeys"
+ * could not be asked for at all: every wall a model drew landed on the one level a blank project has.
+ *
+ * Elevations stack by themselves -- a new level sits on top of the highest one, at its height plus the
+ * slab -- so `count` is the whole of what a storey needs from whoever asks.
+ */
+export const addLevel = defineTool({
+  name: "add_level",
+  description:
+    "Add a storey. It sits above the highest one, at its height plus the floor slab; count adds several, each above the last. height is floor to ceiling in mm (default 2700), floorThickness the slab between storeys (default 300). sameAs copies another level's elevation instead, for a mezzanine. Walls, rooms and items belong to one level: pass the new id as levelId to create_walls, create_room and place_item.",
+  tier: "primitive",
+  mutating: true,
+  input: z.object({
+    name: z.string().optional().describe("e.g. 'First floor'; numbered from it when count is more than one"),
+    count: z.number().int().min(1).max(20).optional().describe("how many storeys to add; default 1"),
+    height: z.number().int().positive().optional().describe("floor to ceiling in mm; default 2700"),
+    floorThickness: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe("the slab between storeys in mm; default 300"),
+    sameAs: z.string().optional().describe("a level id to sit beside rather than above, for a mezzanine"),
+  }),
+  output: z.object({ levels: z.array(LevelViewS) }),
+  run(args, call) {
+    const count = args.count ?? 1;
+    const before = new Set(call.ctx.store.project.levels.map((l) => l.id));
+    const commands = Array.from({ length: count }, (_, i) => ({
+      type: "level.add",
+      payload: {
+        // One name for one storey; numbered after it for several, so a list of levels can be read.
+        ...(args.name !== undefined ? { name: count === 1 ? args.name : `${args.name} ${i + 1}` } : {}),
+        ...(args.height !== undefined ? { height: args.height } : {}),
+        ...(args.floorThickness !== undefined ? { floorThickness: args.floorThickness } : {}),
+        ...(args.sameAs !== undefined ? { sameAs: args.sameAs } : {}),
+      },
+    }));
+    runAll(call, count === 1 ? "add_level" : `add ${count} levels`, commands);
+    // By difference rather than from the results: the store sorts levels by elevation as it adds them,
+    // so the order they come back in is the building's, not the order they were asked for.
+    const levels = call.ctx.store.project.levels
+      .filter((l) => !before.has(l.id))
+      .map((l) => ({
+        id: l.id,
+        name: l.name,
+        elevation: l.elevation,
+        height: l.height,
+        floorThickness: l.floorThickness,
+      }));
+    return { levels };
+  },
+});
 
 export const addOpening = defineTool({
   name: "add_opening",
