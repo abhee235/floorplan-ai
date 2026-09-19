@@ -121,7 +121,8 @@ export a layout drawing.
 | P3-7 must | Layout drawing export to PDF and DXF with mount heights | Drawing matches the plan view primitives |
 | P3-8 should | Library install and user model or texture import | spec 02 section 4 and ADR-010 D10 |
 | P3-9 should | Keyboard entry of lengths and angles while drawing | ledger W-072..W-076 |
-| P3-10 must | Several projects at once: File New, Open, Open recent, Save, Save as, Close; a project id in the URL; a session per open project so two tabs hold two projects; an unsaved mark; recovered work offered in the app rather than on stderr | ADR-020; two tabs edit two projects on one host without either moving; New then Save asks where rather than writing over the project that was open |
+| P3-10 must | Several projects at once, in a library the app owns: New, Open from a list, Save, Close, Delete; a project id in the URL; a session per open project so two tabs hold two projects; an unsaved mark; recovered work offered in the app | ADR-020, ADR-021; two tabs edit two projects on one host without either moving; no path is ever sent to a browser |
+| P3-11 must | Export a project as one file the browser downloads, and import one back | ADR-021 D4; a project exported on one installation imports on another |
 
 ### Phase 4: In-app agent and hosting
 
