@@ -35,6 +35,8 @@ export interface ServeOptions {
   recent?: () => RecentEntry[];
   /** Where a project id lives, for a link that names one (ADR-020 D2). */
   resolve?: (id: string) => RecentEntry | null;
+  /** The folder a person's projects live in by default (ADR-020 D1a). */
+  projectsHome?: string;
 }
 
 export interface Served {
@@ -118,6 +120,7 @@ export function serve(target: Session | Workspace, options: ServeOptions = {}): 
   const bridge = new Bridge(workspace, {
     ...(options.recent ? { recent: options.recent } : {}),
     ...(options.resolve ? { resolve: options.resolve } : {}),
+    ...(options.projectsHome ? { projectsHome: options.projectsHome } : {}),
   });
   const server = createServer((req, res) => {
     if (req.url?.startsWith("/bridge")) {

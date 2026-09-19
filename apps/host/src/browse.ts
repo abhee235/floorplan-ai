@@ -91,10 +91,16 @@ export async function browse(path: string): Promise<Listing> {
   return { dir, parent: parentOf(dir), entries };
 }
 
-/** The shortcuts offered beside a listing; only the ones that exist are returned. */
-export async function places(current: string | null): Promise<Place[]> {
+/**
+ * The shortcuts offered beside a listing; only the ones that exist are returned.
+ *
+ * "My projects" leads, and is the answer to "where are my projects?" — a folder that always exists,
+ * that Save as suggests, and that the picker starts in when nothing else says otherwise.
+ */
+export async function places(current: string | null, projects?: string): Promise<Place[]> {
   const home = homedir();
   const candidates: Place[] = [
+    ...(projects ? [{ name: "My projects", path: projects }] : []),
     ...(current ? [{ name: `${basename(current)} (this project)`, path: dirname(current) }] : []),
     { name: "Home", path: home },
     { name: "Documents", path: join(home, "Documents") },
@@ -116,7 +122,14 @@ export async function places(current: string | null): Promise<Place[]> {
   return out;
 }
 
-/** Where a picker opens when nothing else says: beside the open project, else the home folder. */
-export function startingDir(current: string | null): string {
-  return current ? dirname(current) : homedir();
+/**
+ * Where a picker opens: beside the open project, else the projects folder.
+ *
+ * The home directory was the old answer and a poor one — a person's home is full of everything except
+ * their floor plans, so the picker opened on noise and the first thing anyone had to do was navigate
+ * away from it.
+ */
+export function startingDir(current: string | null, projects?: string): string {
+  if (current) return dirname(current);
+  return projects ?? homedir();
 }

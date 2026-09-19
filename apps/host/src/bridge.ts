@@ -73,6 +73,8 @@ export interface BridgeOptions {
   recent?: () => RecentEntry[];
   /** Where a project id lives, for a link that names one (ADR-020 D2). */
   resolve?: (id: string) => RecentEntry | null;
+  /** The folder a person's projects live in by default, which the picker starts in (ADR-020 D1a). */
+  projectsHome?: string;
 }
 
 export class Bridge {
@@ -392,9 +394,10 @@ export class Bridge {
           this.reply(state, msg.id, true, {
             result: {
               recent: this.options.recent?.() ?? [],
-              places: await places(current),
-              start: startingDir(current),
+              places: await places(current, this.options.projectsHome),
+              start: startingDir(current, this.options.projectsHome),
               current,
+              projectsHome: this.options.projectsHome ?? null,
             },
           });
           return;
@@ -406,7 +409,7 @@ export class Bridge {
           this.reply(state, msg.id, true, { result: { project: known } });
           return;
         }
-        const where = msg.path ?? startingDir(held.files.path());
+        const where = msg.path ?? startingDir(held.files.path(), this.options.projectsHome);
         this.reply(state, msg.id, true, { result: await browse(where) });
         return;
       }

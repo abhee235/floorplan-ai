@@ -9,6 +9,7 @@ import { WebSocket } from "ws";
 import { browse, places, startingDir } from "../src/browse.js";
 import { ProjectFileStore } from "../src/files.js";
 import { createSession, type Served, serve } from "../src/index.js";
+import { defaultProjectsDir, projectsHome } from "../src/paths.js";
 import { ProjectRegistry, RECENT_LIMIT } from "../src/projects.js";
 
 const NOW = "2026-09-19T10:00:00.000Z";
@@ -221,6 +222,36 @@ describe("looking around the host's folders (ADR-012 D8)", () => {
     let at = await browse(root);
     for (let hops = 0; at.parent && hops < 20; hops += 1) at = await browse(at.parent);
     expect(at.parent).toBeNull();
+  });
+
+  it("leads with the projects folder, which is where 'where are my projects' ends (ADR-020 D1a)", async () => {
+    const dir = temp();
+    const mine = join(dir, "my-projects");
+    mkdirSync(mine, { recursive: true });
+    const list = await places(null, mine);
+    expect(list[0]).toEqual({ name: "My projects", path: mine });
+    // and it is where a picker starts when no project is open, rather than the middle of a home folder
+    expect(startingDir(null, mine)).toBe(mine);
+    // with a project open, its own folder still wins: that is where the person is working
+    const project = makeProject(dir, "boardroom");
+    expect(startingDir(project, mine)).toBe(dir);
+  });
+
+  it("makes the projects folder if it is not there, so the picker never opens on nothing", () => {
+    const dir = temp();
+    const wanted = join(dir, "Documents", "floorplan-viz");
+    mkdirSync(join(dir, "Documents"), { recursive: true });
+    expect(defaultProjectsDir({}, dir)).toBe(wanted);
+    expect(existsSync(wanted)).toBe(false);
+    expect(projectsHome(wanted)).toBe(wanted);
+    expect(existsSync(wanted)).toBe(true);
+  });
+
+  it("takes FPV_PROJECTS_DIR over the default, and falls back when there is no Documents", () => {
+    const dir = temp();
+    expect(defaultProjectsDir({ FPV_PROJECTS_DIR: "/somewhere/else" }, dir)).toBe("/somewhere/else");
+    // a machine with no Documents folder gets one in the home directory instead
+    expect(defaultProjectsDir({}, dir)).toBe(join(dir, "floorplan-viz"));
   });
 
   it("offers only shortcuts that exist, with the open project's folder first", async () => {

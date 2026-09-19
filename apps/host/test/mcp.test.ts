@@ -136,6 +136,7 @@ describe("MCP adapter over an in-memory transport (ADR-005 D1, D7)", () => {
       project: "x.json",
       profile: "low",
       data: null,
+      projects: null,
       agent: null,
       steps: null,
       log: null,
@@ -144,6 +145,8 @@ describe("MCP adapter over an in-memory transport (ADR-005 D1, D7)", () => {
       follow: false,
       find: null,
     });
+    // where this person's projects live, for the picker to start in (ADR-020 D1a)
+    expect(parseArgs(["--projects", "D:/plans"])).toMatchObject({ projects: "D:/plans" });
     // reading the log back: --logs alone lists the runs, and takes an optional run to print
     expect(parseArgs(["--logs"])).toMatchObject({ logs: true, run: null, follow: false });
     expect(parseArgs(["--logs", "last", "--follow"])).toMatchObject({
@@ -175,6 +178,7 @@ describe("MCP adapter over an in-memory transport (ADR-005 D1, D7)", () => {
       project: null,
       profile: "high",
       data: null,
+      projects: null,
       agent: null,
       steps: null,
       log: null,

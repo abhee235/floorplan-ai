@@ -15,7 +15,7 @@ import { FileExportWriter } from "./exports.js";
 import { createLog, type LogLevel } from "./log.js";
 import { formatEntry, formatRuns, pickRun, readFrom, readRun, runs } from "./log-read.js";
 import { serveStdio } from "./mcp.js";
-import { dataPaths } from "./paths.js";
+import { dataPaths, projectsHome } from "./paths.js";
 import { FilePlanReader } from "./plans.js";
 import { ProjectRegistry } from "./projects.js";
 import { createReader, loadReaderConfig } from "./reader.js";
@@ -32,6 +32,8 @@ export interface CliArgs {
   profile: ToolReliability;
   /** Data directory for the catalog database and libraries; null picks the platform default. */
   data: string | null;
+  /** Where this person's projects live; null takes FPV_PROJECTS_DIR, else Documents. */
+  projects: string | null;
   /** A task for the in-app agent to run once (PRD P1-7); null runs none. */
   agent: string | null;
   /** Step budget for --agent. */
@@ -60,6 +62,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     project: null,
     profile: "high",
     data: null,
+    projects: null,
     agent: null,
     steps: null,
     log: null,
@@ -89,6 +92,9 @@ export function parseArgs(argv: readonly string[]): CliArgs {
       i += 1;
     } else if (a === "--data") {
       out.data = argv[i + 1] ?? null;
+      i += 1;
+    } else if (a === "--projects") {
+      out.projects = argv[i + 1] ?? null;
       i += 1;
     } else if (a === "--agent") {
       out.agent = argv[i + 1] ?? null;
@@ -189,6 +195,8 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
         "  --mcp    serve the tool registry over stdio for an MCP client\n" +
         "  --serve  serve the web viewer and the bridge on http://127.0.0.1:<port>/ (default 4310)\n" +
         "  --data   directory for the catalog database and libraries (default: the platform data dir)\n" +
+        "  --projects where this person's projects live: the folder the picker starts in and\n" +
+        "           Save as suggests (default: Documents/floorplan-viz; also FPV_PROJECTS_DIR)\n" +
         "  --agent  run one task with the configured designer model (roles.designer or FPV_AGENT_*);\n" +
         "           with --serve a browser tab watches it; not together with --mcp\n" +
         "Both --mcp and --serve together give one process that Claude Code drives while a browser tab watches.\n",
@@ -216,6 +224,11 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   // Every project this session opens or saves is remembered by its own id (ADR-020 D1), so a link
   // keeps working after the folder is moved and File ▸ Open recent has something to offer.
   const projects = ProjectRegistry.open(catalog.dir);
+  // Somewhere a person's projects live, made if it is not there, so "open a project" starts somewhere
+  // that means something rather than in the middle of their home directory (ADR-020 D1a).
+  const home = projectsHome(args.projects ?? undefined);
+  process.stderr.write(`floorplan-ai projects: ${home}
+`);
   // product verification: search and model are optional; without them callers pass sources and a proposal
   const loaded = loadHostConfig({ dataDir: catalog.dir });
   for (const note of loaded.notes) process.stderr.write(`floorplan-ai config: ${note}\n`);
@@ -257,6 +270,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
       // Read fresh per request: another host may have opened something since this one started.
       recent: () => projects.recentPresent(),
       resolve: (id) => projects.byId(id),
+      projectsHome: home,
     });
     // stdout may be the MCP transport, so the URL goes to stderr
     process.stderr.write(`floorplan-ai viewer: ${served.url}\n`);

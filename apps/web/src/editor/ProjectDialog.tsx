@@ -97,6 +97,8 @@ export function ProjectDialog({
   const [listing, setListing] = useState<Listing | null>(null);
   const [recent, setRecent] = useState<RecentProject[]>([]);
   const [places, setPlaces] = useState<Place[]>([]);
+  /** The folder this person's projects live in, which is where "I have lost my projects" ends. */
+  const [home, setHome] = useState<string | null>(null);
   const [chosen, setChosen] = useState<string | null>(null);
   const [name, setName] = useState(currentName);
   const [typed, setTyped] = useState("");
@@ -137,6 +139,7 @@ export function ProjectDialog({
         if (cancelled) return;
         setRecent((body.recent as RecentProject[]) ?? []);
         setPlaces((body.places as Place[]) ?? []);
+        setHome((body.projectsHome as string | null) ?? null);
         await go(String(body.start ?? ""));
       } catch (e) {
         if (!cancelled) setProblem(e instanceof Error ? e.message : String(e));
@@ -216,17 +219,27 @@ export function ProjectDialog({
           <div className="w-52 shrink-0 space-y-3 overflow-y-auto">
             <nav aria-label="Places">
               <p className="px-1 pb-1 text-[11px] font-medium text-muted-foreground uppercase">Places</p>
-              {places.map((p) => (
-                <button
-                  key={p.path}
-                  type="button"
-                  className="flex w-full items-center gap-1.5 truncate rounded px-1.5 py-1 text-left text-[13px] hover:bg-accent"
-                  onClick={() => void go(p.path)}
-                >
-                  <Home className="size-3.5 shrink-0 text-muted-foreground" />
-                  <span className="truncate">{p.name}</span>
-                </button>
-              ))}
+              {places.map((p) => {
+                const mine = p.path === home;
+                return (
+                  <button
+                    key={p.path}
+                    type="button"
+                    title={p.path}
+                    className={`flex w-full items-center gap-1.5 truncate rounded px-1.5 py-1 text-left text-[13px] hover:bg-accent ${
+                      mine ? "font-medium" : ""
+                    }`}
+                    onClick={() => void go(p.path)}
+                  >
+                    {mine ? (
+                      <FolderOpen className="size-3.5 shrink-0 text-sky-600 dark:text-sky-400" />
+                    ) : (
+                      <Home className="size-3.5 shrink-0 text-muted-foreground" />
+                    )}
+                    <span className="truncate">{p.name}</span>
+                  </button>
+                );
+              })}
             </nav>
 
             {mode === "open" && recent.length > 0 ? (
@@ -255,9 +268,20 @@ export function ProjectDialog({
             aria-label="Folders here"
           >
             {(listing?.entries.length ?? 0) === 0 ? (
-              <p className="p-4 text-sm text-muted-foreground">
-                {listing?.problem ? "That folder cannot be read." : "No folders here."}
-              </p>
+              <div className="space-y-2 p-4">
+                <p className="text-sm text-muted-foreground">
+                  {listing?.problem
+                    ? "That folder cannot be read."
+                    : "Nothing here. Projects are folders, so this shows only folders."}
+                </p>
+                {/* An empty listing used to be the end of the road. It says where to go now. */}
+                {home && listing?.dir !== home ? (
+                  <Button variant="outline" className="h-8" onClick={() => void go(home)}>
+                    <FolderOpen className="size-4" />
+                    Go to my projects
+                  </Button>
+                ) : null}
+              </div>
             ) : null}
             {listing?.entries.map((entry) => (
               <button

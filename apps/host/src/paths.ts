@@ -1,6 +1,6 @@
 // Where the host keeps per-user data (ADR-008 D5): the catalog database and installed libraries.
 // One directory, overridable with FPV_DATA_DIR or --data; created on first use.
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -27,4 +27,31 @@ export function dataPaths(dir: string = defaultDataDir()): {
 } {
   mkdirSync(dir, { recursive: true });
   return { dir, catalogDb: join(dir, "catalog.db"), libraries: join(dir, "libraries") };
+}
+
+/**
+ * Where a person's projects live by default (ADR-020 D1a).
+ *
+ * Without one, "open a project" starts nowhere in particular and the answer to "where are my projects?"
+ * is whatever the person can remember about their own disk. A named folder that always exists gives the
+ * picker somewhere to start, Save as somewhere to suggest, and the question an answer.
+ *
+ * Documents is where a desktop application puts a person's work and where they will look for it. A
+ * machine without one — a server, a stripped Windows install — gets a folder in the home directory
+ * instead, which is worse but never wrong.
+ */
+export function defaultProjectsDir(env: NodeJS.ProcessEnv = process.env, home: string = homedir()): string {
+  if (env.FPV_PROJECTS_DIR) return env.FPV_PROJECTS_DIR;
+  const documents = join(home, "Documents");
+  return existsSync(documents) ? join(documents, APP_DIR_NAME) : join(home, APP_DIR_NAME);
+}
+
+/** The projects folder, created if it is not there, so the picker is never looking at nothing. */
+export function projectsHome(dir: string = defaultProjectsDir()): string {
+  try {
+    mkdirSync(dir, { recursive: true });
+  } catch {
+    // a read-only home, a path that cannot be made: the picker still starts there and says it is empty
+  }
+  return dir;
 }
