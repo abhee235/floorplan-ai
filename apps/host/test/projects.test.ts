@@ -6,10 +6,8 @@ import { join } from "node:path";
 import { blankProject } from "@fpv/tools";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
-import { browse, places, startingDir } from "../src/browse.js";
 import { ProjectFileStore } from "../src/files.js";
 import { createSession, type Served, serve } from "../src/index.js";
-import { defaultProjectsDir, projectsHome } from "../src/paths.js";
 import { ProjectRegistry, RECENT_LIMIT } from "../src/projects.js";
 
 const NOW = "2026-09-19T10:00:00.000Z";
@@ -196,74 +194,6 @@ describe("a new project has no file (ADR-012 D8)", () => {
   });
 });
 
-describe("looking around the host's folders (ADR-012 D8)", () => {
-  it("lists directories, marks the ones that are projects, and sorts those first", async () => {
-    const dir = temp();
-    makeProject(dir, "zebra-project");
-    mkdirSync(join(dir, "aaa-plain"));
-    mkdirSync(join(dir, ".hidden"));
-    writeFileSync(join(dir, "a-file.txt"), "not a folder", "utf8");
-
-    const listing = await browse(dir);
-    expect(listing.entries.map((e) => e.name)).toEqual(["zebra-project", "aaa-plain"]);
-    expect(listing.entries[0]?.project).toBe(true);
-    expect(listing.entries[1]?.project).toBe(false);
-    expect(listing.parent).not.toBeNull();
-  });
-
-  it("reports a directory it cannot read instead of throwing", async () => {
-    const listing = await browse(join(temp(), "no-such-folder"));
-    expect(listing.entries).toEqual([]);
-    expect(listing.problem).toBeTruthy();
-  });
-
-  it("a drive root has no parent, which is how the picker knows to stop", async () => {
-    const root = startingDir(null);
-    let at = await browse(root);
-    for (let hops = 0; at.parent && hops < 20; hops += 1) at = await browse(at.parent);
-    expect(at.parent).toBeNull();
-  });
-
-  it("leads with the projects folder, which is where 'where are my projects' ends (ADR-020 D1a)", async () => {
-    const dir = temp();
-    const mine = join(dir, "my-projects");
-    mkdirSync(mine, { recursive: true });
-    const list = await places(null, mine);
-    expect(list[0]).toEqual({ name: "My projects", path: mine });
-    // and it is where a picker starts when no project is open, rather than the middle of a home folder
-    expect(startingDir(null, mine)).toBe(mine);
-    // with a project open, its own folder still wins: that is where the person is working
-    const project = makeProject(dir, "boardroom");
-    expect(startingDir(project, mine)).toBe(dir);
-  });
-
-  it("makes the projects folder if it is not there, so the picker never opens on nothing", () => {
-    const dir = temp();
-    const wanted = join(dir, "Documents", "floorplan-viz");
-    mkdirSync(join(dir, "Documents"), { recursive: true });
-    expect(defaultProjectsDir({}, dir)).toBe(wanted);
-    expect(existsSync(wanted)).toBe(false);
-    expect(projectsHome(wanted)).toBe(wanted);
-    expect(existsSync(wanted)).toBe(true);
-  });
-
-  it("takes FPV_PROJECTS_DIR over the default, and falls back when there is no Documents", () => {
-    const dir = temp();
-    expect(defaultProjectsDir({ FPV_PROJECTS_DIR: "/somewhere/else" }, dir)).toBe("/somewhere/else");
-    // a machine with no Documents folder gets one in the home directory instead
-    expect(defaultProjectsDir({}, dir)).toBe(join(dir, "floorplan-viz"));
-  });
-
-  it("offers only shortcuts that exist, with the open project's folder first", async () => {
-    const dir = temp();
-    const project = makeProject(dir, "boardroom");
-    const list = await places(project);
-    expect(list[0]?.path).toBe(dir);
-    expect(list[0]?.name).toContain("boardroom");
-    for (const place of list) expect((await browse(place.path)).problem).toBeUndefined();
-  });
-});
-
 /** A tab, reduced to what these tests ask of it. */
 class Tab {
   ws: WebSocket;
@@ -371,44 +301,32 @@ describe("what is open, over the bridge (ADR-012 D8)", () => {
     await tab.close();
   });
 
-  it("lists folders and remembered projects for the picker", async () => {
+  it("lists the library by id and name, and tells a tab no path at all (ADR-021)", async () => {
     const dir = temp();
     const project = makeProject(dir, "boardroom");
-    mkdirSync(join(dir, "plain-folder"));
-    const known = { id: idOf(project), address: project, name: "boardroom", lastOpenedAt: NOW };
+    const known = {
+      id: idOf(project),
+      address: project,
+      name: "boardroom",
+      createdAt: NOW,
+      lastOpenedAt: NOW,
+    };
     const session = createSession({ now: () => NOW });
-    served = await serve(session, {
-      port: 0,
-      recent: () => [known],
-      resolve: (id) => (id === known.id ? known : null),
-    });
+    served = await serve(session, { port: 0, library: () => [known] });
     const tab = new Tab(`ws://127.0.0.1:${served.port}/bridge`);
     await tab.open();
     await tab.send({ type: "hello", clientVersion: "t", capabilities: ["plan"] });
 
-    const browsed = await tab.send({ type: "files", op: "browse", path: dir });
-    expect(browsed.ok).toBe(true);
-    const listing = browsed.result as { entries: { name: string; project: boolean }[] };
-    expect(listing.entries.find((e) => e.name === "boardroom")?.project).toBe(true);
-    expect(listing.entries.find((e) => e.name === "plain-folder")?.project).toBe(false);
+    const listed = await tab.send({ type: "files", op: "list" });
+    expect(listed.ok).toBe(true);
+    const body = listed.result as { projects: Record<string, unknown>[] };
+    expect(body.projects.map((p) => p.name)).toEqual(["boardroom"]);
+    expect(body.projects[0]?.projectId).toBe(known.id);
 
-    const recent = await tab.send({ type: "files", op: "recent" });
-    const body = recent.result as {
-      recent: { id: string; name: string }[];
-      places: unknown[];
-      start: string;
-    };
-    expect(body.recent.map((r) => r.name)).toEqual(["boardroom"]);
-    // the list carries ids, because that is what a link and a menu line ask for (ADR-020 D1)
-    expect(body.recent[0]?.id).toBe(known.id);
-    expect(body.places.length).toBeGreaterThan(0);
-    expect(body.start).toBeTruthy();
-
-    // and an id resolves to where that project lives, which is how a link is followed
-    const found = await tab.send({ type: "files", op: "resolve", project: known.id });
-    expect((found.result as { project: { address: string } | null }).project?.address).toBe(project);
-    const missing = await tab.send({ type: "files", op: "resolve", project: "neverseenaaa" });
-    expect((missing.result as { project: unknown }).project).toBeNull();
+    // The whole point of ADR-021: nothing a tab is told says where anything is on this machine.
+    const said = JSON.stringify(listed);
+    for (const leak of [project, dir, "address", String.fromCharCode(92), "/Users/", "/home/"])
+      expect(said, leak).not.toContain(leak);
     await tab.close();
   });
 

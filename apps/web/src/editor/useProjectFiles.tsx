@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { projectAsked, showProject, titleFor } from "./address.js";
 import type { Announcer } from "./announce.js";
 import { RecoveryDialog, type UnsavedAnswer, UnsavedDialog } from "./ConfirmDialog.js";
-import { ProjectDialog, type ProjectDialogMode, type RecentProject } from "./ProjectDialog.js";
+import { type LibraryProject, ProjectDialog } from "./ProjectDialog.js";
 
 /** What the hook needs from the app; a subset, so the tests can hand it a fake. */
 export interface ProjectHost {
@@ -58,14 +58,14 @@ export interface ProjectFilesApi {
   actions: {
     newProject: () => Promise<void>;
     open: () => Promise<void>;
-    openPath: (path: string) => Promise<void>;
+    openProject: (projectId: string) => Promise<void>;
+    deleteProject: (projectId: string) => Promise<void>;
     save: () => Promise<void>;
-    saveAs: () => Promise<void>;
     closeProject: () => Promise<void>;
     switchTo: (projectId: string) => Promise<void>;
   };
-  /** The lately-opened projects, for the Open recent submenu. */
-  recent: RecentProject[];
+  /** The library, for the Open recent submenu. */
+  recent: LibraryProject[];
   /** Every dialog this owns, rendered by the shell in one place. */
   dialogs: JSX.Element;
 }
@@ -75,8 +75,8 @@ export function useProjectFiles(
   facts: ProjectFacts,
   announcer: Announcer,
 ): ProjectFilesApi {
-  const [mode, setMode] = useState<ProjectDialogMode | null>(null);
-  const [recent, setRecent] = useState<RecentProject[]>([]);
+  const [picking, setPicking] = useState(false);
+  const [recent, setRecent] = useState<LibraryProject[]>([]);
   const [unsaved, setUnsaved] = useState<{ action: string } | null>(null);
   const [recovery, setRecovery] = useState<string | null>(null);
   /** Resolves the promise the unsaved prompt is blocking, so the flow reads as one function. */
@@ -127,8 +127,8 @@ export function useProjectFiles(
   );
 
   const loadRecent = useCallback(() => {
-    void ask({ type: "files", op: "recent" })
-      .then((body) => setRecent((body.recent as RecentProject[]) ?? []))
+    void ask({ type: "files", op: "list" })
+      .then((body) => setRecent((body.projects as LibraryProject[]) ?? []))
       .catch(() => {
         // an older host without the files message: the submenu is simply empty
       });
@@ -162,10 +162,6 @@ export function useProjectFiles(
       answer.current = null;
       if (said === "cancel") return false;
       if (said === "discard") return true;
-      if (!now.current.path) {
-        setMode("save");
-        return false;
-      }
       try {
         await project({ op: "save" });
         announcer.say("Saved.");
@@ -178,11 +174,11 @@ export function useProjectFiles(
     [project, announcer],
   );
 
-  const openPath = useCallback(
-    async (address: string): Promise<void> => {
+  const openProject = useCallback(
+    async (projectId: string): Promise<void> => {
       // No prompt about unsaved work: nothing is discarded. The project this tab is leaving stays open
-      // on the host, with everything in it, and going back to it is a link away.
-      const opened = await workspace({ op: "open", address });
+      // on the host, with everything in it, and going back to it is one line of the menu away.
+      const opened = await workspace({ op: "open", project: projectId });
       announcer.say(`Opened ${opened.name}.`);
       loadRecent();
     },
@@ -193,37 +189,41 @@ export function useProjectFiles(
     () => ({
       newProject: async (): Promise<void> => {
         try {
-          await workspace({ op: "new", name: "Untitled" });
-          announcer.say("New project. It has no file yet; Save will ask where to put it.");
+          const made = await workspace({ op: "new", name: "Untitled" });
+          // It exists already. There is no "save it somewhere first" (ADR-021).
+          announcer.say(`New project: ${made.name}.`);
+          loadRecent();
         } catch (e) {
           announcer.alert(`No new project: ${e instanceof Error ? e.message : String(e)}`);
         }
       },
       open: async (): Promise<void> => {
-        setMode("open");
+        setPicking(true);
       },
-      openPath: async (path: string): Promise<void> => {
+      openProject: async (projectId: string): Promise<void> => {
         try {
-          await openPath(path);
+          await openProject(projectId);
         } catch (e) {
           announcer.alert(`Nothing was opened: ${e instanceof Error ? e.message : String(e)}`);
         }
       },
-      save: async (): Promise<void> => {
-        // A project with no file has nowhere to go, so Save becomes Save as rather than failing.
-        if (!now.current.path) {
-          setMode("save");
-          return;
+      deleteProject: async (projectId: string): Promise<void> => {
+        try {
+          await workspace({ op: "delete", project: projectId });
+          announcer.say("Deleted.");
+          loadRecent();
+        } catch (e) {
+          announcer.alert(`It could not be deleted: ${e instanceof Error ? e.message : String(e)}`);
         }
+      },
+      save: async (): Promise<void> => {
+        // Every project has a home from the moment it is made, so save is only ever save.
         try {
           await project({ op: "save" });
-          announcer.say(`Saved to ${now.current.path}.`);
+          announcer.say("Saved.");
         } catch (e) {
           announcer.alert(`Nothing was saved: ${e instanceof Error ? e.message : String(e)}`);
         }
-      },
-      saveAs: async (): Promise<void> => {
-        setMode("save");
       },
       switchTo: async (projectId: string): Promise<void> => {
         // Nothing is saved, closed or discarded: this tab simply looks at another project the host is
@@ -240,13 +240,13 @@ export function useProjectFiles(
         if (!(await mayDiscard("Closing it"))) return;
         try {
           await workspace({ op: "close", project: now.current.projectId });
-          announcer.say("Closed. The projects still open are in File ▸ Open recent.");
+          announcer.say("Closed. It is still in File ▸ Open.");
         } catch (e) {
           announcer.alert(`It could not be closed: ${e instanceof Error ? e.message : String(e)}`);
         }
       },
     }),
-    [mayDiscard, project, openPath, workspace, announcer],
+    [mayDiscard, project, openProject, workspace, announcer, loadRecent],
   );
 
   // ---- the address bar (ADR-020 D2) ---------------------------------------
@@ -314,19 +314,19 @@ export function useProjectFiles(
   const dialogs = (
     <>
       <ProjectDialog
-        mode={mode}
-        onOpenChange={(open) => (open ? undefined : setMode(null))}
+        open={picking}
+        onOpenChange={setPicking}
         ask={ask}
-        currentName={facts.name}
-        onChoose={async (path) => {
-          if (mode === "save") {
-            await project({ op: "save", path });
-            announcer.say(`Saved to ${path}.`);
-            loadRecent();
-            return;
-          }
-          const opened = await workspace({ op: "open", address: path });
-          announcer.say(`Opened ${opened.name}.`);
+        currentProject={facts.projectId}
+        onChoose={(projectId) => openProject(projectId)}
+        onNew={async () => {
+          const made = await workspace({ op: "new", name: "Untitled" });
+          announcer.say(`New project: ${made.name}.`);
+          loadRecent();
+        }}
+        onDelete={async (projectId) => {
+          await workspace({ op: "delete", project: projectId });
+          announcer.say("Deleted.");
           loadRecent();
         }}
       />

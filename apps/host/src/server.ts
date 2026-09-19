@@ -31,12 +31,8 @@ export interface ServeOptions {
   webDir?: string;
   /** Texture images by id, served at /textures/<id> for the viewer (P3-5). */
   textures?: (id: string) => { bytes: Uint8Array; type: string } | null;
-  /** The lately-opened projects, for File ▸ Open recent; read fresh on every request. */
-  recent?: () => RecentEntry[];
-  /** Where a project id lives, for a link that names one (ADR-020 D2). */
-  resolve?: (id: string) => RecentEntry | null;
-  /** The folder a person's projects live in by default (ADR-020 D1a). */
-  projectsHome?: string;
+  /** Everything in this installation's library, newest first; read fresh on every request. */
+  library?: () => RecentEntry[];
 }
 
 export interface Served {
@@ -118,9 +114,7 @@ export function serve(target: Session | Workspace, options: ServeOptions = {}): 
   const host = options.host ?? "127.0.0.1";
   const workspace = target instanceof Workspace ? target : Workspace.of(target);
   const bridge = new Bridge(workspace, {
-    ...(options.recent ? { recent: options.recent } : {}),
-    ...(options.resolve ? { resolve: options.resolve } : {}),
-    ...(options.projectsHome ? { projectsHome: options.projectsHome } : {}),
+    ...(options.library ? { library: options.library } : {}),
   });
   const server = createServer((req, res) => {
     if (req.url?.startsWith("/bridge")) {

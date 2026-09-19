@@ -25,6 +25,7 @@ import {
   MenubarTrigger,
 } from "@/components/ui/menubar";
 import type { CommandRegistry } from "./commands.js";
+import { when } from "./ProjectDialog.js";
 import { useEditor } from "./useEditor.js";
 
 /** One line of a menu. A bare string is a command id; the rest say what else a line can be. */
@@ -65,7 +66,6 @@ export function menus(view: string): MenuDefinition[] {
         { title: "Open recent", dynamic: "recent" },
         { separator: true },
         "file.save",
-        "file.saveAs",
         { separator: true },
         "file.close",
         { separator: true },
@@ -146,8 +146,8 @@ interface LinesProps {
   entries: MenuEntry[];
   commands: CommandRegistry;
   /** The lately-opened projects, for the one dynamic line there is. */
-  recent: { id: string; address: string; name: string; lastOpenedAt: string }[];
-  openRecent: (address: string) => void;
+  recent: { projectId: string; name: string; lastOpenedAt: string }[];
+  openRecent: (projectId: string) => void;
   /** The projects this host has open, and which of them this tab is looking at (ADR-020 D4). */
   open: { projectId: string; name: string; address: string | null }[];
   currentProject: string;
@@ -226,15 +226,17 @@ function Lines({
               </MenubarSubTrigger>
               <MenubarSubContent className="max-w-[28rem]">
                 {recent.map((r) => (
-                  // The name reads as the line and the path sits under it: several projects can share a
-                  // name, and the path is the only thing that says which one this is.
+                  // The name, and when it was last open. No path: a person picks a project by what it
+                  // is called and when they last touched it, not by where a machine keeps it (ADR-021).
                   <MenubarItem
-                    key={r.id}
+                    key={r.projectId}
                     className="flex-col items-start gap-0"
-                    onSelect={() => openRecent(r.address)}
+                    onSelect={() => openRecent(r.projectId)}
                   >
                     <span className="w-full truncate">{r.name}</span>
-                    <span className="w-full truncate text-[11px] text-muted-foreground">{r.address}</span>
+                    <span className="w-full truncate text-[11px] text-muted-foreground">
+                      {when(r.lastOpenedAt)}
+                    </span>
                   </MenubarItem>
                 ))}
               </MenubarSubContent>

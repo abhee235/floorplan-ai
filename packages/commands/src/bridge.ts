@@ -78,33 +78,20 @@ export const ClientMessage = z.discriminatedUnion("type", [
     from: z.number().int().min(0).optional(),
     limit: z.number().int().min(1).max(2000).optional(),
   }),
-  // Looking around the host's folders so a project can be opened or saved by name (ADR-012 D8). A tab
-  // cannot show a native picker for a directory on the machine running the host, so the host lists and
-  // the tab draws. `browse` lists one directory; `recent` returns the remembered projects and the
-  // shortcuts to start from.
-  z.object({
-    id: Id,
-    type: z.literal("files"),
-    op: z.enum(["browse", "recent", "resolve"]),
-    path: z.string().optional(),
-    /** For `resolve`: the project id from a link, answered with where that project lives. */
-    project: z.string().optional(),
-  }),
+  // Everything this installation has, by id and name (ADR-021). There is no folder browsing: the
+  // editor cannot address anything but the library, and no path ever reaches a browser.
+  z.object({ id: Id, type: z.literal("files"), op: z.literal("list") }),
   // Several projects open at once (ADR-020 D4). A host holds a session per project and a tab looks at
   // one of them: `attach` moves this tab to a project it already holds or that the registry can find,
   // `open` reads a directory, `new` starts an empty one, `close` lets one go, `list` says what is open.
   z.object({
     id: Id,
     type: z.literal("workspace"),
-    op: z.enum(["attach", "open", "new", "close", "list"]),
-    /** A project id, for attach and close. */
+    op: z.enum(["attach", "open", "new", "close", "delete", "list"]),
+    /** Which project, by its own id. There is no other way to name one (ADR-021). */
     project: z.string().optional(),
-    /** Where a project lives, for open; also accepted by attach when the id is not known here. */
-    address: z.string().optional(),
     /** A name, for new. */
     name: z.string().optional(),
-    /** With open: take the newer recovery file (ADR-012 D6). */
-    recover: z.boolean().optional(),
   }),
   // The one client message that expects no result: there is nothing to wait for, and a round trip per
   // click would make the log something the editor pays for.

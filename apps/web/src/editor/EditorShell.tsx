@@ -193,7 +193,7 @@ export function EditorShell(): JSX.Element {
   const editor: Editor = {
     commands,
     recent: files.recent,
-    openRecent: (address) => void filesRef.current.openPath(address),
+    openRecent: (projectId) => void filesRef.current.openProject(projectId),
     open: openProjects,
     currentProject: projectState?.projectId ?? "",
     switchProject: (projectId) => void filesRef.current.switchTo(projectId),
@@ -474,7 +474,7 @@ export function EditorShell(): JSX.Element {
       },
       {
         id: "file.open",
-        title: "Open project…",
+        title: "Your projects…",
         group: "File",
         shortcut: "Ctrl+O",
         run: () => void filesRef.current.open(),
@@ -492,13 +492,6 @@ export function EditorShell(): JSX.Element {
         group: "File",
         detail: "the others stay open",
         run: () => void filesRef.current.closeProject(),
-      },
-      {
-        id: "file.saveAs",
-        title: "Save as…",
-        group: "File",
-        shortcut: "Ctrl+Shift+S",
-        run: () => void filesRef.current.saveAs(),
       },
       {
         id: "file.import",

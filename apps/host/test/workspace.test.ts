@@ -79,13 +79,36 @@ describe("a workspace of projects (ADR-020 D4)", () => {
     workspace.closeAll();
   });
 
-  it("makes a project that has never been saved, with an id of its own", () => {
+  it("makes a project that has never been saved, with an id of its own", async () => {
     const workspace = new Workspace({ now: () => NOW });
-    const made = workspace.create("Untitled");
+    const made = await workspace.create("Untitled");
     expect(made.files.path()).toBeNull();
     expect(made.id).toBe(made.session.store.project.meta.id);
     expect(workspace.default()?.id).toBe(made.id);
     workspace.closeAll();
+  });
+
+  it("numbers a new project when the library already has that name (ADR-021)", async () => {
+    // A list of six things all called Untitled is a list of nothing.
+    const registry = ProjectRegistry.memory();
+    const workspace = new Workspace({ now: () => NOW, registry });
+    const first = await workspace.create();
+    registry.remember({ id: first.id, address: "/l/1", name: "Untitled", at: NOW });
+    const second = await workspace.create();
+    registry.remember({
+      id: second.id,
+      address: "/l/2",
+      name: second.session.store.project.meta.name,
+      at: NOW,
+    });
+    const third = await workspace.create();
+    expect([
+      first.session.store.project.meta.name,
+      second.session.store.project.meta.name,
+      third.session.store.project.meta.name,
+    ]).toEqual(["Untitled", "Untitled 2", "Untitled 3"]);
+    workspace.closeAll();
+    registry.close();
   });
 
   it("remembers every project it opens, wherever the open came from", async () => {
@@ -99,7 +122,7 @@ describe("a workspace of projects (ADR-020 D4)", () => {
     registry.close();
   });
 
-  it("gives each project its own view of the log, so one is not diffed against another", () => {
+  it("gives each project its own view of the log, so one is not diffed against another", async () => {
     const lines: { project?: string; kind: string }[] = [];
     const fake = {
       path: null,
@@ -114,8 +137,8 @@ describe("a workspace of projects (ADR-020 D4)", () => {
       close: () => {},
     };
     const workspace = new Workspace({ now: () => NOW, log: fake });
-    const one = workspace.create("one");
-    const two = workspace.create("two");
+    const one = await workspace.create("one");
+    const two = await workspace.create("two");
     one.session.log.write("test", "host");
     two.session.log.write("test", "host");
     expect(lines.map((l) => l.project)).toEqual([one.id, two.id]);
@@ -249,7 +272,9 @@ describe("two tabs, two projects, one host (ADR-020 D4)", () => {
     const dir = temp();
     const a = makeProject(dir, "alpha");
     const b = makeProject(dir, "beta");
-    const workspace = new Workspace({ now: () => NOW });
+    const registry = ProjectRegistry.memory();
+    registry.remember({ id: b.id, address: b.dir, name: "beta", at: NOW });
+    const workspace = new Workspace({ now: () => NOW, registry });
     await workspace.open(a.dir);
     served = await serve(workspace, { port: 0 });
 
@@ -265,7 +290,7 @@ describe("two tabs, two projects, one host (ADR-020 D4)", () => {
     one.seen.length = 0;
 
     // the second tab opens beta; the first stays on alpha, which it did NOT do before
-    const opened = await two.send({ type: "workspace", op: "open", address: b.dir });
+    const opened = await two.send({ type: "workspace", op: "open", project: b.id });
     expect(opened).toMatchObject({ ok: true });
     expect((opened.result as { projectId: string }).projectId).toBe(b.id);
     expect(((await two.settle("snapshot")).project as { meta: { id: string } }).meta.id).toBe(b.id);
@@ -289,23 +314,22 @@ describe("two tabs, two projects, one host (ADR-020 D4)", () => {
     const b = makeProject(dir, "beta");
     const registry = ProjectRegistry.memory();
     registry.remember({ id: b.id, address: b.dir, name: "beta", at: NOW });
-    const workspace = new Workspace({ now: () => NOW });
+    const workspace = new Workspace({ now: () => NOW, registry });
     await workspace.open(a.dir);
-    served = await serve(workspace, { port: 0, resolve: (id) => registry.byId(id) });
+    served = await serve(workspace, { port: 0 });
 
     const tab = new Tab(`ws://127.0.0.1:${served.port}/bridge`);
     await tab.open();
     await tab.send({ type: "hello", clientVersion: "t", capabilities: ["plan"], project: a.id });
     await tab.settle("snapshot");
 
-    // beta is not open here, but the registry knows where it is, so a link to it works
+    // beta is not open here, but the library knows it, so a link to it works
     const attached = await tab.send({ type: "workspace", op: "attach", project: b.id });
     expect(attached).toMatchObject({ ok: true });
     expect(((await tab.settle("snapshot")).project as { meta: { id: string } }).meta.id).toBe(b.id);
 
     const nowhere = await tab.send({ type: "workspace", op: "attach", project: "zzzzzzzzzzzz" });
     expect(nowhere.ok).toBe(false);
-    expect((nowhere.error as { code: string }).code).toBe("not-found");
 
     const list = await tab.send({ type: "workspace", op: "list" });
     expect((list.result as { open: { projectId: string }[] }).open.map((o) => o.projectId).sort()).toEqual(
@@ -329,10 +353,11 @@ describe("two tabs, two projects, one host (ADR-020 D4)", () => {
 
     const made = await tab.send({ type: "workspace", op: "new", name: "Fresh" });
     expect(made).toMatchObject({ ok: true });
-    const body = made.result as { projectId: string; name: string; address: string | null };
+    const body = made.result as { projectId: string; name: string };
     expect(body.name).toBe("Fresh");
-    expect(body.address).toBeNull();
     expect(body.projectId).not.toBe(a.id);
+    // no address, ever: a tab is never told where anything lives (ADR-021)
+    expect(made.result).not.toHaveProperty("address");
     // and the tab is looking at it, with alpha still open beside it
     expect(((await tab.settle("snapshot")).project as { meta: { id: string } }).meta.id).toBe(body.projectId);
     expect(workspace.list()).toHaveLength(2);

@@ -17,7 +17,6 @@ import {
 } from "@fpv/commands";
 import type { DraftPresentation, RenderedImage, RenderRequest, ViewerRenderer } from "@fpv/tools";
 import type { WebSocket } from "ws";
-import { browse, places, startingDir } from "./browse.js";
 import { plainDetail, silentLog } from "./log.js";
 import { entriesFrom, pickRun, runs } from "./log-read.js";
 import type { Session } from "./session.js";
@@ -63,18 +62,16 @@ interface ClientState {
 export interface RecentEntry {
   /** The project's own id (ADR-020 D1): what a link carries and what the editor asks for. */
   id: string;
-  address: string;
   name: string;
+  createdAt: string;
   lastOpenedAt: string;
+  /** Where it lives. Host-side only: this never goes to a tab (ADR-021). */
+  address: string;
 }
 
 export interface BridgeOptions {
-  /** The lately-opened projects, read fresh each time so another host's opens are seen too. */
-  recent?: () => RecentEntry[];
-  /** Where a project id lives, for a link that names one (ADR-020 D2). */
-  resolve?: (id: string) => RecentEntry | null;
-  /** The folder a person's projects live in by default, which the picker starts in (ADR-020 D1a). */
-  projectsHome?: string;
+  /** Everything in this installation's library, newest first, read fresh on every request. */
+  library?: () => RecentEntry[];
 }
 
 export class Bridge {
@@ -387,30 +384,18 @@ export class Bridge {
         return;
       }
       case "files": {
-        // The host lists its own folders so the editor can offer a picker (ADR-012 D8). A browser
-        // cannot show one for a directory on this machine, and `project open` takes any path already.
-        if (msg.op === "recent") {
-          const current = held.files.path();
-          this.reply(state, msg.id, true, {
-            result: {
-              recent: this.options.recent?.() ?? [],
-              places: await places(current, this.options.projectsHome),
-              start: startingDir(current, this.options.projectsHome),
-              current,
-              projectsHome: this.options.projectsHome ?? null,
-            },
-          });
-          return;
-        }
-        if (msg.op === "resolve") {
-          // A link names a project by id; this says where that project is, or that nothing here knows
-          // it — which is a different answer from "it is missing" and reads differently to the person.
-          const known = msg.project ? (this.options.resolve?.(msg.project) ?? null) : null;
-          this.reply(state, msg.id, true, { result: { project: known } });
-          return;
-        }
-        const where = msg.path ?? startingDir(held.files.path(), this.options.projectsHome);
-        this.reply(state, msg.id, true, { result: await browse(where) });
+        // What this installation has, by id and name. There is no folder browsing: the editor cannot
+        // address anything but the library, and a path never reaches a browser (ADR-021).
+        this.reply(state, msg.id, true, {
+          result: {
+            projects: (this.options.library?.() ?? []).map((p) => ({
+              projectId: p.id,
+              name: p.name,
+              createdAt: p.createdAt,
+              lastOpenedAt: p.lastOpenedAt,
+            })),
+          },
+        });
         return;
       }
       case "log": {
@@ -528,52 +513,55 @@ export class Bridge {
     state: ClientState,
     msg: Extract<ClientMessage, { type: "workspace" }>,
   ): Promise<void> {
+    // Deliberately no address: where a project lives is the library's business (ADR-021), and a tab
+    // that never learns a path cannot put one in a URL, a bookmark or a bug report.
     const describe = (held: Held) => ({
       projectId: held.id,
       name: held.session.store.project.meta.name,
-      address: held.files.path(),
     });
     try {
       switch (msg.op) {
         case "list":
           this.reply(state, msg.id, true, { result: { open: this.workspace.list().map(describe) } });
           return;
-        case "attach": {
-          // By id when this host is already holding it, else by where the registry says it lives, so a
-          // link works on a host that has never had that project open.
-          const byId = msg.project ? this.workspace.get(msg.project) : null;
-          const address = msg.address ?? (msg.project ? this.options.resolve?.(msg.project)?.address : null);
-          const held = byId ?? (address ? await this.workspace.open(address) : null);
-          if (!held) {
-            this.reply(state, msg.id, false, {
-              error: {
-                code: "not-found",
-                message: "nothing here knows that project",
-                hint: "open it once by name and the link will work from then on",
-              },
-            });
-            return;
-          }
-          this.showProjectTo(state, held);
-          this.reply(state, msg.id, true, { result: describe(held) });
-          return;
-        }
+        // `attach` and `open` are the same thing now that a project is named by its id and lives
+        // where the library put it: look at this one, reading it in if it is not already open.
+        case "attach":
         case "open": {
-          if (!msg.address) {
+          if (!msg.project) {
             this.reply(state, msg.id, false, {
-              error: { code: "invalid", message: "open needs an address", hint: null },
+              error: { code: "invalid", message: "which project?", hint: null },
             });
             return;
           }
-          const held = await this.workspace.open(msg.address, msg.recover ? { recover: true } : {});
+          const held = await this.workspace.openById(msg.project);
           this.showProjectTo(state, held);
           this.reply(state, msg.id, true, { result: describe(held) });
           return;
         }
         case "new": {
-          const held = this.workspace.create(msg.name ?? "Untitled");
+          const held = await this.workspace.create(msg.name ?? "Untitled");
           this.showProjectTo(state, held);
           this.reply(state, msg.id, true, { result: describe(held) });
+          return;
+        }
+        case "delete": {
+          if (!msg.project) {
+            this.reply(state, msg.id, false, {
+              error: { code: "invalid", message: "which project?", hint: null },
+            });
+            return;
+          }
+          for (const c of this.clients) if (c.held?.id === msg.project) c.held = null;
+          this.stopFollowing.get(msg.project)?.();
+          this.stopFollowing.delete(msg.project);
+          this.drafts.delete(msg.project);
+          this.seqs.delete(msg.project);
+          await this.workspace.destroy(msg.project);
+          const remaining = this.workspace.default() ?? (await this.workspace.create());
+          for (const c of this.clients) if (c.hello && !c.held) this.showProjectTo(c, remaining);
+          this.announceWorkspace();
+          this.reply(state, msg.id, true, { result: { deleted: msg.project } });
           return;
         }
         case "close": {
@@ -589,7 +577,7 @@ export class Bridge {
             this.seqs.delete(held.id);
             // A tab always has a project to be looking at. Closing the last one leaves an empty one
             // rather than a tab attached to nothing, which nothing in the editor is built to draw.
-            const left = this.workspace.default() ?? this.workspace.create();
+            const left = this.workspace.default() ?? (await this.workspace.create());
             for (const c of this.clients) if (c.hello && !c.held) this.showProjectTo(c, left);
             this.announceWorkspace();
           }

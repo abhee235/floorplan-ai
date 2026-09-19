@@ -13,6 +13,7 @@ import type { RulesPack } from "@fpv/catalog";
 import type { CatalogSearch, ExportWriter, PlanReader, ProductVerifier } from "@fpv/tools";
 import { blankProject } from "@fpv/tools";
 import { ProjectFileStore } from "./files.js";
+import { folderFor, makeFolder, removeFolder } from "./library.js";
 import type { EventLog } from "./log.js";
 import { silentLog } from "./log.js";
 import type { ProjectRegistry } from "./projects.js";
@@ -38,6 +39,8 @@ export interface WorkspaceOptions {
   log?: EventLog | null;
   /** Where projects are remembered, so an open is recorded wherever it came from. */
   registry?: ProjectRegistry | null;
+  /** The library this installation keeps projects in (ADR-021); projects are made and found here. */
+  library?: string | null;
 }
 
 export class Workspace {
@@ -119,10 +122,51 @@ export class Workspace {
     return workspace;
   }
 
-  /** A project that has never been saved anywhere. */
-  create(name = "Untitled"): Held {
-    const project = blankProject(name, this.now());
-    return this.hold(project.meta.id, this.newFileStore(), project);
+  /**
+   * A new project, written into the library at once (ADR-021).
+   *
+   * It exists on disk from the moment it is made, which is what removes the whole "not saved anywhere
+   * yet" state: no Save as, no question about where it should go, no chance of losing it to a closed
+   * tab. Save is only ever save.
+   */
+  async create(name = "Untitled"): Promise<Held> {
+    const project = blankProject(this.freeName(name), this.now());
+    const files = this.newFileStore();
+    const held = this.hold(project.meta.id, files, project);
+    if (this.options.library) {
+      const dir = makeFolder(this.options.library, project.meta.id);
+      await files.save(dir);
+    }
+    return held;
+  }
+
+  /**
+   * Open a project of the library by its id.
+   *
+   * Where it lives is this module's business: the library folder named by the id, or wherever the
+   * registry last saw it if it was opened from somewhere else at startup.
+   */
+  async openById(id: string): Promise<Held> {
+    const already = this.held.get(id);
+    if (already) {
+      this.latest = id;
+      return already;
+    }
+    const known = this.options.registry?.byId(id) ?? null;
+    const where = known?.address ?? (this.options.library ? folderFor(this.options.library, id) : null);
+    if (!where) throw new Error(`nothing here knows project ${id}`);
+    return this.open(where);
+  }
+
+  /** Let go of a project and delete it. The editor has already asked; this only does as it is told. */
+  async destroy(id: string): Promise<void> {
+    const known = this.options.registry?.byId(id) ?? null;
+    this.close(id);
+    this.options.registry?.forget(id);
+    if (this.options.library) await removeFolder(this.options.library, id);
+    // A project opened from outside the library at startup is forgotten, never deleted: this did not
+    // put it there and has no business removing someone's own folder.
+    void known;
   }
 
   /**
@@ -140,6 +184,28 @@ export class Workspace {
 
   closeAll(): void {
     for (const id of [...this.held.keys()]) this.close(id);
+  }
+
+  /**
+   * `name`, or `name 2`, `name 3`... if the library already has one by that name.
+   *
+   * A list of six things all called Untitled is a list of nothing, and the person who pressed New
+   * three times had no way to tell which was which. Names need not be unique — two projects may
+   * genuinely share one — but the app must not be the thing that makes them collide.
+   */
+  private freeName(wanted: string): string {
+    const taken = new Set(
+      [
+        ...(this.options.registry?.recent(200) ?? []).map((p) => p.name),
+        ...this.list().map((h) => h.session.store.project.meta.name),
+      ].map((n) => n.toLowerCase()),
+    );
+    if (!taken.has(wanted.toLowerCase())) return wanted;
+    for (let n = 2; n < 1000; n += 1) {
+      const tried = `${wanted} ${n}`;
+      if (!taken.has(tried.toLowerCase())) return tried;
+    }
+    return wanted;
   }
 
   private newFileStore(): ProjectFileStore {

@@ -24,9 +24,9 @@ export interface Editor {
   /** Opens the command palette. */
   openPalette: () => void;
   /** The projects this installation has opened lately, for File ▸ Open recent (ADR-020 D1). */
-  recent: { id: string; address: string; name: string; lastOpenedAt: string }[];
-  /** Opens one of them, asking about unsaved work first. */
-  openRecent: (address: string) => void;
+  recent: { projectId: string; name: string; lastOpenedAt: string }[];
+  /** Opens one of them by id; there are no paths anywhere in the editor (ADR-021). */
+  openRecent: (projectId: string) => void;
   /** Every project this host has open (ADR-020 D4), for the switcher. */
   open: { projectId: string; name: string; address: string | null }[];
   /** Which of them this tab is looking at. */

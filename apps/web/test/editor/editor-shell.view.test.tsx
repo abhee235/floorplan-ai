@@ -274,19 +274,20 @@ describe("switching what is on screen (ADR-017 D1)", () => {
     }
   });
 
-  it("offers the project commands a person looks in File for (ADR-012 D8)", async () => {
+  it("offers the project commands a person looks in File for (ADR-021)", async () => {
     render(<EditorShell />);
     const user = userEvent.setup();
     const open = await openMenu(user, "File");
     const titles = within(open)
       .getAllByRole("menuitem")
       .map((i) => (i.textContent ?? "").replace(/Ctrl\+\S+/, "").trim());
+    // No Save as and no path anywhere: a project lives in the library from the moment it is made,
+    // so save is only ever save (ADR-021).
     expect(titles).toEqual([
       "New project",
-      "Open project…",
+      "Your projects…",
       "Open recent",
       "Save",
-      "Save as…",
       "Close project",
       "Import plan…",
       "Export",

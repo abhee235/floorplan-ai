@@ -12,10 +12,11 @@ import { describeEvent, loadAgentConfig, runAgentTask } from "./agent.js";
 import { HOST_VERSION } from "./bridge.js";
 import { loadDotEnv } from "./env.js";
 import { FileExportWriter } from "./exports.js";
+import { libraryRoot } from "./library.js";
 import { createLog, type LogLevel } from "./log.js";
 import { formatEntry, formatRuns, pickRun, readFrom, readRun, runs } from "./log-read.js";
 import { serveStdio } from "./mcp.js";
-import { dataPaths, projectsHome } from "./paths.js";
+import { dataPaths } from "./paths.js";
 import { FilePlanReader } from "./plans.js";
 import { ProjectRegistry } from "./projects.js";
 import { createReader, loadReaderConfig } from "./reader.js";
@@ -224,10 +225,10 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   // Every project this session opens or saves is remembered by its own id (ADR-020 D1), so a link
   // keeps working after the folder is moved and File ▸ Open recent has something to offer.
   const projects = ProjectRegistry.open(catalog.dir);
-  // Somewhere a person's projects live, made if it is not there, so "open a project" starts somewhere
-  // that means something rather than in the middle of their home directory (ADR-020 D1a).
-  const home = projectsHome(args.projects ?? undefined);
-  process.stderr.write(`floorplan-ai projects: ${home}
+  // Where this installation keeps projects (ADR-021). The editor addresses them by id and never sees
+  // a path; an installation may put the library elsewhere, which is an administrator's decision.
+  const library = libraryRoot(catalog.dir, args.projects);
+  process.stderr.write(`floorplan-ai library: ${library}
 `);
   // product verification: search and model are optional; without them callers pass sources and a proposal
   const loaded = loadHostConfig({ dataDir: catalog.dir });
@@ -244,13 +245,14 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     now,
     log,
     registry: projects,
+    library,
     catalog: catalog.store,
     verifier: verification.verifier,
     rules: AV_CORE,
     writer: (store) => new FileExportWriter({ baseDir: () => store.path() ?? join(catalog.dir, "exports") }),
     plans: new FilePlanReader({ baseDir: () => process.cwd(), raster: planReaderSetup.reader }),
   });
-  const first = args.project ? await workspace.open(args.project) : workspace.create();
+  const first = args.project ? await workspace.open(args.project) : await workspace.create();
   const files = first.files;
   const session = first.session;
   if (args.project) {
@@ -268,9 +270,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
 
       textures: (id) => images.image(id),
       // Read fresh per request: another host may have opened something since this one started.
-      recent: () => projects.recentPresent(),
-      resolve: (id) => projects.byId(id),
-      projectsHome: home,
+      library: () => projects.recentPresent(),
     });
     // stdout may be the MCP transport, so the URL goes to stderr
     process.stderr.write(`floorplan-ai viewer: ${served.url}\n`);
