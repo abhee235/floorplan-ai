@@ -379,6 +379,38 @@ describe("two tabs, two projects, one host (ADR-020 D4)", () => {
     await tab.close();
   });
 
+  it("a rename reaches the library and every tab's switcher (ADR-021 D3)", async () => {
+    const dir = temp();
+    const a = makeProject(dir, "alpha");
+    const registry = ProjectRegistry.memory();
+    const workspace = new Workspace({ now: () => NOW, registry });
+    const alpha = await workspace.open(a.dir);
+    served = await serve(workspace, { port: 0, library: () => registry.recent() });
+
+    const one = new Tab(`ws://127.0.0.1:${served.port}/bridge`);
+    await one.open();
+    await one.send({ type: "hello", clientVersion: "t", capabilities: ["plan"], project: a.id });
+    await one.settle("snapshot");
+    one.seen.length = 0;
+
+    const renamed = await one.send({
+      type: "command",
+      command: { type: "project.setMeta", payload: { changes: { name: "Head office" } } },
+    });
+    expect(renamed.ok).toBe(true);
+    expect(alpha.session.store.project.meta.name).toBe("Head office");
+
+    // the title hears about it
+    expect((await one.settle("project.state")).name).toBe("Head office");
+    // and so does the library, without waiting for a save
+    expect(registry.byId(a.id)?.name).toBe("Head office");
+    // and the switcher in every tab
+    const open = (await one.settle("workspace.state")).open as { name: string }[];
+    expect(open.map((o) => o.name)).toContain("Head office");
+    await one.close();
+    registry.close();
+  });
+
   it("saves the project the tab is looking at, and not the other one", async () => {
     const dir = temp();
     const a = makeProject(dir, "alpha");

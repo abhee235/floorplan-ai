@@ -29,6 +29,12 @@ export interface ProjectHost {
     result?: unknown;
     error?: { message?: string } | undefined;
   }>;
+  /** Send one command to the project this tab is looking at. */
+  command(body: unknown): Promise<{
+    ok: boolean;
+    result?: unknown;
+    error?: { message?: string } | undefined;
+  }>;
   /** Open, make, attach to or let go of a project (ADR-020 D4). */
   workspace(body: Record<string, unknown>): Promise<{
     ok: boolean;
@@ -63,6 +69,7 @@ export interface ProjectFilesApi {
     save: () => Promise<void>;
     closeProject: () => Promise<void>;
     switchTo: (projectId: string) => Promise<void>;
+    rename: (name: string) => Promise<void>;
   };
   /** The library, for the Open recent submenu. */
   recent: LibraryProject[];
@@ -97,6 +104,14 @@ export function useProjectFiles(
     const reply = await client.request(body);
     if (!reply.ok) throw new Error(reply.error?.message ?? "the host refused");
     return (reply.result ?? {}) as Record<string, unknown>;
+  }, []);
+
+  /** Send one command; throws with the host's own sentence. */
+  const command = useCallback(async (body: unknown): Promise<void> => {
+    const client = hostRef.current;
+    if (!client) throw new Error("not connected to the host");
+    const reply = await client.command(body);
+    if (!reply.ok) throw new Error(reply.error?.message ?? "the host refused");
   }, []);
 
   /** Call the project tool; throws with the host's own sentence so a dialog can show it. */
@@ -236,6 +251,17 @@ export function useProjectFiles(
           announcer.alert(`Could not switch: ${e instanceof Error ? e.message : String(e)}`);
         }
       },
+      rename: async (name: string): Promise<void> => {
+        // `project.setMeta` is an ordinary command, so a rename is one undo away, is written to the
+        // session log, and reaches every other tab on this project as a patch (ADR-021 D3).
+        try {
+          await command({ type: "project.setMeta", payload: { changes: { name } } });
+          announcer.say(`Renamed to ${name}.`);
+          loadRecent();
+        } catch (e) {
+          announcer.alert(`It could not be renamed: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      },
       closeProject: async (): Promise<void> => {
         if (!(await mayDiscard("Closing it"))) return;
         try {
@@ -246,7 +272,7 @@ export function useProjectFiles(
         }
       },
     }),
-    [mayDiscard, project, openProject, workspace, announcer, loadRecent],
+    [mayDiscard, project, command, openProject, workspace, announcer, loadRecent],
   );
 
   // ---- the address bar (ADR-020 D2) ---------------------------------------

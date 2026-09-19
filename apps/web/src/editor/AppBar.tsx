@@ -11,21 +11,22 @@
 import type { JSX } from "react";
 import type { Replica } from "../replica.js";
 import { MainMenu } from "./MainMenu.js";
+import { ProjectTitle } from "./ProjectTitle.js";
 import { StaleNote } from "./StaleNote.js";
 import { useModified, useProjectState } from "./useReplica.js";
 
 export interface AppBarProps {
   replica: Replica;
+  /** Give the project another name; the title bar is where a person looks to do it (ADR-021 D3). */
+  onRename: (name: string) => Promise<void>;
   /** One sentence about the host running code older than what is written, or null when all is well. */
   stale?: string | null;
 }
 
-export function AppBar({ replica, stale = null }: AppBarProps): JSX.Element {
+export function AppBar({ replica, onRename, stale = null }: AppBarProps): JSX.Element {
   const state = useProjectState(replica);
   const modified = useModified(replica);
   const name = state?.name ?? "floorplan-ai";
-  // A project that has never been saved has nowhere to point; saying so is more use than an empty title.
-  const where = state?.path ?? "Not saved anywhere yet";
 
   return (
     <header className="relative flex h-10 items-center gap-2 border-b bg-card px-3">
@@ -35,28 +36,7 @@ export function AppBar({ replica, stale = null }: AppBarProps): JSX.Element {
 
       <StaleNote note={stale} />
 
-      {/* Centred on the window rather than placed after the menus, as a word processor centres the
-          document name in its title bar: it names what is open, which is not a control and does not
-          belong in the row of them. Absolutely positioned so it is centred on the WINDOW and does not
-          shift when a menu name changes length, and click-through so it can never swallow a menu. */}
-      <div
-        className="pointer-events-none absolute inset-x-0 mx-auto flex w-fit max-w-[40%] items-baseline gap-1.5"
-        title={where}
-      >
-        <strong className="truncate text-center font-semibold">{name}</strong>
-        {/* The unsaved mark, the same dot an editor tab uses. It is `historyPosition !== savedPosition`
-            from the host, not a guess: a save moves the saved position without changing the project, so
-            nothing in the change stream would ever put this out again. */}
-        {modified ? (
-          <span
-            className="shrink-0 text-muted-foreground"
-            aria-label="Unsaved changes"
-            title="Unsaved changes"
-          >
-            &bull;
-          </span>
-        ) : null}
-      </div>
+      <ProjectTitle name={name} modified={modified} onRename={onRename} />
     </header>
   );
 }

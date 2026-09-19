@@ -728,7 +728,11 @@ export function EditorShell(): JSX.Element {
         {/* tracks match the bars: app bar h-10, tool options h-9, status h-7 */}
         <div className="grid h-full grid-rows-[40px_36px_minmax(0,1fr)_28px] bg-background text-foreground">
           {replica ? (
-            <AppBar replica={replica} stale={app?.client.welcome?.stale ?? null} />
+            <AppBar
+              replica={replica}
+              onRename={(name) => filesRef.current.rename(name)}
+              stale={app?.client.welcome?.stale ?? null}
+            />
           ) : (
             <header className="flex h-10 items-center border-b bg-card px-3">
               <strong className="font-semibold">floorplan-ai</strong>

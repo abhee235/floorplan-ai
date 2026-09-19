@@ -230,6 +230,19 @@ export class Workspace {
       ...(this.options.writer ? { writer: this.options.writer(files) } : {}),
     });
     files.startAutosave();
+    // A rename is an ordinary command, so the library hears about it the same way anything else does.
+    // Without this the list and the switcher would show the old name until the next save.
+    session.store.subscribe((e) => {
+      if (e.changes.commandType !== "project.setMeta") return;
+      const where = files.path();
+      if (where)
+        this.options.registry?.remember({
+          id,
+          address: where,
+          name: session.store.project.meta.name,
+          at: this.now(),
+        });
+    });
     return this.keep({ id, session, files });
   }
 

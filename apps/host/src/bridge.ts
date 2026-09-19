@@ -131,6 +131,11 @@ export class Bridge {
       };
       this.broadcast(held, msg);
       this.broadcast(held, { type: "problems", problems: session.registry.problems() });
+      // A rename changes what every OTHER tab's switcher should say, not just this project's tabs.
+      if (e.changes.commandType === "project.setMeta") {
+        this.broadcast(held, this.projectState(held));
+        this.announceWorkspace();
+      }
     });
     session.ctx.viewer = {
       render: (req) => this.renderFor(held, req),
