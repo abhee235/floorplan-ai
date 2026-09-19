@@ -1,6 +1,16 @@
 // @fpv/agents: Provider interface, agent runner, roles, prompts (ADR-007)
 export const PACKAGE = "agents" as const;
 export {
+  afterGate,
+  afterTool,
+  type Gate,
+  type GateState,
+  gateFor,
+  newGateState,
+  PLAN_GATE_FIRINGS,
+  VERIFY_GATE_FIRINGS,
+} from "./gates.js";
+export {
   type CompleteJsonOptions,
   completeJson,
   extractJson,
@@ -8,6 +18,22 @@ export {
   type JsonResult,
   stripThinking,
 } from "./json.js";
+export {
+  ASK_USER,
+  ASK_USER_SPEC,
+  type AskRequest,
+  answerText,
+  applyPlan,
+  describePlan,
+  LOOP_TOOL_NAMES,
+  PLAN_WORK,
+  PLAN_WORK_SPEC,
+  type PlanItem,
+  type PlanStatus,
+  parseAsk,
+  planForPrompt,
+  planIsOpen,
+} from "./loop-tools.js";
 export {
   type ChatMessage,
   type Completion,

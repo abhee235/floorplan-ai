@@ -154,10 +154,16 @@ export function describeEvent(event: AgentEvent): string | null {
   switch (event.type) {
     case "reply":
       return `step ${event.step}: ${event.toolCalls.length ? event.toolCalls.map((c) => c.name).join(", ") : "answer"} (${Math.round(event.durationMs / 100) / 10} s, ${event.usage.promptTokens}+${event.usage.completionTokens} tokens)`;
-    case "tool":
+    case "tool.finished":
       return event.ok
         ? null
         : `  ${event.name} failed: ${(event.result as { error?: { message?: string } }).error?.message ?? "?"}`;
+    case "plan.updated":
+      return `  plan: ${event.items.filter((i) => i.status === "done").length} of ${event.items.length} done`;
+    case "question":
+      return `  asking: ${event.request.question}`;
+    case "reminder":
+      return `  ${event.gate} gate: ${event.text.slice(0, 80)}`;
     case "warning":
       return `  warning: ${event.message}`;
     case "retry":

@@ -104,12 +104,16 @@ describe("agent runner (ADR-007 D3)", () => {
       ["tool", "a"],
       ["tool", "b"],
     ]);
+    // A tool is announced before it runs and again when it is done, so a card can be drawn while the
+    // work happens rather than appearing once it is over.
     expect(events.map((e) => e.type)).toEqual([
-      "request",
+      "step.started",
       "reply",
-      "tool",
-      "tool",
-      "request",
+      "tool.started",
+      "tool.finished",
+      "tool.started",
+      "tool.finished",
+      "step.started",
       "reply",
       "done",
     ]);

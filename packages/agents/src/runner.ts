@@ -2,10 +2,26 @@
 // in-process by the caller. A step is one model turn. Tool calls run in order; a malformed call becomes an error
 // result the model can correct, never an exception. Every request, reply, retry and tool call is emitted as an
 // event, so the host can write a transcript and a viewer can follow along.
+import { afterGate, afterTool, type GateState, gateFor, newGateState } from "./gates.js";
 import { extractJson, stripThinking } from "./json.js";
+import {
+  ASK_USER,
+  ASK_USER_SPEC,
+  type AskRequest,
+  answerText,
+  applyPlan,
+  describePlan,
+  LOOP_TOOL_NAMES,
+  PLAN_WORK,
+  PLAN_WORK_SPEC,
+  type PlanItem,
+  parseAsk,
+  planForPrompt,
+} from "./loop-tools.js";
 import {
   type ChatMessage,
   type Completion,
+  type ContentPart,
   type Provider,
   ProviderError,
   type ToolCall,
@@ -16,7 +32,11 @@ import {
 export type StopReason = "done" | "step-budget" | "provider-error" | "stalled" | "aborted";
 
 export type AgentEvent =
-  | { type: "request"; step: number; at: string; messages: number; tools: number }
+  | { type: "step.started"; step: number; at: string; messages: number; tools: number }
+  /** A piece of the answer, as the model writes it; only when the provider streams. */
+  | { type: "text.delta"; step: number; at: string; text: string }
+  /** A piece of the reasoning a server chooses to show; never fed back as an answer. */
+  | { type: "reasoning.delta"; step: number; at: string; text: string }
   | {
       type: "reply";
       step: number;
@@ -32,8 +52,10 @@ export type AgentEvent =
     }
   | { type: "retry"; step: number; at: string; error: string; waitMs: number }
   | { type: "warning"; step: number; at: string; message: string }
+  /** A tool is about to run. The pair exists so a card can be drawn while the work happens. */
+  | { type: "tool.started"; step: number; at: string; id: string; name: string; args: unknown }
   | {
-      type: "tool";
+      type: "tool.finished";
       step: number;
       at: string;
       id: string;
@@ -43,6 +65,13 @@ export type AgentEvent =
       result: unknown;
       durationMs: number;
     }
+  /** The model rewrote its plan, and this is the plan now. */
+  | { type: "plan.updated"; step: number; at: string; items: PlanItem[] }
+  /** The model asked the person something; the loop waits here until `ask` answers. */
+  | { type: "question"; step: number; at: string; request: AskRequest }
+  | { type: "question.answered"; step: number; at: string; id: string; answers: Record<string, string> }
+  /** A gate spoke: the model was told why the run is not over. Never shown as the model's own words. */
+  | { type: "reminder"; step: number; at: string; gate: "plan" | "verify"; text: string }
   | {
       type: "done";
       at: string;
@@ -62,7 +91,13 @@ export interface AgentOptions {
   /** Runs one call and returns its envelope; expected not to throw (the registry never does). */
   callTool(name: string, args: unknown): Promise<unknown>;
   system: string;
-  task: string;
+  /** What to do. Image parts carry an attached plan to a model that can see one. */
+  task: string | ContentPart[];
+  /**
+   * Earlier turns of the same conversation, so a follow-up ("now add chairs") knows what "the table"
+   * means. The task is appended to these; the run returns the whole conversation for the next one.
+   */
+  history?: readonly ChatMessage[];
   /** Model turns before the run stops (default 40, the PRD P1-7 bound). */
   maxSteps?: number;
   /** Tool result text longer than this is cut, with a note telling the model to narrow the call. */
@@ -72,6 +107,22 @@ export interface AgentOptions {
   retryDelayMs?: number;
   maxTokens?: number;
   signal?: AbortSignal;
+  /** The plan this run starts with, and how a question reaches a person. */
+  loop?: {
+    plan?: readonly PlanItem[];
+    /** Resolves when the person answers; rejects when the run is abandoned. */
+    ask?(request: AskRequest): Promise<Record<string, string>>;
+  };
+  /** Which gates may speak; both do unless a caller says otherwise. */
+  gates?: { plan?: boolean; verify?: boolean };
+  /** Tool names that change the project, and the ones that check it, for the verify gate. */
+  mutatingTools?: ReadonlySet<string>;
+  verifyingTools?: ReadonlySet<string>;
+  /**
+   * Whether a render's images are put in front of a model that can see them. The picture is the only
+   * way a model judges what it drew; without this it reads a description of its own work.
+   */
+  images?: { liftRenders?: boolean; maxPerTurn?: number };
   onEvent?(event: AgentEvent): void;
   now?(): string;
   sleep?(ms: number): Promise<void>;
@@ -88,6 +139,8 @@ export interface AgentRun {
   error: string | null;
   events: AgentEvent[];
   messages: ChatMessage[];
+  /** The plan as the run left it, for the next turn of the same conversation. */
+  plan: PlanItem[];
 }
 
 export const DEFAULT_MAX_STEPS = 40;
@@ -170,16 +223,109 @@ export function toolResultText(result: unknown, maxChars = DEFAULT_MAX_RESULT_CH
 const isOk = (result: unknown) =>
   typeof result === "object" && result !== null && (result as { ok?: unknown }).ok === true;
 
+/**
+ * One streamed reply, gathered into the same Completion a whole answer gives.
+ *
+ * The pieces go out as they arrive and the assembled reply is what the loop works from, so nothing
+ * downstream has to know whether this provider streams. A server sends the finish and the usage in
+ * separate chunks, so both are kept as they come rather than the last one winning.
+ */
+/** The images in a tool result, as data URLs a model can be shown. */
+function imagesIn(result: unknown): string[] {
+  const images = (result as { result?: { images?: unknown } } | null)?.result?.images;
+  if (!Array.isArray(images)) return [];
+  return images.flatMap((i) => {
+    const png = (i as { pngBase64?: unknown }).pngBase64;
+    return typeof png === "string" && png ? [`data:image/png;base64,${png}`] : [];
+  });
+}
+
+/**
+ * Put a render in front of a model that can see, and take the last one away.
+ *
+ * A picture is the only way a model judges what it drew; without this it reads a description of its
+ * own work and agrees with itself. Only the newest render stays: four images a turn would fill a
+ * context window in ten turns, and an old picture of a room that has since changed is worse than no
+ * picture at all.
+ */
+function liftImages(messages: ChatMessage[], result: unknown, max: number): void {
+  const urls = imagesIn(result).slice(0, max);
+  if (urls.length === 0) return;
+  for (const m of messages) {
+    if (m.role !== "user" || !Array.isArray(m.content)) continue;
+    if (!m.content.some((p) => p.type === "image_url")) continue;
+    m.content = [{ type: "text", text: "[an earlier render, taken away to save room]" }];
+  }
+  messages.push({
+    role: "user",
+    content: [
+      { type: "text", text: "This is what the editor draws now. Look at it, and say what is wrong." },
+      ...urls.map((url) => ({ type: "image_url" as const, image_url: { url } })),
+    ],
+  });
+}
+
+async function streamed(
+  provider: Provider,
+  request: Parameters<Provider["complete"]>[0],
+  onDelta: (event: { type: "text.delta" | "reasoning.delta"; text: string }) => void,
+): Promise<Completion> {
+  const stream = provider.stream?.(request);
+  if (!stream) throw new ProviderError(provider.id, null, "this provider does not stream");
+  let text = "";
+  const parts = new Map<number, { id?: string; name?: string; arguments: string }>();
+  let finishReason: string | null = null;
+  const usage: Usage = { promptTokens: 0, completionTokens: 0 };
+  for await (const event of stream) {
+    if (event.type === "text") {
+      text += event.delta;
+      onDelta({ type: "text.delta", text: event.delta });
+    } else if (event.type === "reasoning") {
+      onDelta({ type: "reasoning.delta", text: event.delta });
+    } else if (event.type === "tool_call") {
+      const at = parts.get(event.index) ?? { arguments: "" };
+      if (event.id) at.id = event.id;
+      if (event.name) at.name = event.name;
+      at.arguments += event.argumentsDelta;
+      parts.set(event.index, at);
+    } else {
+      if (event.finishReason) finishReason = event.finishReason;
+      if (event.usage) {
+        usage.promptTokens += event.usage.promptTokens;
+        usage.completionTokens += event.usage.completionTokens;
+      }
+    }
+  }
+  const toolCalls: ToolCall[] = [...parts.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([i, c]) => ({ id: c.id ?? `call_${i}`, name: c.name ?? "", arguments: c.arguments || "{}" }));
+  return { text: text || null, toolCalls, finishReason, usage, raw: null };
+}
+
 export async function runAgent(options: AgentOptions): Promise<AgentRun> {
   const now = options.now ?? (() => new Date().toISOString());
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const maxSteps = options.maxSteps ?? DEFAULT_MAX_STEPS;
   const maxChars = options.maxResultChars ?? DEFAULT_MAX_RESULT_CHARS;
   const retries = options.retries ?? 2;
-  const known = new Set(options.tools.map((t) => t.name));
+  // The loop's own two tools ride alongside whatever the registry advertises, unless a caller has
+  // already supplied them (the eval harness scripts its own conversations).
+  const given = new Set(options.tools.map((t) => t.name));
+  const tools: ToolSpec[] = [
+    ...options.tools,
+    ...(given.has(PLAN_WORK) ? [] : [PLAN_WORK_SPEC]),
+    ...(options.loop?.ask && !given.has(ASK_USER) ? [ASK_USER_SPEC] : []),
+  ];
+  const known = new Set(tools.map((t) => t.name));
   const events: AgentEvent[] = [];
-  const messages: ChatMessage[] = [{ role: "user", content: options.task }];
+  const messages: ChatMessage[] = [...(options.history ?? []), { role: "user", content: options.task }];
   const usage: Usage = { promptTokens: 0, completionTokens: 0 };
+  let plan: PlanItem[] = [...(options.loop?.plan ?? [])];
+  let gates: GateState = newGateState();
+  const mutating = options.mutatingTools ?? new Set<string>();
+  const verifying = options.verifyingTools ?? new Set<string>();
+  const liftRenders = options.images?.liftRenders !== false && options.provider.profile.vision;
+  const maxImages = options.images?.maxPerTurn ?? 4;
   let steps = 0;
   let toolCalls = 0;
   let failedCalls = 0;
@@ -205,27 +351,44 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
       text,
       error,
     });
-    return { reason, text, steps, toolCalls, failedCalls, usage: { ...usage }, error, events, messages };
+    return {
+      reason,
+      text,
+      steps,
+      toolCalls,
+      failedCalls,
+      usage: { ...usage },
+      error,
+      events,
+      messages,
+      plan,
+    };
   };
 
   while (steps < maxSteps) {
     if (options.signal?.aborted) return finish("aborted");
     steps += 1;
-    emit({ type: "request", step: steps, at: now(), messages: messages.length, tools: options.tools.length });
+    emit({ type: "step.started", step: steps, at: now(), messages: messages.length, tools: tools.length });
     const started = Date.now();
     let completion: Completion | null = null;
     let attempts = 0;
     while (!completion) {
       attempts += 1;
+      const request = {
+        // The plan rides on the system prompt rather than in the conversation, so it survives
+        // whatever is later done to the conversation to make it fit.
+        system: `${options.system}${planForPrompt(plan)}`,
+        messages,
+        tools,
+        temperature: 0,
+        ...(options.maxTokens ? { maxTokens: options.maxTokens } : {}),
+        ...(options.signal ? { signal: options.signal } : {}),
+      };
       try {
-        completion = await options.provider.complete({
-          system: options.system,
-          messages,
-          tools: options.tools as ToolSpec[],
-          temperature: 0,
-          ...(options.maxTokens ? { maxTokens: options.maxTokens } : {}),
-          ...(options.signal ? { signal: options.signal } : {}),
-        });
+        completion =
+          options.provider.stream && options.provider.profile.streaming !== false
+            ? await streamed(options.provider, request, (event) => emit({ ...event, step: steps, at: now() }))
+            : await options.provider.complete(request);
       } catch (e) {
         if (options.signal?.aborted) return finish("aborted");
         const message = e instanceof Error ? e.message : String(e);
@@ -280,29 +443,89 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
       content: content && content.trim() ? content : null,
       ...(calls.length > 0 ? { toolCalls: calls } : {}),
     });
-    if (calls.length === 0) return finish("done", stripThinking(content ?? "").trim() || null);
+    if (calls.length === 0) {
+      // The model thinks it is finished. A gate may disagree, in which case it says why and the run
+      // carries on; each one is bounded, so a model that means it is believed.
+      const gate = gateFor(gates, plan, options.gates ?? {});
+      if (gate) {
+        gates = afterGate(gates, gate.gate);
+        emit({ type: "reminder", step: steps, at: now(), gate: gate.gate, text: gate.text });
+        messages.push({ role: "user", content: gate.text });
+        continue;
+      }
+      return finish("done", stripThinking(content ?? "").trim() || null);
+    }
 
     for (const call of calls) {
       toolCalls += 1;
       const callStarted = Date.now();
       const parsed = parseToolArguments(call.arguments);
       const args: unknown = parsed.ok ? parsed.value : call.arguments;
-      const result = parsed.ok
-        ? await options.callTool(call.name, parsed.value)
-        : {
+      emit({ type: "tool.started", step: steps, at: now(), id: call.id, name: call.name, args });
+      let result: unknown;
+      if (!parsed.ok) {
+        result = {
+          ok: false,
+          error: {
+            code: "args.json",
+            message: `${call.name}: ${parsed.error}`,
+            entityId: null,
+            hint: 'send the arguments as one JSON object, e.g. {"detail": "summary"}',
+          },
+          warnings: [],
+        };
+      } else if (call.name === PLAN_WORK) {
+        // The plan is the loop's own, so it is kept here and never reaches the project.
+        const applied = applyPlan(plan, parsed.value);
+        if (applied.ok) {
+          plan = applied.items;
+          emit({ type: "plan.updated", step: steps, at: now(), items: plan });
+          result = { ok: true, result: { plan: plan.length, summary: applied.summary }, warnings: [] };
+        } else {
+          result = {
             ok: false,
-            error: {
-              code: "args.json",
-              message: `${call.name}: ${parsed.error}`,
-              entityId: null,
-              hint: 'send the arguments as one JSON object, e.g. {"detail": "summary"}',
-            },
+            error: { code: "plan.invalid", message: applied.error, entityId: null, hint: applied.hint },
             warnings: [],
           };
+        }
+      } else if (call.name === ASK_USER && options.loop?.ask) {
+        const asked = parseAsk(parsed.value, call.id);
+        if (!asked.ok) {
+          result = {
+            ok: false,
+            error: { code: "ask.invalid", message: asked.error, entityId: null, hint: asked.hint },
+            warnings: [],
+          };
+        } else {
+          emit({ type: "question", step: steps, at: now(), request: asked.request });
+          try {
+            // The loop stops here until a person answers. An abandoned run rejects this, which ends
+            // the run rather than leaving it waiting for someone who has gone.
+            const answers = await options.loop.ask(asked.request);
+            emit({ type: "question.answered", step: steps, at: now(), id: call.id, answers });
+            result = { ok: true, result: { answered: answerText(asked.request, answers) }, warnings: [] };
+          } catch (e) {
+            if (options.signal?.aborted) return finish("aborted");
+            result = {
+              ok: false,
+              error: {
+                code: "ask.unanswered",
+                message: e instanceof Error ? e.message : String(e),
+                entityId: null,
+                hint: "decide for yourself and say what you assumed",
+              },
+              warnings: [],
+            };
+          }
+        }
+      } else {
+        result = await options.callTool(call.name, parsed.value);
+      }
       const ok = isOk(result);
       if (!ok) failedCalls += 1;
+      if (!LOOP_TOOL_NAMES.has(call.name)) gates = afterTool(gates, call.name, ok, { mutating, verifying });
       emit({
-        type: "tool",
+        type: "tool.finished",
         step: steps,
         at: now(),
         id: call.id,
@@ -313,6 +536,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
         durationMs: Date.now() - callStarted,
       });
       messages.push({ role: "tool", toolCallId: call.id, content: toolResultText(result, maxChars) });
+      if (liftRenders && ok) liftImages(messages, result, maxImages);
       const key = `${call.name}:${call.arguments}`;
       recent.push(key);
       if (!ok) {

@@ -104,7 +104,7 @@ describe("agent evaluation harness (PRD P1-7, P1-8)", () => {
       });
       expect(lines[0].tools).toContain("create_room_from_brief");
       expect(lines.at(-1)).toMatchObject({ type: "done", reason: "done", steps: 5 });
-      expect(lines.filter((l) => l.type === "tool").map((l) => l.name)).toEqual([
+      expect(lines.filter((l) => l.type === "tool.finished").map((l) => l.name)).toEqual([
         "get_scene",
         "create_room_from_brief",
         "validate",
