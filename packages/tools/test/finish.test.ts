@@ -99,3 +99,150 @@ describe("finish_wall (spec 04, ADR-006 D3)", () => {
     expect(wallOf(h)?.skirting.left).toBeNull();
   });
 });
+
+// finish_opening (ADR-021): the agent dresses a door or a window, as the properties panel can.
+//
+// Every capability the UI has and the tools do not is a thing the hosted agent cannot do, however good
+// its loop is. The panel could dress an opening from the day openings had finishes; this could not.
+describe("finish_opening (ADR-021)", () => {
+  const DOOR = "opening_000001";
+  const openingOf = (h: Harness) => h.ctx.store.project.openings.find((o) => o.id === DOOR);
+
+  async function withDoor(): Promise<Harness> {
+    const h = harness();
+    await buildFixtureRoom(h);
+    return h;
+  }
+
+  it("dresses the leaf and the frame separately", async () => {
+    const h = await withDoor();
+    await h.ok("finish_opening", { openingId: DOOR, part: "leaf", colour: "6B4A2F" });
+    expect(openingOf(h)?.finishes.leaf?.color).toBe("#6B4A2F");
+    expect(openingOf(h)?.finishes.frame).toBeNull();
+
+    await h.ok("finish_opening", { openingId: DOOR, part: "frame", colour: "222222" });
+    expect(openingOf(h)?.finishes.frame?.color).toBe("#222222");
+    // the leaf is still what it was: dressing one does not touch the other
+    expect(openingOf(h)?.finishes.leaf?.color).toBe("#6B4A2F");
+  });
+
+  it("dresses both at once when asked", async () => {
+    const h = await withDoor();
+    await h.ok("finish_opening", { openingId: DOOR, part: "both", colour: "445566" });
+    expect(openingOf(h)?.finishes.leaf?.color).toBe("#445566");
+    expect(openingOf(h)?.finishes.frame?.color).toBe("#445566");
+  });
+
+  it("refuses a texture the catalog does not have, rather than storing a name that means nothing", async () => {
+    const h = await withDoor();
+    const bad = await h.call("finish_opening", {
+      openingId: DOOR,
+      part: "leaf",
+      texture: "generated/not-a-texture",
+    });
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.error.code).toBe("catalog.missing-texture");
+    // and nothing was written on the way to refusing
+    expect(openingOf(h)?.finishes.leaf).toBeNull();
+  });
+
+  it("sets the sheen without disturbing the colour", async () => {
+    const h = await withDoor();
+    await h.ok("finish_opening", { openingId: DOOR, part: "leaf", colour: "6B4A2F" });
+    await h.ok("finish_opening", { openingId: DOOR, part: "leaf", finish: "gloss" });
+    expect(openingOf(h)?.finishes.leaf?.color).toBe("#6B4A2F");
+    expect(openingOf(h)?.finishes.leaf?.shininess).toBeGreaterThan(0);
+  });
+
+  it("refuses to dress the inside of a passage, which has nothing in it", async () => {
+    const h = await withDoor();
+    await h.ok("modify_opening", { openingId: DOOR, kind: "passage" });
+    const bad = await h.call("finish_opening", { openingId: DOOR, part: "leaf", colour: "445566" });
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.error.hint).toContain("frame");
+    // but its frame is fine
+    await h.ok("finish_opening", { openingId: DOOR, part: "frame", colour: "445566" });
+    expect(openingOf(h)?.finishes.frame?.color).toBe("#445566");
+  });
+
+  it("says so when the opening does not exist, and when nothing was asked for", async () => {
+    const h = await withDoor();
+    const missing = await h.call("finish_opening", {
+      openingId: "opening_zzzzzz",
+      part: "leaf",
+      colour: "445566",
+    });
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.error.code).toBe("ref.missing");
+    const empty = await h.call("finish_opening", { openingId: DOOR, part: "leaf" });
+    expect(empty.ok).toBe(false);
+  });
+});
+
+// modify_opening (ADR-021): the agent could add a door and then never change it.
+//
+// The properties panel has edited an opening's kind, size, sill and swing since it was written. The
+// tool surface had add_opening and nothing else, so an agent that placed a door 100 mm too narrow had
+// to delete it and place another.
+describe("modify_opening (ADR-021)", () => {
+  const DOOR = "opening_000001";
+  const openingOf = (h: Harness) => h.ctx.store.project.openings.find((o) => o.id === DOOR);
+
+  async function withDoor(): Promise<Harness> {
+    const h = harness();
+    await buildFixtureRoom(h);
+    return h;
+  }
+
+  it("changes the size without touching anything else", async () => {
+    const h = await withDoor();
+    const before = openingOf(h);
+    await h.ok("modify_opening", { openingId: DOOR, width: 1200, height: 2200 });
+    expect(openingOf(h)?.width).toBe(1200);
+    expect(openingOf(h)?.height).toBe(2200);
+    expect(openingOf(h)?.position).toBe(before?.position);
+  });
+
+  it("takes a distance along the wall as well as a fraction", async () => {
+    const h = await withDoor();
+    // the fixture's south wall runs 8000 mm, so 2000 mm along is a quarter of the way
+    await h.ok("modify_opening", { openingId: DOOR, atMm: 2000 });
+    expect(openingOf(h)?.position).toBeCloseTo(0.25, 9);
+    await h.ok("modify_opening", { openingId: DOOR, position: 0.5 });
+    expect(openingOf(h)?.position).toBeCloseTo(0.5, 9);
+  });
+
+  it("refuses a distance past the end of the wall, and says how long it is", async () => {
+    const h = await withDoor();
+    const bad = await h.call("modify_opening", { openingId: DOOR, atMm: 99999 });
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.error.message).toContain("8000");
+  });
+
+  it("turns a door into a window and back, which drops the swing and then gives one", async () => {
+    const h = await withDoor();
+    await h.ok("modify_opening", { openingId: DOOR, kind: "window" });
+    expect(openingOf(h)?.kind).toBe("window");
+    expect(openingOf(h)?.swing).toBeNull();
+    await h.ok("modify_opening", { openingId: DOOR, kind: "door" });
+    expect(openingOf(h)?.swing).not.toBeNull();
+  });
+
+  it("hinges a door at either end, or at neither", async () => {
+    const h = await withDoor();
+    await h.ok("modify_opening", { openingId: DOOR, swing: { hinge: "end", direction: "right" } });
+    expect(openingOf(h)?.swing).toEqual({ hinge: "end", direction: "right" });
+    // null is a sliding or pocket door: nothing sweeps the floor
+    await h.ok("modify_opening", { openingId: DOOR, swing: null });
+    expect(openingOf(h)?.swing).toBeNull();
+  });
+
+  it("says so when nothing was asked for, and when the opening does not exist", async () => {
+    const h = await withDoor();
+    const empty = await h.call("modify_opening", { openingId: DOOR });
+    expect(empty.ok).toBe(false);
+    const missing = await h.call("modify_opening", { openingId: "opening_zzzzzz", width: 900 });
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.error.code).toBe("ref.missing");
+  });
+});

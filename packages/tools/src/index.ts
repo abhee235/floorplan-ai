@@ -15,7 +15,9 @@ import {
   createRoom,
   createWalls,
   deleteTool,
+  finishOpening,
   finishWall,
+  modifyOpening,
   modifyRoom,
   modifyWall,
 } from "./tools/structure.js";
@@ -47,6 +49,8 @@ export const TOOLS = [
   project,
   exportTool,
   importPlan,
+  finishOpening,
+  modifyOpening,
   finishWall,
 ] as const;
 

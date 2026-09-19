@@ -1,7 +1,7 @@
 // Structure tools (spec 04 section 4): walls, openings, rooms. Each maps onto one command or one
 // atomic transaction and echoes the resolved geometry.
 import type { ApplyResult, Ref } from "@fpv/commands";
-import type { Opening, Project, Room, Wall } from "@fpv/ir";
+import type { FinishRef, Opening, Project, Room, Wall } from "@fpv/ir";
 import {
   blankFinish,
   derive,
@@ -51,6 +51,18 @@ export function runAll(
   for (const r of oks) for (const w of r.warnings) call.warn(w);
   call.changed(t.entry?.changes ?? null);
   return oks;
+}
+
+export function openingOrThrow(p: Project, id: string): Opening {
+  const o = p.openings.find((x) => x.id === id);
+  if (!o)
+    throw new ToolError(
+      "ref.missing",
+      `opening "${id}" does not resolve`,
+      null,
+      "use get_scene with types ['opening']",
+    );
+  return o;
 }
 
 export function wallOrThrow(p: Project, id: string): Wall {
@@ -156,6 +168,7 @@ export const finishWall = defineTool({
     face: z.enum(["north", "south", "east", "west", "both"]),
     colour: HexS.nullable().optional(),
     finish: z.enum(FINISH_NAMES as [string, ...string[]]).optional(),
+    texture: z.string().nullable().optional().describe("a texture id from search_catalog, or null for paint"),
     baseboardHeight: z.number().int().positive().nullable().optional().describe("mm, e.g. 100"),
     baseboardDepth: z.number().int().positive().optional().describe("mm, e.g. 12"),
     baseboardColour: HexS.nullable().optional(),
@@ -166,7 +179,7 @@ export const finishWall = defineTool({
     if (Object.values(fields).every((v) => v === undefined))
       throw invalidArg(
         "face",
-        "give at least one of colour, finish, baseboardHeight, baseboardDepth, baseboardColour",
+        "give at least one of colour, texture, finish, baseboardHeight, baseboardDepth, baseboardColour",
       );
     const p = call.ctx.store.project;
     const w = wallOrThrow(p, wallId);
@@ -199,12 +212,8 @@ export const finishWall = defineTool({
     const finishes = { ...w.finishes };
     const skirting = { ...w.skirting };
     for (const s of sides) {
-      if (fields.colour !== undefined || fields.finish !== undefined) {
-        const f = { ...(w.finishes[s] ?? blankFinish()) };
-        if (fields.colour !== undefined) f.color = fields.colour === null ? null : hex(fields.colour);
-        if (fields.finish !== undefined)
-          f.shininess = FINISH_SHININESS[fields.finish as keyof typeof FINISH_SHININESS];
-        finishes[s] = tidyFinish(f);
+      if (fields.colour !== undefined || fields.finish !== undefined || fields.texture !== undefined) {
+        finishes[s] = dress(w.finishes[s], fields);
       }
       const board = w.skirting[s];
       if (fields.baseboardHeight === null) {
@@ -234,6 +243,121 @@ export const finishWall = defineTool({
     const after = call.ctx.store.project;
     // the view lists the faces by compass, colour, finish and baseboard: what the model reads back
     return { wall: wallView(after, wallOrThrow(after, wallId)) };
+  },
+});
+
+/**
+ * A surface's finish after a change: paint, or a texture, never both.
+ *
+ * The same rule the properties panel follows — a texture replaces the colour and a colour replaces the
+ * texture — so a surface never says one thing while the view shows another. Shared by every tool that
+ * dresses something, because three copies of it would eventually be two rules.
+ */
+function dress(
+  current: FinishRef | null | undefined,
+  fields: {
+    colour?: string | null | undefined;
+    texture?: string | null | undefined;
+    finish?: string | undefined;
+  },
+): FinishRef | null {
+  const f = { ...(current ?? blankFinish()) };
+  if (fields.texture !== undefined) {
+    f.textureId = fields.texture;
+    if (fields.texture !== null) f.color = null;
+  }
+  if (fields.colour !== undefined) {
+    f.color = fields.colour === null ? null : hex(fields.colour);
+    if (fields.colour !== null) f.textureId = null;
+  }
+  if (fields.finish !== undefined)
+    f.shininess = FINISH_SHININESS[fields.finish as keyof typeof FINISH_SHININESS];
+  // tidyFinish drops a finish that says nothing at all, which is a surface back to its default.
+  return tidyFinish(f);
+}
+
+export const modifyOpening = defineTool({
+  name: "modify_opening",
+  description:
+    "Change one door or window: its kind (door, window or passage), how far along its wall it sits (position 0 to 1, or atMm from the wall's start), width, height, sill in mm, whether it is mirrored, and its swing. swing is {hinge, direction} where hinge is 'start' or 'end' of the wall and direction is 'left' or 'right'; null means no swing, which is a sliding or pocket door. Turning a door into a window clears the swing; turning it back gives it one. Only the fields you give change.",
+  tier: "primitive",
+  mutating: true,
+  input: z.object({
+    openingId: z.string(),
+    kind: z.enum(["door", "window", "passage"]).optional(),
+    position: z.number().min(0).max(1).optional(),
+    atMm: z.number().min(0).optional().describe("distance from the wall's start, instead of position"),
+    width: z.number().int().positive().optional(),
+    height: z.number().int().positive().optional(),
+    sill: z.number().int().min(0).optional(),
+    mirrored: z.boolean().optional(),
+    swing: z
+      .object({ hinge: z.enum(["start", "end"]), direction: z.enum(["left", "right"]) })
+      .nullable()
+      .optional(),
+  }),
+  output: z.object({ opening: OpeningViewS }),
+  run(args, call) {
+    const { openingId, atMm, ...rest } = args;
+    const changes: Record<string, unknown> = { ...rest };
+    if (atMm !== undefined) {
+      // Given as a distance, which is how a drawing states it; the store keeps a fraction.
+      const p = call.ctx.store.project;
+      const o = openingOrThrow(p, openingId);
+      const w = wallOrThrow(p, o.wallId);
+      const len = derive.wallLength(w);
+      if (len <= 0) throw invalidArg("atMm", "that wall has no length");
+      if (atMm > len)
+        throw invalidArg("atMm", `at most the wall's length, ${Math.round(len)} mm; got ${atMm}`);
+      changes.position = atMm / len;
+    }
+    if (Object.keys(changes).length === 0) throw invalidArg("changes", "give at least one field to change");
+    // Becoming a door means swinging again. The reducer clears a swing when a door becomes a window
+    // and does not give one back, so the editor's panel supplies the default and so must this: a door
+    // changed by an agent and one changed by a person should not differ.
+    if (changes.kind === "door" && changes.swing === undefined) {
+      const was = openingOrThrow(call.ctx.store.project, openingId);
+      if (!was.swing) changes.swing = { hinge: "start", direction: "left" };
+    }
+    run(call, { type: "opening.modify", payload: { openingId, changes } });
+    const after = call.ctx.store.project;
+    return { opening: openingView(after, openingOrThrow(after, openingId)) };
+  },
+});
+
+export const finishOpening = defineTool({
+  name: "finish_opening",
+  description:
+    "Paint or texture a door or window. part is 'leaf' (the door leaf or the window glazing), 'frame' (the reveal around it) or 'both'. colour is hex (#RRGGBB or #RGB) or null for the default; texture is a texture id or null for paint; finish is matt, satin or gloss. A window is glazed by default and a door has no leaf until one is given here. Only the fields you give change.",
+  tier: "primitive",
+  mutating: true,
+  input: z.object({
+    openingId: z.string(),
+    part: z.enum(["leaf", "frame", "both"]),
+    colour: HexS.nullable().optional(),
+    texture: z.string().nullable().optional().describe("a texture id from search_catalog, or null for paint"),
+    finish: z.enum(FINISH_NAMES as [string, ...string[]]).optional(),
+  }),
+  output: z.object({ opening: OpeningViewS }),
+  run(args, call) {
+    const { openingId, part, ...fields } = args;
+    if (Object.values(fields).every((v) => v === undefined))
+      throw invalidArg("part", "give at least one of colour, texture, finish");
+    const p = call.ctx.store.project;
+    const o = openingOrThrow(p, openingId);
+    if (part !== "frame" && o.kind === "passage")
+      throw new ToolError(
+        "opening.part",
+        `${openingId} is a passage, which has nothing in it to dress`,
+        openingId,
+        "a passage has a frame only; use part 'frame'",
+      );
+    const finishes = { ...o.finishes };
+    for (const slot of (["leaf", "frame"] as const).filter((x) => part === "both" || x === part))
+      finishes[slot] = dress(o.finishes[slot], fields);
+    run(call, { type: "opening.modify", payload: { openingId, changes: { finishes } } });
+    const after = call.ctx.store.project;
+    return { opening: openingView(after, openingOrThrow(after, openingId)) };
   },
 });
 
