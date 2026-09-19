@@ -246,7 +246,9 @@ export const searchCatalog = defineTool({
     category: z
       .string()
       .optional()
-      .describe("e.g. table, chair, display, video-bar, ceiling-mic, ceiling-speaker"),
+      .describe(
+        "e.g. table, chair, display, video-bar, ceiling-mic, ceiling-speaker; for homes bed, wardrobe, sofa, kitchen-run, sanitary, appliance",
+      ),
     limit: z.number().int().min(1).max(20).optional().describe("max hits, default 20"),
     cursor: z.string().optional().describe("cursor from the previous page when total exceeds the hits"),
   }),

@@ -29,7 +29,8 @@ export const CATEGORY_RECIPE: Readonly<Record<string, RecipeKind>> = {
   table: "table",
   desk: "table",
   chair: "chair",
-  sofa: "chair",
+  sofa: "sofa",
+  bed: "bed",
   display: "display",
   "video-bar": "video-bar",
   soundbar: "video-bar",
@@ -47,6 +48,8 @@ const RECIPE_BBOX: Readonly<Record<RecipeKind, { w: number; d: number; h: number
   "video-bar": { w: 1.2, d: 0.1, h: 0.1 },
   "ceiling-speaker": { w: 0.2, d: 0.2, h: 0.1 },
   "ceiling-mic": { w: 0.6, d: 0.6, h: 0.05 },
+  bed: { w: 1.5, d: 2.0, h: 0.9 },
+  sofa: { w: 2.0, d: 0.9, h: 0.85 },
 };
 
 export const RECIPE_MANIFEST: AssetManifest = {

@@ -13,7 +13,7 @@ import {
   type RulesPack,
 } from "@fpv/catalog";
 import type { Item, Point, PrimitiveRecipe, Project, Room, Size3, Wall } from "@fpv/ir";
-import { derive, poly } from "@fpv/ir";
+import { derive, poly, RESIDENTIAL_PURPOSES } from "@fpv/ir";
 import type { CatalogSearch } from "./context.js";
 import {
   freeSegments,
@@ -80,7 +80,13 @@ export function roomCapacity(room: Room): number {
   return room.capacity ?? Math.max(2, Math.floor(derive.roomArea(room) / 1e6 / SEAT_AREA_M2));
 }
 
-/** An explicit recipe id, else one for the room's purpose and capacity, else the closest capacity range. */
+/**
+ * An explicit recipe id, else one for the room's purpose and capacity, else the closest capacity range.
+ *
+ * The capacity fallback stays inside the room's own world. A pack now holds both workplaces and
+ * homes, and "no recipe for a bedroom, but this training room seats about the same" is how a
+ * bedroom ends up with a lectern in it.
+ */
 export function pickRecipe(pack: RulesPack, room: Room, recipeId?: string): RoomRecipe {
   if (recipeId) {
     const r = pack.recipes.find((x) => x.id === recipeId);
@@ -100,11 +106,27 @@ export function pickRecipe(pack: RulesPack, room: Room, recipeId?: string): Room
       : cap > r.capacityRange[1]
         ? cap - r.capacityRange[1]
         : 0;
-  return (
-    pack.recipes.find((r) => r.purpose === room.purpose && gap(r) === 0) ??
-    pack.recipes.find((r) => gap(r) === 0) ??
-    ([...pack.recipes].sort((a, b) => gap(a) - gap(b))[0] as RoomRecipe)
-  );
+  const byPurpose = pack.recipes.filter((r) => r.purpose === room.purpose);
+  const closest = (rs: readonly RoomRecipe[]) => [...rs].sort((a, b) => gap(a) - gap(b))[0];
+  // A home's rooms are told apart by what they are for, never by how many people fit: a bedroom for
+  // seven is a large bedroom, not a dining room. A workplace's recipes are one kind of room at three
+  // sizes, so there the seat count may still choose, as it always has.
+  const chosen = RESIDENTIAL_PURPOSES.has(room.purpose)
+    ? (byPurpose.find((r) => gap(r) === 0) ?? closest(byPurpose))
+    : (() => {
+        // A recipe that places nothing stands in for no other: only its own purpose may pick it,
+        // or a corridor's "anything up to 99 people" would furnish every hall in the building with
+        // nothing at all.
+        const work = pack.recipes.filter((r) => !RESIDENTIAL_PURPOSES.has(r.purpose) && r.steps.length > 0);
+        return byPurpose.find((r) => gap(r) === 0) ?? work.find((r) => gap(r) === 0) ?? closest(work);
+      })();
+  if (!chosen)
+    throw new FurnishError(
+      "recipe.none",
+      `the rules pack has no recipe for a ${room.purpose} room`,
+      `name one with recipe, or place the items yourself; the pack has ${pack.recipes.map((x) => x.id).join(", ")}`,
+    );
+  return chosen;
 }
 
 const norm = (deg: number) => ((Math.round(deg) % 360) + 360) % 360;
@@ -300,9 +322,11 @@ export function planFurnishing(
     category: string,
     fallback: PrimitiveRecipe,
     fits: (s: Size3) => boolean = () => true,
+    where: string | null = null,
   ): { ref: Ref; size: Size3 } => {
     const prefs = recipe.productPreferences.filter((x) => x.category === category);
-    const constraint = prefs.length > 0 ? prefs.map((x) => `(${x.constraint})`).join(" and ") : "true";
+    const parts = [...prefs.map((x) => x.constraint), ...(where ? [where] : [])];
+    const constraint = parts.length > 0 ? parts.map((x) => `(${x})`).join(" and ") : "true";
     const makes = [...(options.preferMakes ?? []), ...prefs.flatMap((x) => x.preferMake)].map((m) =>
       m.toLowerCase(),
     );
@@ -335,7 +359,7 @@ export function planFurnishing(
     );
     const best = ok[0];
     if (best) return { ref: { kind: "product", productId: best.id }, size: best.dims as Size3 };
-    if (!unresolved.some((u) => u.category === category))
+    if (!unresolved.some((u) => u.category === category && u.constraint.startsWith(constraint)))
       unresolved.push({
         category,
         constraint: pool.length > 0 ? `${constraint} and fits the room` : constraint,
@@ -386,6 +410,41 @@ export function planFurnishing(
   const seatsAt: { along: number; across: number }[] = [];
   const displays: { across: number; size: Size3; elevation: number; wall: Wall | null }[] = [];
   const chairsStep = recipe.steps.find((s): s is Extract<Step, { op: "chairs" }> => s.op === "chairs");
+
+  // Walls other than the display wall get a frame of their own, and a pair of cursors that remember
+  // how much of the wall earlier steps took, so a bathroom's shower, basin and toilet stand in a row
+  // rather than in the same place.
+  const frames = new Map<derive.Compass, Frame>([[side, frame]]);
+  const frameOn = (c: derive.Compass): Frame => {
+    const known = frames.get(c);
+    if (known) return known;
+    const made = frameFor(room, compassDir(c, p.meta.north));
+    frames.set(c, made);
+    return made;
+  };
+  const runs = new Map<derive.Compass, { start: number; end: number; touched: boolean }>();
+  const runOn = (c: derive.Compass, f: Frame) => {
+    const known = runs.get(c);
+    if (known) return known;
+    const made = { start: f.pMin, end: f.pMax, touched: false };
+    runs.set(c, made);
+    return made;
+  };
+  const beside: Record<derive.Compass, [derive.Compass, derive.Compass]> = {
+    north: ["east", "west"],
+    south: ["east", "west"],
+    east: ["north", "south"],
+    west: ["north", "south"],
+  };
+  const wallFor = (want: Extract<Step, { op: "along-wall" }>["wall"]): derive.Compass => {
+    if (want === "auto") return side;
+    if (want === "opposite-display") return OPPOSITE[side];
+    if (want !== "beside-display") return want;
+    const longest = (c: derive.Compass) =>
+      free.filter((x) => x.compass === c).reduce((n, x) => Math.max(n, x.lengthMm), 0);
+    const [a, b] = beside[side];
+    return longest(a) >= longest(b) ? a : b;
+  };
 
   for (const step of recipe.steps) {
     switch (step.op) {
@@ -654,6 +713,68 @@ export function planFurnishing(
           if (done) break;
         }
         if (!done) warnings.push(`no free wall beside a door for the ${step.category}`);
+        break;
+      }
+      case "along-wall": {
+        if (blocked(step.category)) break;
+        const want = Math.max(1, Math.round(number(step.countExpr, "countExpr", 1)));
+        const compass = wallFor(step.wall);
+        const f = frameOn(compass);
+        const cursor = runOn(compass, f);
+        const fallback: PrimitiveRecipe =
+          step.shape === "bed"
+            ? { kind: "bed", size: { ...step.sizeMm } }
+            : step.shape === "sofa"
+              ? { kind: "sofa", size: { ...step.sizeMm } }
+              : { kind: "box", size: { ...step.sizeMm }, label: step.label || step.category };
+        const free = cursor.end - cursor.start;
+        const r = resolve(
+          step.category,
+          fallback,
+          (s) => s.w + 2 * step.spacingMm <= free && s.d + step.clearanceMm <= f.depth,
+          step.where,
+        );
+        const width = r.size.w;
+        const pitch = width + step.spacingMm;
+        const fit = Math.max(0, Math.floor((free - step.spacingMm) / pitch));
+        const n = Math.min(want, fit);
+        if (n === 0) {
+          warnings.push(
+            `no room on the ${compass} wall for the ${step.label || step.category}: ${Math.round(width)} mm wide, ${Math.round(free)} mm free`,
+          );
+          break;
+        }
+        const span2 = n * width + (n - 1) * step.spacingMm;
+        // "start" and "end" eat into opposite ends of the wall, so several steps share one wall in
+        // the order the recipe names them; "centre" takes the middle and leaves both ends free.
+        let first: number;
+        if (step.align === "end") {
+          first = cursor.end - step.spacingMm - span2 + width / 2;
+          cursor.end -= step.spacingMm + span2;
+        } else if (step.align === "centre" && !cursor.touched) {
+          first = (f.pMin + f.pMax) / 2 - span2 / 2 + width / 2;
+          cursor.start = (f.pMin + f.pMax) / 2 + span2 / 2;
+        } else {
+          first = cursor.start + step.spacingMm + width / 2;
+          cursor.start += step.spacingMm + span2;
+        }
+        cursor.touched = true;
+        for (let i = 0; i < n; i += 1)
+          place(
+            step.category,
+            r,
+            at(f, r.size.d / 2, first + i * pitch),
+            // its back (local +y) to the wall, so it faces into the room
+            facing(f.a),
+            0,
+            floor,
+          );
+        if (n < want)
+          warnings.push(`only ${n} of ${want} ${step.category} items fit along the ${compass} wall`);
+        if (r.size.d + step.clearanceMm > f.depth)
+          warnings.push(
+            `the ${step.label || step.category} leaves less than ${step.clearanceMm} mm of floor in front of it`,
+          );
         break;
       }
       case "whiteboard": {

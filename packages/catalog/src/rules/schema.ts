@@ -114,6 +114,33 @@ const RecipeStep = z.discriminatedUnion("op", [
     seatsEach: z.number().int().min(0).default(0),
   }),
   z.object({ op: z.literal("whiteboard"), wall: z.enum(["auto", "opposite-display"]) }),
+  /**
+   * Items with their backs to a wall: a bed, a wardrobe, a sofa, a kitchen run, a basin. Steps that
+   * name the same wall follow one another along it, so a bathroom's three fixtures share a wall
+   * without sharing a spot.
+   */
+  z.object({
+    op: z.literal("along-wall"),
+    category: Category,
+    /** "auto" is the longest free run; "opposite-display" faces the display wall; "beside-display" is a wall next to it. */
+    wall: z.enum(["auto", "opposite-display", "beside-display", "north", "south", "east", "west"]),
+    countExpr: Expr.default("1"),
+    /**
+     * A further condition on the product, for categories that hold several things: a bathroom's
+     * shower, basin and toilet are all `sanitary`, and only `kind == 'shower'` tells them apart.
+     */
+    where: Expr.nullable().default(null),
+    /** What is placed when the catalog has nothing of the category: a recipe of this shape at this size. */
+    shape: z.enum(["bed", "sofa", "box"]).default("box"),
+    sizeMm: z.object({ w: z.number().positive(), d: z.number().positive(), h: z.number().positive() }),
+    label: z.string().default(""),
+    /** Free space kept between the items, and past each end. */
+    spacingMm: z.number().min(0).default(0),
+    /** Where the group sits along the wall. */
+    align: z.enum(["start", "centre", "end"]).default("centre"),
+    /** Floor space the item needs in front of it, for the fit check. */
+    clearanceMm: z.number().min(0).default(600),
+  }),
 ]);
 
 export const RoomRecipe = z.object({
@@ -216,6 +243,10 @@ export function validatePack(input: unknown): { pack: RulesPack | null; problems
         syntax(r.id, `steps.${i}.countExpr`, s.countExpr);
       }
       if (s.op === "arrange") syntax(r.id, `steps.${i}.countExpr`, s.countExpr);
+      if (s.op === "along-wall") {
+        syntax(r.id, `steps.${i}.countExpr`, s.countExpr);
+        syntax(r.id, `steps.${i}.where`, s.where);
+      }
     });
     r.productPreferences.forEach((pref, i) =>
       syntax(r.id, `productPreferences.${i}.constraint`, pref.constraint),

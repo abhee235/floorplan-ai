@@ -261,7 +261,7 @@ describe("room detection on imported plans (P2-4)", () => {
     const labels = p.annotations.filter((a) => a.kind === "label").map((a) => (a as { text: string }).text);
     expect(shared.filter((n) => labels.includes(n))).toHaveLength(1);
     expect(r.result.committed?.openQuestions.some((q) => q.includes("share one enclosed space"))).toBe(true);
-    expect(p.rooms.find((room) => room.name === "KITCHEN")?.purpose).toBe("cafeteria");
+    expect(p.rooms.find((room) => room.name === "KITCHEN")?.purpose).toBe("kitchen");
   });
 
   it("enclosures without labels become unnamed detected rooms", async () => {

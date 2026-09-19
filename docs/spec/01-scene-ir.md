@@ -153,9 +153,16 @@ within that depth (spec 02).
 
 ```ts
 export const RoomPurpose = z.enum([
-  "meeting", "huddle", "boardroom", "training", "open-office", "focus", "reception",
-  "cafeteria", "corridor", "utility", "storage", "restroom", "other",
+  // workplaces
+  "meeting", "huddle", "boardroom", "training", "open-office", "focus", "reception", "cafeteria",
+  // homes
+  "bedroom", "living", "kitchen", "dining", "bathroom", "toilet", "foyer", "study",
+  "laundry", "balcony", "garage",
+  // either
+  "corridor", "utility", "storage", "restroom", "other",
 ]);
+// RESIDENTIAL_PURPOSES is the middle group as a Set: what furnishing and the design
+// checks read to tell a dwelling's rooms from a workplace's.
 
 export const Room = z.object({
   id: RoomId,

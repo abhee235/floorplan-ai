@@ -9,6 +9,7 @@ import {
   FINISH_SHININESS,
   idType,
   parseHexColour,
+  RoomPurpose,
   SKIRTING_DEPTH,
   SKIRTING_DEPTH_RANGE,
   tidyFinish,
@@ -551,23 +552,7 @@ export const createRoom = defineTool({
       .describe("origin corner plus width and depth in mm"),
     atPoint: PointS.optional().describe("a point inside the walls to detect the room around"),
     name: z.string().optional(),
-    purpose: z
-      .enum([
-        "meeting",
-        "huddle",
-        "boardroom",
-        "training",
-        "open-office",
-        "focus",
-        "reception",
-        "cafeteria",
-        "corridor",
-        "utility",
-        "storage",
-        "restroom",
-        "other",
-      ])
-      .optional(),
+    purpose: z.enum(RoomPurpose.options).optional(),
     capacity: z.number().int().min(0).optional().describe("seats, e.g. 10"),
   }),
   output: z.object({ room: RoomViewS }),
@@ -588,23 +573,7 @@ export const modifyRoom = defineTool({
   input: z.object({
     roomId: z.string(),
     name: z.string().nullable().optional(),
-    purpose: z
-      .enum([
-        "meeting",
-        "huddle",
-        "boardroom",
-        "training",
-        "open-office",
-        "focus",
-        "reception",
-        "cafeteria",
-        "corridor",
-        "utility",
-        "storage",
-        "restroom",
-        "other",
-      ])
-      .optional(),
+    purpose: z.enum(RoomPurpose.options).optional(),
     capacity: z.number().int().min(0).nullable().optional(),
     ceilingHeight: z
       .number()

@@ -4,7 +4,7 @@
 
 import { join } from "node:path";
 import { openAICompatible } from "@fpv/agents";
-import { AV_CORE, ensureSeed } from "@fpv/catalog";
+import { CORE_RULES, ensureSeed } from "@fpv/catalog";
 import { CatalogStore } from "@fpv/catalog/store";
 import { PROTOCOL_VERSION } from "@fpv/commands";
 import type { ToolReliability } from "@fpv/tools";
@@ -249,7 +249,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     library,
     catalog: catalog.store,
     verifier: verification.verifier,
-    rules: AV_CORE,
+    rules: CORE_RULES,
     writer: (store) => new FileExportWriter({ baseDir: () => store.path() ?? join(catalog.dir, "exports") }),
     plans: new FilePlanReader({ baseDir: () => process.cwd(), raster: planReaderSetup.reader }),
   });

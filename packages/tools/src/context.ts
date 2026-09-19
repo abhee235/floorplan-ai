@@ -284,6 +284,28 @@ export const RECIPE_TEMPLATES: readonly CatalogHit[] = [
     kind: "ceiling-mic",
     size: { w: 600, d: 600, h: 50 },
   }),
+  hit("recipe:bed:1500x2000x900", "Double bed 1500 x 2000", "bed", {
+    kind: "bed",
+    size: { w: 1500, d: 2000, h: 900 },
+  }),
+  hit("recipe:bed:900x2000x900", "Single bed 900 x 2000", "bed", {
+    kind: "bed",
+    size: { w: 900, d: 2000, h: 900 },
+  }),
+  hit("recipe:sofa:2000x900x850", "Three-seat sofa 2000", "sofa", {
+    kind: "sofa",
+    size: { w: 2000, d: 900, h: 850 },
+  }),
+  hit("recipe:box:1800x600x2100", "Wardrobe 1800 x 600 x 2100", "wardrobe", {
+    kind: "box",
+    size: { w: 1800, d: 600, h: 2100 },
+    label: "Wardrobe",
+  }),
+  hit("recipe:box:2400x600x900", "Kitchen run 2400 x 600 (worktop with units under)", "kitchen-run", {
+    kind: "box",
+    size: { w: 2400, d: 600, h: 900 },
+    label: "Kitchen run",
+  }),
   hit("recipe:box:600x400x500", "Generic box 600 x 400 x 500 (credenza, cabinet, unit)", "box", {
     kind: "box",
     size: { w: 600, d: 400, h: 500 },

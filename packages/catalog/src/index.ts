@@ -58,6 +58,7 @@ export {
   productInfo,
   recipeKey,
 } from "./rules/facts.js";
+export { CORE_RULES, HOME_CORE, HOME_CORE_INPUT } from "./rules/home-core.js";
 export {
   BomRule,
   DependencyRule,

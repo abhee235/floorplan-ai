@@ -96,6 +96,8 @@ const RECIPE_CATEGORY: Readonly<Record<string, string>> = {
   "video-bar": "video-bar",
   "ceiling-speaker": "ceiling-speaker",
   "ceiling-mic": "ceiling-mic",
+  bed: "bed",
+  sofa: "sofa",
   box: "other",
   cylinder: "other",
 };
@@ -135,6 +137,10 @@ export function recipeDescription(item: Item): string {
       return `Ceiling speaker ${r.diameter} (placeholder)`;
     case "ceiling-mic":
       return `Ceiling microphone ${s.w} x ${s.d} (placeholder)`;
+    case "bed":
+      return `Bed ${s.w} x ${s.d} (placeholder)`;
+    case "sofa":
+      return `Sofa ${s.w} wide (placeholder)`;
     case "box":
       return `${r.label || "Box"} ${s.w} x ${s.d} x ${s.h} (placeholder)`;
     case "cylinder":
@@ -471,6 +477,15 @@ export function makeScope(input: ScopeInput): Scope {
             return derive.roomArea(r) / 1e6;
           case "perimeter":
             return derive.roomPerimeter(r);
+          // The sides of the room's bounding box: a 9 m² bedroom that is 1.5 m wide is not a bedroom.
+          case "minSideMm": {
+            const b = derive.roomBounds(r);
+            return Math.min(b.maxX - b.minX, b.maxY - b.minY);
+          }
+          case "maxSideMm": {
+            const b = derive.roomBounds(r);
+            return Math.max(b.maxX - b.minX, b.maxY - b.minY);
+          }
           case "capacity":
             return r.capacity ?? ofCategory(items, "chair").length;
           case "ceilingHeight":

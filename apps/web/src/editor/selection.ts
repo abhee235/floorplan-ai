@@ -791,6 +791,17 @@ export const ROOM_PURPOSES: readonly Choice[] = [
   { value: "focus", label: "Focus room" },
   { value: "reception", label: "Reception" },
   { value: "cafeteria", label: "Cafeteria" },
+  { value: "bedroom", label: "Bedroom" },
+  { value: "living", label: "Living room" },
+  { value: "kitchen", label: "Kitchen" },
+  { value: "dining", label: "Dining room" },
+  { value: "bathroom", label: "Bathroom" },
+  { value: "toilet", label: "Toilet" },
+  { value: "foyer", label: "Foyer" },
+  { value: "study", label: "Study" },
+  { value: "laundry", label: "Laundry" },
+  { value: "balcony", label: "Balcony" },
+  { value: "garage", label: "Garage" },
   { value: "corridor", label: "Corridor" },
   { value: "utility", label: "Utility" },
   { value: "storage", label: "Storage" },
@@ -1007,6 +1018,8 @@ const RECIPE_NAMES: Record<PrimitiveRecipe["kind"], string> = {
   "video-bar": "Video bar",
   "ceiling-speaker": "Ceiling speaker",
   "ceiling-mic": "Ceiling microphone",
+  bed: "Bed",
+  sofa: "Sofa",
 };
 
 /**

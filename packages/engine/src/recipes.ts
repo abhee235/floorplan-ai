@@ -166,6 +166,28 @@ function shape(recipe: PrimitiveRecipe, s: Size3, at: (slot: string) => MeshBuil
           box(at("frame"), sx * (s.w / 2 - inset), sy * (s.d / 2 - inset), 0, LEG, LEG, seatZ);
       break;
     }
+    case "bed": {
+      // a base the mattress sits on, and a headboard at the back; the height is the headboard's
+      const baseZ = Math.min(300, s.h / 3);
+      const mattressZ = Math.min(250, s.h / 3);
+      const boardT = Math.min(60, s.d / 8);
+      box(at("frame"), 0, 0, 0, s.w, s.d, baseZ);
+      box(at("mattress"), 0, -boardT / 2, baseZ, s.w - 40, s.d - boardT - 40, mattressZ);
+      box(at("frame"), 0, s.d / 2 - boardT / 2, 0, s.w, boardT, s.h);
+      break;
+    }
+    case "sofa": {
+      // seat, a back along local +y, and an arm at each end; the arms stop below the back
+      const armW = Math.min(180, s.w / 6);
+      const backT = Math.min(220, s.d / 3);
+      const seatZ = Math.min(420, s.h / 2);
+      const armZ = Math.min(620, s.h * 0.75);
+      box(at("frame"), 0, 0, 0, s.w, s.d, 120); // plinth
+      box(at("fabric"), 0, -backT / 2, 120, s.w - 2 * armW, s.d - backT, seatZ - 120);
+      box(at("fabric"), 0, s.d / 2 - backT / 2, 120, s.w - 2 * armW, backT, s.h - 120);
+      for (const sx of [-1, 1]) box(at("fabric"), sx * (s.w / 2 - armW / 2), 0, 120, armW, s.d, armZ - 120);
+      break;
+    }
   }
 }
 
@@ -214,6 +236,8 @@ export function fallbackRecipe(kind: RecipeKind, size: Size3, label: string): Pr
     case "chair":
     case "video-bar":
     case "ceiling-mic":
+    case "bed":
+    case "sofa":
       return { kind, size };
     case "display":
       return { kind, diagonalIn: Math.hypot(size.w, size.h) / 25.4, bezelMm: 0 };

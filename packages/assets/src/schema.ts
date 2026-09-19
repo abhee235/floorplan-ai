@@ -31,6 +31,8 @@ export const RecipeKind = z.enum([
   "video-bar",
   "ceiling-speaker",
   "ceiling-mic",
+  "bed",
+  "sofa",
 ]);
 
 /** Budgets for one glTF entry (ADR-010 D6). */

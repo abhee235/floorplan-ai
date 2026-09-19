@@ -212,6 +212,8 @@ const RECIPE_SLOTS: Readonly<Record<PrimitiveRecipe["kind"], readonly string[]>>
   "video-bar": ["body"],
   "ceiling-speaker": ["body"],
   "ceiling-mic": ["body"],
+  bed: ["mattress", "frame"],
+  sofa: ["fabric", "frame"],
 };
 
 export function recipeSlots(kind: PrimitiveRecipe["kind"]): readonly string[] {
@@ -226,6 +228,8 @@ export function recipeSize(recipe: PrimitiveRecipe): Size3 {
     case "chair":
     case "video-bar":
     case "ceiling-mic":
+    case "bed":
+    case "sofa":
       return recipe.size;
     case "cylinder":
       return { w: recipe.diameter, d: recipe.diameter, h: recipe.height };

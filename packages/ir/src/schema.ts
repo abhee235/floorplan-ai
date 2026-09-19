@@ -117,6 +117,7 @@ export const Opening = z.object({
 });
 
 export const RoomPurpose = z.enum([
+  // workplaces
   "meeting",
   "huddle",
   "boardroom",
@@ -125,11 +126,39 @@ export const RoomPurpose = z.enum([
   "focus",
   "reception",
   "cafeteria",
+  // homes
+  "bedroom",
+  "living",
+  "kitchen",
+  "dining",
+  "bathroom",
+  "toilet",
+  "foyer",
+  "study",
+  "laundry",
+  "balcony",
+  "garage",
+  // either
   "corridor",
   "utility",
   "storage",
   "restroom",
   "other",
+]);
+
+/** The purposes a dwelling is made of, for briefs, recipes and the design checks that treat a home as one. */
+export const RESIDENTIAL_PURPOSES: ReadonlySet<z.infer<typeof RoomPurpose>> = new Set([
+  "bedroom",
+  "living",
+  "kitchen",
+  "dining",
+  "bathroom",
+  "toilet",
+  "foyer",
+  "study",
+  "laundry",
+  "balcony",
+  "garage",
 ]);
 
 export const Room = z.object({
@@ -159,6 +188,10 @@ export const PrimitiveRecipe = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("video-bar"), size: Size3 }),
   z.object({ kind: z.literal("ceiling-speaker"), diameter: MmPositive }),
   z.object({ kind: z.literal("ceiling-mic"), size: Size3 }),
+  /** A bed: base, mattress and a headboard at the back (local +y). */
+  z.object({ kind: z.literal("bed"), size: Size3 }),
+  /** A sofa: seat, back at local +y, an arm at each end. */
+  z.object({ kind: z.literal("sofa"), size: Size3 }),
 ]);
 
 export const MountKind = z.enum(["floor", "wall", "ceiling", "table", "item"]);

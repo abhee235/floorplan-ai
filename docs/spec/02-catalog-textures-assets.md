@@ -11,6 +11,7 @@ Ledger coverage: section 7
 ```ts
 export const Category = z.enum([
   "display", "video-bar", "camera", "ceiling-mic", "table-mic", "ceiling-speaker", "soundbar",
+  // homes: "bed", "wardrobe", "kitchen-run", "sanitary" join table, desk, chair, sofa, appliance
   "amplifier", "dsp", "controller", "touch-panel", "scheduler", "mount", "cable", "connector",
   "switch", "rack", "table", "desk", "chair", "sofa", "storage", "whiteboard", "door", "window",
   "partition", "lighting", "appliance", "plant", "other",
@@ -197,7 +198,9 @@ entries; `licence.id` never NC, ND, or copyleft; `attribution` required when
 | Category | Fallback recipe |
 |---|---|
 | table, desk | table |
-| chair, sofa | chair |
+| chair | chair |
+| sofa | sofa |
+| bed | bed |
 | display | display |
 | video-bar, soundbar | video-bar |
 | ceiling-speaker | ceiling-speaker |
@@ -213,6 +216,8 @@ finished like any recipe's (P3-5). Recipes are built one part per slot:
 | table | top, legs |
 | chair | fabric, frame |
 | display | screen, frame |
+| bed | mattress, frame |
+| sofa | fabric, frame |
 | box, cylinder, video-bar, ceiling-speaker, ceiling-mic | body |
 
 A product whose model the viewer has not loaded is a white box at its size
