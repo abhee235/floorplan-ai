@@ -289,6 +289,10 @@ describe("switching what is on screen (ADR-017 D1)", () => {
       "Open recent",
       "Save",
       "Close project",
+      // A project can be taken out of here and brought back (P3-11): without these, the library owning
+      // where everything lives would mean the work was never the person's to keep.
+      "Export project…",
+      "Import project…",
       "Import plan…",
       "Export",
     ]);

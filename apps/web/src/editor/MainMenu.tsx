@@ -69,6 +69,9 @@ export function menus(view: string): MenuDefinition[] {
         { separator: true },
         "file.close",
         { separator: true },
+        "file.exportProject",
+        "file.importProject",
+        { separator: true },
         "file.import",
         {
           title: "Export",

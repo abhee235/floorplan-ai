@@ -74,6 +74,15 @@ export interface BridgeOptions {
   library?: () => RecentEntry[];
 }
 
+/**
+ * The largest project an import will take, in bytes.
+ *
+ * Not a limit anyone should meet: a project of this size is a file that went wrong, and refusing it
+ * with a sentence beats holding it in memory while the host finds out. The socket's own frame limit is
+ * larger again, so the refusal is this one and it says something useful.
+ */
+export const MAX_IMPORT_BYTES = 64 * 1024 * 1024;
+
 export class Bridge {
   private readonly clients = new Set<ClientState>();
   /**
@@ -567,6 +576,50 @@ export class Bridge {
           for (const c of this.clients) if (c.hello && !c.held) this.showProjectTo(c, remaining);
           this.announceWorkspace();
           this.reply(state, msg.id, true, { result: { deleted: msg.project } });
+          return;
+        }
+        case "export": {
+          const id = msg.project ?? state.held?.id;
+          if (!id) {
+            this.reply(state, msg.id, false, {
+              error: { code: "invalid", message: "which project?", hint: null },
+            });
+            return;
+          }
+          const file = await this.workspace.export(id);
+          // Base64 because a JSON frame carries text. The browser turns it back into bytes and saves it
+          // wherever that person keeps things, which is the only crossing there is (ADR-021 D4).
+          this.reply(state, msg.id, true, {
+            result: {
+              name: file.name,
+              bytes: file.bytes.length,
+              data: Buffer.from(file.bytes).toString("base64"),
+            },
+          });
+          return;
+        }
+        case "import": {
+          if (!msg.data) {
+            this.reply(state, msg.id, false, {
+              error: { code: "invalid", message: "no file was sent", hint: null },
+            });
+            return;
+          }
+          const bytes = Buffer.from(msg.data, "base64");
+          if (bytes.length > MAX_IMPORT_BYTES) {
+            this.reply(state, msg.id, false, {
+              error: {
+                code: "archive.too-big",
+                message: `that file is ${Math.round(bytes.length / 1e6)} MB; the limit is ${Math.round(MAX_IMPORT_BYTES / 1e6)} MB`,
+                hint: null,
+              },
+            });
+            return;
+          }
+          const held = await this.workspace.import(new Uint8Array(bytes));
+          this.showProjectTo(state, held);
+          this.announceWorkspace();
+          this.reply(state, msg.id, true, { result: describe(held) });
           return;
         }
         case "close": {

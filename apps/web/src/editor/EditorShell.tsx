@@ -541,6 +541,20 @@ export function EditorShell(): JSX.Element {
         run: () => void filesRef.current.closeProject(),
       },
       {
+        id: "file.exportProject",
+        title: "Export project…",
+        group: "File",
+        detail: "one file you can keep or send",
+        run: () => void filesRef.current.exportProject(),
+      },
+      {
+        id: "file.importProject",
+        title: "Import project…",
+        group: "File",
+        detail: "a project exported from here or anywhere",
+        run: () => void filesRef.current.importProject(),
+      },
+      {
         id: "file.import",
         title: "Import plan…",
         group: "File",

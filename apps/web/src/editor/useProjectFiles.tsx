@@ -70,6 +70,10 @@ export interface ProjectFilesApi {
     closeProject: () => Promise<void>;
     switchTo: (projectId: string) => Promise<void>;
     rename: (name: string) => Promise<void>;
+    /** Download this project as one file (P3-11). */
+    exportProject: () => Promise<void>;
+    /** Take an exported file back, from the person's own disk. */
+    importProject: () => Promise<void>;
   };
   /** The library, for the Open recent submenu. */
   recent: LibraryProject[];
@@ -90,6 +94,8 @@ export function useProjectFiles(
   const answer = useRef<((a: UnsavedAnswer) => void) | null>(null);
   /** A recovery offer is made once per file; saying no must not bring it back on the next autosave. */
   const declined = useRef(new Set<string>());
+  /** The file input an import goes through: a browser reaches a disk by being handed a file, never by asking. */
+  const importRef = useRef<HTMLInputElement>(null);
 
   // The newest facts, read by callbacks that must not be rebuilt when they change: the commands are
   // registered once, and a command closing over the first render's `modified` would never see a change.
@@ -221,6 +227,41 @@ export function useProjectFiles(
         } catch (e) {
           announcer.alert(`Nothing was opened: ${e instanceof Error ? e.message : String(e)}`);
         }
+      },
+      /**
+       * The project as one file, saved wherever this person keeps things (ADR-021 D4).
+       *
+       * The host sends the bytes over the bridge and the browser writes them: a download is the only
+       * way a web application reaches a disk, and it is the same gesture whether the host is on this
+       * machine or in another country — which is the test every feature here has to pass.
+       */
+      exportProject: async (): Promise<void> => {
+        try {
+          announcer.say("Preparing the file…");
+          const reply = await workspace({ op: "export" });
+          const file = reply as { name?: string; data?: string; bytes?: number };
+          if (!file.data || !file.name) throw new Error("the host sent nothing");
+          const binary = atob(file.data);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+          const url = URL.createObjectURL(new Blob([bytes], { type: "application/zip" }));
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = file.name;
+          a.rel = "noopener";
+          document.body.append(a);
+          a.click();
+          a.remove();
+          // Revoked on the next turn rather than at once: revoking before the browser has started the
+          // download cancels it in some of them.
+          setTimeout(() => URL.revokeObjectURL(url), 10_000);
+          announcer.say(`${file.name} downloaded.`);
+        } catch (e) {
+          announcer.alert(`Nothing was downloaded: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      },
+      importProject: async (): Promise<void> => {
+        importRef.current?.click();
       },
       deleteProject: async (projectId: string): Promise<void> => {
         try {
@@ -354,6 +395,35 @@ export function useProjectFiles(
           await workspace({ op: "delete", project: projectId });
           announcer.say("Deleted.");
           loadRecent();
+        }}
+      />
+      {/* Off screen rather than hidden with `display: none`: a hidden input cannot be clicked in some
+          browsers, and this one is clicked by the File menu rather than by the person. */}
+      <input
+        ref={importRef}
+        type="file"
+        accept=".zip,.fpviz,application/zip"
+        style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
+        aria-hidden="true"
+        tabIndex={-1}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = ""; // so choosing the same file twice in a row still counts as a change
+          if (!file) return;
+          void (async () => {
+            try {
+              announcer.say(`Reading ${file.name}…`);
+              const bytes = new Uint8Array(await file.arrayBuffer());
+              let binary = "";
+              for (let i = 0; i < bytes.length; i += 0x8000)
+                binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+              const opened = await workspace({ op: "import", data: btoa(binary) });
+              announcer.say(`${opened.name} imported.`);
+              loadRecent();
+            } catch (err) {
+              announcer.alert(`Nothing was imported: ${err instanceof Error ? err.message : String(err)}`);
+            }
+          })();
         }}
       />
       <UnsavedDialog

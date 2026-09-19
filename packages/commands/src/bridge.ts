@@ -87,11 +87,19 @@ export const ClientMessage = z.discriminatedUnion("type", [
   z.object({
     id: Id,
     type: z.literal("workspace"),
-    op: z.enum(["attach", "open", "new", "close", "delete", "list"]),
+    op: z.enum(["attach", "open", "new", "close", "delete", "list", "export", "import"]),
     /** Which project, by its own id. There is no other way to name one (ADR-021). */
     project: z.string().optional(),
     /** A name, for new. */
     name: z.string().optional(),
+    /**
+     * An exported project, base64, for import (P3-11).
+     *
+     * Carried on the bridge rather than posted to a route of its own: the socket is the channel that
+     * already knows who is on it, and a plain HTTP endpoint that takes a project would be an unguarded
+     * way in, exactly as one that hands a project out by id would be a way to read anyone's (ADR-020 D4).
+     */
+    data: z.string().optional(),
   }),
   // The one client message that expects no result: there is nothing to wait for, and a round trip per
   // click would make the log something the editor pays for.

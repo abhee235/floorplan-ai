@@ -9,9 +9,13 @@
 // one: its changes, its problems, its selection, its render requests. Everything a session already was
 // stays exactly as it was — this only stops there being precisely one of them.
 
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import type { RulesPack } from "@fpv/catalog";
+import { newProjectId } from "@fpv/ir";
 import type { CatalogSearch, ExportWriter, PlanReader, ProductVerifier } from "@fpv/tools";
 import { blankProject } from "@fpv/tools";
+import { archiveName, packProject, readArchive } from "./archive.js";
 import { ProjectFileStore } from "./files.js";
 import { folderFor, makeFolder, removeFolder } from "./library.js";
 import type { EventLog } from "./log.js";
@@ -41,6 +45,8 @@ export interface WorkspaceOptions {
   registry?: ProjectRegistry | null;
   /** The library this installation keeps projects in (ADR-021); projects are made and found here. */
   library?: string | null;
+  /** Written into an exported project's manifest, so a file says which version made it. */
+  appVersion?: string;
 }
 
 export class Workspace {
@@ -50,8 +56,11 @@ export class Workspace {
   private latest: string | null = null;
   private readonly now: () => string;
 
+  private readonly appVersion: string;
+
   constructor(private readonly options: WorkspaceOptions = {}) {
     this.now = options.now ?? (() => new Date().toISOString());
+    this.appVersion = options.appVersion ?? "0.0.1";
   }
 
   /**
@@ -138,6 +147,59 @@ export class Workspace {
       await files.save(dir);
     }
     return held;
+  }
+
+  /**
+   * A project as one file, named after itself (P3-11, ADR-021 D4).
+   *
+   * Packed from the project in hand, not from the last save, so what comes down is what the editor
+   * shows. Nothing is written and the unsaved mark is untouched: exporting is a copy, not a save.
+   */
+  async export(id: string): Promise<{ name: string; bytes: Uint8Array }> {
+    const held = this.held.get(id) ?? (await this.openById(id));
+    const project = held.session.store.project;
+    const bytes = await packProject(project, held.files.path(), this.appVersion, this.now());
+    return { name: archiveName(project.meta.name), bytes };
+  }
+
+  /**
+   * A project read out of an exported file, put in the library and opened (P3-11).
+   *
+   * It keeps its own id where it can, so a project carried between two installations stays the same
+   * project: its URL, its place in the recent list and anything that refers to it all still mean it.
+   * Where that id is already taken it gets a new one, because a copy alongside the original is two
+   * projects, and the alternative — overwriting whatever is there — would make importing a file a way
+   * to destroy work that was never asked about.
+   *
+   * The name is made free the same way a new project's is, so two copies of "Boardroom" are
+   * distinguishable in the list rather than identical.
+   */
+  async import(bytes: Uint8Array): Promise<Held> {
+    const read = readArchive(bytes);
+    const taken = this.held.has(read.project.meta.id) || this.knownToRegistry(read.project.meta.id);
+    const id = taken ? newProjectId() : read.project.meta.id;
+    const project = {
+      ...read.project,
+      meta: { ...read.project.meta, id, name: this.freeName(read.project.meta.name) },
+    };
+    const files = this.newFileStore();
+    const held = this.hold(id, files, project);
+    if (this.options.library) {
+      const dir = makeFolder(this.options.library, id);
+      if (read.assets.length > 0) {
+        await mkdir(join(dir, "assets"), { recursive: true });
+        for (const a of read.assets) await writeFile(join(dir, "assets", a.name), a.data);
+      }
+      if (read.thumbnail) await writeFile(join(dir, "thumbnail.png"), read.thumbnail);
+      // Saved through the ordinary path, which writes the manifest and records the project in the
+      // registry: an imported project is not a special kind of project once it is here.
+      await files.save(dir);
+    }
+    return held;
+  }
+
+  private knownToRegistry(id: string): boolean {
+    return (this.options.registry?.byId(id) ?? null) !== null;
   }
 
   /**
