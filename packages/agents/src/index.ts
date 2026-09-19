@@ -56,3 +56,4 @@ export {
   toolCallsInText,
   toolResultText,
 } from "./runner.js";
+export { DONE, decodeChunk, type StreamEvent, sseData, sseReader } from "./sse.js";
