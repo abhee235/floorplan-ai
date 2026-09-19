@@ -273,6 +273,15 @@ export class PlanRenderer {
       if (inBox(zoneLabelBox(z, this.view.scale, project), p)) return z.id;
     }
     const walls = project.walls.filter((w) => w.levelId === this.levelId);
+    // An opening sits INSIDE its wall, so it has to be offered before the wall or the wall always wins
+    // and a door can never be selected — which is exactly what happened: the panel has edited openings
+    // since it was written, and nothing on the plan could reach it.
+    const byId = new Map(walls.map((w) => [w.id, w]));
+    for (const o of project.openings) {
+      if (o.levelId !== this.levelId) continue;
+      const w = byId.get(o.wallId);
+      if (w && near(derive.openingFootprint(o, w))) return o.id;
+    }
     for (const [id, fp] of wallFootprints(walls)) if (near(fp)) return id;
     // Rooms keep the strict test: they are large areas, and growing them by a margin would let a click
     // just outside a room take it in preference to nothing, which is the wrong answer on open plan.
@@ -606,8 +615,8 @@ export class PlanRenderer {
 }
 
 /**
- * The outline of one entity in plan millimetres: a wall's footprint, a room's polygon, an item's
- * footprint. Exported because the drag preview draws the same shapes translated, and recomputing them
+ * The outline of one entity in plan millimetres: a wall's footprint, a room's polygon, an item's or an
+ * opening's footprint. Exported because the drag preview draws the same shapes translated, and recomputing them
  * separately would let the ghost and the selection outline disagree about what is selected.
  */
 export function outlineOf(
@@ -627,6 +636,11 @@ export function outlineOf(
   if (it && it.levelId === levelId) {
     const size = derive.itemSize(it, sizes);
     return size ? derive.itemFootprint(it, size) : null;
+  }
+  const o = project.openings.find((x) => x.id === id);
+  if (o && o.levelId === levelId) {
+    const host = project.walls.find((x) => x.id === o.wallId);
+    return host ? derive.openingFootprint(o, host) : null;
   }
   const z = project.zones.find((x) => x.id === id);
   if (z) return z.levelId === levelId ? z.polygon : null;

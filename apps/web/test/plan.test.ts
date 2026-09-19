@@ -264,7 +264,7 @@ describe("plan renderer (ADR-003 D6)", () => {
     });
   });
 
-  it("hit tests items before walls before rooms in plan millimetres", () => {
+  it("hit tests items before openings before walls before rooms in plan millimetres", () => {
     const { layers: ctxs } = layers();
     const plan = new PlanRenderer(ctxs, 800, 600);
     let p = fixture();
@@ -272,7 +272,14 @@ describe("plan renderer (ADR-003 D6)", () => {
     p = run(p, { type: "item.place", payload: { levelId: L, ref: BOX, position: { x: 2000, y: 2000 } } });
     plan.setProject(p);
     expect(plan.hitTest({ x: 2000, y: 2000 })).toBe(p.items[0]?.id);
-    expect(plan.hitTest({ x: 4000, y: 0 })).toBe("wall_000001");
+    // The fixture's door is here. An opening sits inside its wall, so it must win or a door can never
+    // be selected at all — which was true until 2026-09-19: the properties panel has edited openings
+    // since it was written and nothing on the plan could reach one.
+    const door = p.openings[0];
+    expect(door?.wallId).toBe("wall_000001");
+    expect(plan.hitTest({ x: 4000, y: 0 })).toBe(door?.id);
+    // and the same wall, away from its door, is still the wall
+    expect(plan.hitTest({ x: 1500, y: 0 })).toBe("wall_000001");
     expect(plan.hitTest({ x: 1000, y: 1000 })).toBe(p.rooms[0]?.id);
     expect(plan.hitTest({ x: 20000, y: 20000 })).toBeNull();
   });
@@ -284,14 +291,15 @@ describe("plan renderer (ADR-003 D6)", () => {
     const plan = new PlanRenderer(ctxs, 800, 600);
     plan.setProject(fixture());
 
-    // The test above establishes that (4000, 0) is inside wall_000001. Step out along y until the strict
-    // test stops finding it, rather than assuming how far the footprint reaches: thickness is the full
-    // width and which side of the centreline it sits on is the geometry's business, not this test's.
+    // Step out along y until the strict test stops finding the wall, rather than assuming how far the
+    // footprint reaches: thickness is the full width and which side of the centreline it sits on is the
+    // geometry's business, not this test's. Measured away from the door, so this is about the wall.
+    const onWall = 1500;
     let outsideY = 0;
-    while (outsideY < 5000 && plan.hitTest({ x: 4000, y: outsideY }) !== null) outsideY += 10;
+    while (outsideY < 5000 && plan.hitTest({ x: onWall, y: outsideY }) !== null) outsideY += 10;
     expect(outsideY).toBeLessThan(5000); // it does end somewhere
 
-    const justOutside = { x: 4000, y: outsideY + 10 };
+    const justOutside = { x: onWall, y: outsideY + 10 };
     expect(plan.hitTest(justOutside)).toBeNull();
     expect(plan.hitTest(justOutside, 100)).toBe("wall_000001");
     // and the margin does not reach forever
