@@ -1436,8 +1436,10 @@ function openingFacts(project: Project, o: Opening, materials: (prefer: string) 
         value: o.finishes.leaf?.color ?? "",
         colour: { effective: o.finishes.leaf?.color ?? (isGlass ? "#A9CFE4" : "#E0DCD4") },
         empty: {
-          shown: o.finishes.leaf?.textureId ? "material" : "default",
-          action: `Use the default ${word} colour`,
+          // Empty means two different things. A window with no colour is glazed as glass; a door with
+          // no colour has no leaf at all, and a doorway is what it is until someone gives it one.
+          shown: o.finishes.leaf?.textureId ? "material" : isGlass ? "default" : "none",
+          action: isGlass ? "Use the default glass colour" : "Leave the doorway open",
         },
         edit: hexEdit(
           o.finishes.leaf?.color ?? null,

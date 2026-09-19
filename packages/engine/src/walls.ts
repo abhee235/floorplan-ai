@@ -546,7 +546,12 @@ export function buildWalls(
       const o = c.opening;
       // The frame finish dresses what surrounds the hole; the leaf finish dresses what fills it.
       const frameKey = finishedMaterialKey(revealKey, o.finishes.frame, ctx.textures);
-      const fillBase = o.kind === "window" ? "opening-glass" : o.kind === "door" ? "opening-leaf" : null;
+      // A window is glazed by default, because a window without glass is a hole and nobody means that.
+      // A door is NOT: a doorway with a flat panel across it reads as a flaw rather than as a door, and
+      // the model does not know whether the door is shut. A leaf appears when one is asked for, by
+      // giving it a colour or a material. A passage never has one.
+      const fillBase =
+        o.kind === "window" ? "opening-glass" : o.kind === "door" && o.finishes.leaf ? "opening-leaf" : null;
       const fillKey = fillBase ? finishedMaterialKey(fillBase, o.finishes.leaf, ctx.textures) : null;
       buildOpeningFaces(left, right, len, c, el, out, frameKey, fillKey);
     }

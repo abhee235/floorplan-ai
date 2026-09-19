@@ -41,10 +41,23 @@ describe("what fills an opening", () => {
     expect(partsOf(passage.parts, "opening-leaf")).toHaveLength(0);
   });
 
-  it("gives a door a leaf", () => {
-    const door = walled({ kind: "door" });
-    expect(partsOf(door.parts, "opening-leaf")).toHaveLength(1);
-    expect(partsOf(door.parts, "opening-glass")).toHaveLength(0);
+  it("leaves a doorway open until the door is given a leaf", () => {
+    // A flat panel across a doorway reads as a flaw, not as a door, and the model does not say whether
+    // the door is shut. So a leaf appears only when one is asked for.
+    const bare = walled({ kind: "door" });
+    expect(partsOf(bare.parts, "opening-leaf")).toHaveLength(0);
+    expect(partsOf(bare.parts, "opening-glass")).toHaveLength(0);
+
+    const painted = walled({ kind: "door", finishes: { leaf: finish("#6B4A2F"), frame: null } });
+    expect(partsOf(painted.parts, "opening-leaf")).toHaveLength(1);
+    expect(materialLook(partsOf(painted.parts, "opening-leaf")[0]?.materialKey ?? "").plainColour).toBe(
+      0x6b4a2f,
+    );
+  });
+
+  it("glazes a window whether or not it has been given a finish", () => {
+    // The other way round from a door: a window with no glass is a hole, and nobody means that.
+    expect(partsOf(walled({ kind: "window" }).parts, "opening-glass")).toHaveLength(1);
   });
 
   it("fills exactly the hole, and no more", () => {
@@ -82,8 +95,11 @@ describe("what fills an opening", () => {
     const look = materialLook(pane.materialKey);
     expect(look.opacity).toBeLessThan(1);
     expect(look.reflective).toBe(true);
-    // and a door leaf does not
-    const leaf = partsOf(walled({ kind: "door" }).parts, "opening-leaf")[0];
+    // and a door leaf, once it has one, does not
+    const leaf = partsOf(
+      walled({ kind: "door", finishes: { leaf: finish("#6B4A2F"), frame: null } }).parts,
+      "opening-leaf",
+    )[0];
     if (!leaf) throw new Error("no leaf");
     expect(materialLook(leaf.materialKey).opacity).toBe(1);
   });
