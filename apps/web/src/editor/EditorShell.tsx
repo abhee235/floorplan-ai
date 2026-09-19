@@ -24,6 +24,7 @@ import { AboutDialog, ShortcutsDialog } from "./HelpDialogs.js";
 import { bindItemPlacing, type ItemPlacing } from "./item-placing.js";
 import type { Placeable } from "./item-tool.js";
 import { isInsidePopup, isTypingTarget } from "./keys.js";
+import { bindOpeningDrawing } from "./opening-drawing.js";
 import { PropertiesPanel } from "./PropertiesPanel.js";
 import { bindRoomDrawing } from "./room-drawing.js";
 import { SessionLogDialog } from "./SessionLogDialog.js";
@@ -335,6 +336,27 @@ export function EditorShell(): JSX.Element {
     });
     itemPlacingRef.current = itemPlacing;
 
+    const openingDrawing = bindOpeningDrawing({
+      plan,
+      element: planRef.current as HTMLElement,
+      announcer,
+      project: () => replica.project,
+      settings: () => ({
+        kind: String(optionsRef.current["opening.opening"] ?? "door") as "door" | "window" | "passage",
+        widthMm: Number(optionsRef.current["opening.width"] ?? 900),
+      }),
+      active: () => toolRef.current === "opening",
+      send: async (command) => {
+        const result = await client.command(command);
+        if (!result.ok) throw new Error(result.error ? result.error.message : "the host refused the opening");
+        const added = (result.result as { result?: { id?: unknown } } | undefined)?.result;
+        return typeof added?.id === "string" ? added.id : null;
+      },
+      select: (ids) => void client.select(ids),
+      redraw,
+      status: setSnap,
+    });
+
     const zoneDrawing = bindZoneDrawing({
       plan,
       element: planRef.current as HTMLElement,
@@ -367,6 +389,7 @@ export function EditorShell(): JSX.Element {
       () => roomDrawing.finish(),
       () => itemPlacing.finish(),
       () => zoneDrawing.finish(),
+      () => openingDrawing.finish(),
     ];
 
     // One overlay painter: the draft review panel, both drawing tools and the compass all draw over the
@@ -377,6 +400,7 @@ export function EditorShell(): JSX.Element {
       wallDrawing.draw(ctx, view2);
       roomDrawing.draw(ctx, view2);
       itemPlacing.draw(ctx, view2);
+      openingDrawing.draw(ctx, view2);
       zoneDrawing.draw(ctx, view2);
       app.drawSelectionDrag(ctx, view2);
       const north = replica.project?.meta.north;
@@ -633,6 +657,7 @@ export function EditorShell(): JSX.Element {
       wallDrawing.destroy();
       roomDrawing.destroy();
       itemPlacing.destroy();
+      openingDrawing.destroy();
       zoneDrawing.destroy();
       itemPlacingRef.current = null;
       zoneDrawingRef.current = null;
