@@ -10,7 +10,7 @@ import { render } from "@testing-library/react";
 import { beforeAll, describe, expect, it } from "vitest";
 import { Announcer } from "../../src/editor/announce.js";
 import { CommandRegistry } from "../../src/editor/commands.js";
-import { ToolOptionsBar } from "../../src/editor/ToolOptionsBar.js";
+import { Toolbar } from "../../src/editor/Toolbar.js";
 import { type ToolDefinition, toolById } from "../../src/editor/tools.js";
 import { type Editor, EditorContext } from "../../src/editor/useEditor.js";
 
@@ -47,7 +47,7 @@ function editorStub(tool: ToolDefinition, over: Partial<Editor> = {}): Editor {
 const show = (tool: ToolDefinition) =>
   render(
     <EditorContext.Provider value={editorStub(tool)}>
-      <ToolOptionsBar />
+      <Toolbar replica={null} level={null} onLevel={() => {}} />
     </EditorContext.Provider>,
   );
 
@@ -92,6 +92,18 @@ describe("the tool options bar (ADR-017 D2)", () => {
   it("is a toolbar, so assistive technology treats it as one group", () => {
     const { container } = show(toolById("select") as ToolDefinition);
     const bar = container.querySelector('[role="toolbar"]');
-    expect(bar?.getAttribute("aria-label")).toBe("Settings for the active tool");
+    expect(bar?.getAttribute("aria-label")).toBe("Toolbar");
+    // The tool's own settings keep their name inside it: they are the part that changes as you work,
+    // and the rest of the row does not.
+    const settings = container.querySelector('[role="group"][aria-label="Settings for the active tool"]');
+    expect(settings).not.toBeNull();
+  });
+
+  it("carries the level, the history and what is on screen, which the menu bar used to", () => {
+    // They moved out of the menu bar on 2026-09-19: menus above, controls below, as a desktop
+    // application separates them.
+    const { container } = show(toolById("select") as ToolDefinition);
+    for (const name of ["Level", "History", "What is on screen"])
+      expect(container.querySelector(`[aria-label="${name}"]`), `the toolbar carries ${name}`).not.toBeNull();
   });
 });

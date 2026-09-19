@@ -22,9 +22,19 @@ export function useReplica<T>(replica: Replica, select: (replica: Replica) => T)
   return useSyncExternalStore(subscribe, snapshot);
 }
 
-/** The project itself. The replica replaces the object on every patch, so identity is a safe signal. */
-export function useProject(replica: Replica): Project | null {
-  return useReplica(replica, projectOf);
+/**
+ * The project itself. The replica replaces the object on every patch, so identity is a safe signal.
+ *
+ * Takes a null replica, which is what the chrome has before the app has started: the toolbar is drawn
+ * from the first frame, and a hook cannot be called conditionally to wait for one.
+ */
+export function useProject(replica: Replica | null): Project | null {
+  const subscribe = useCallback(
+    (onChange: () => void) => (replica ? replica.subscribe(onChange) : () => {}),
+    [replica],
+  );
+  const snapshot = useCallback(() => (replica ? projectOf(replica) : null), [replica]);
+  return useSyncExternalStore(subscribe, snapshot);
 }
 
 /** Problems as a count pair, so the status bar re-renders only when the numbers move. */
