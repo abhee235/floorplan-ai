@@ -260,9 +260,22 @@ function Card({
       return (
         <div className="rounded-md border border-primary/40 bg-primary/5 p-2">
           <p className="mb-1.5 text-sm">{item.text}</p>
+          {item.ask === "consent" && item.ids.length > 0 ? (
+            <p className="mb-1.5 text-muted-foreground text-xs">
+              Your work:{" "}
+              <button
+                type="button"
+                className="underline underline-offset-2 hover:text-foreground"
+                onClick={() => onShow(item.ids)}
+              >
+                {item.ids.length === 1 ? "1 thing" : `${item.ids.length} things`}
+              </button>{" "}
+              on the plan.
+            </p>
+          ) : null}
           {item.answered ? (
             <p className="text-muted-foreground text-xs">You said: {item.answered}</p>
-          ) : item.ask === "choice" ? (
+          ) : item.ask === "choice" || item.ask === "consent" ? (
             <div className="flex flex-wrap gap-1">
               {item.options.map((o) => (
                 <Button

@@ -324,3 +324,55 @@ describe("when something is missing", () => {
     expect(screen.queryByRole("textbox", { name: "Ask the agent" })).toBeNull();
   });
 });
+
+describe("a consent question", () => {
+  const consent = (ids: string[]): AgentWireEvent => ({
+    type: "question",
+    step: 2,
+    id: "q9",
+    text: "May I move the sofa you turned round?",
+    kind: "consent",
+    options: [
+      { id: "yes", label: "Change them" },
+      { id: "no", label: "Leave them as they are" },
+      { id: "none", label: "Leave all my work alone" },
+    ],
+    draftId: null,
+    ids,
+  });
+
+  it("offers the three answers and reports the one chosen", async () => {
+    const props = show(stateOf([started, consent(["item_000031"])]));
+    const user = userEvent.setup();
+    expect(screen.getByRole("button", { name: "Change them" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Leave all my work alone" })).not.toBeNull();
+    await user.click(screen.getByRole("button", { name: "Leave them as they are" }));
+    expect(props.onAnswer).toHaveBeenCalledWith("q9", "no");
+  });
+
+  it("shows on the plan what it is asking about", async () => {
+    const props = show(stateOf([started, consent(["item_000031", "wall_000012"])]));
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "2 things" }));
+    expect(props.onShow).toHaveBeenCalledWith(["item_000031", "wall_000012"]);
+  });
+
+  it("says nothing about ids on an ordinary question", () => {
+    show(
+      stateOf([
+        started,
+        {
+          type: "question",
+          step: 1,
+          id: "q1",
+          text: "Which room did you mean?",
+          kind: "text",
+          options: [],
+          draftId: null,
+          ids: [],
+        },
+      ]),
+    );
+    expect(screen.queryByRole("button", { name: /things? on the plan|1 thing/ })).toBeNull();
+  });
+});
