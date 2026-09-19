@@ -70,13 +70,17 @@ export class BridgeClient {
     socket.onopen = () => {
       this.setStatus("open");
       // The hello goes first and on its own: everything else is refused until the host has had it.
-      void this.request({
+      // Caught rather than voided: `void` ignores the value, not a rejection, and a socket that closes
+      // before the hello is answered rejects this one along with everything else pending. Nobody is
+      // waiting on it — a failed hello is already a closed socket, which the status says — so the
+      // rejection would otherwise surface as an unhandled error in the console.
+      this.request({
         type: "hello",
         clientVersion: options.clientVersion,
         protocolVersion: PROTOCOL_VERSION,
         capabilities: options.capabilities,
         ...(options.project ? { project: options.project } : {}),
-      });
+      }).catch(() => {});
       this.flush();
     };
     socket.onmessage = (ev) => this.handle(String(ev.data));
