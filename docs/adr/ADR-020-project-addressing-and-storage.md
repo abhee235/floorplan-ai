@@ -39,32 +39,71 @@ normal hosting and was never excluded by it.
 
 ## Decision
 
-### D1. A project is addressed by an opaque string, not by a path
+### D1. A project has an id of its own, and it lives in the document
 
-Everything above `ProjectFiles` treats a project's address as a string it does
-not interpret. Today that string is a directory path, because that is what a
-project is. When a project lives in a hosted store it will be an identifier.
-Nothing that holds an address — the editor, the URL, the recent list, the menu
-— is allowed to parse one, join one, or assume a separator is in it.
+**Amended 2026-09-19.** The first version of this said the opposite: that a
+project's address is an opaque string, that today it is a directory path, and
+that no id belongs inside the document because copying a folder would duplicate
+it. Identity, it said, belongs to whatever holds the document.
 
-`ProjectFiles` is already the seam: `open`, `save`, `path`, `recoveryAt`,
-`forget`, `watch`. The tools call it and know nothing about files. A hosted
-store is an implementation of that interface, not a rewrite.
+That was wrong as soon as a link had to survive being moved. A registry keyed
+by location orphans every link the moment a folder is dragged somewhere else,
+and a path in a URL is not opaque in any useful sense: it leaks the machine's
+layout into browser history, it cannot be sent to anyone, and it breaks on a
+rename. Identity has to travel WITH the project.
 
-The project's own `meta` has no id, and none is added here. An id that lives
-*inside* the document is a claim about identity that copying a folder would
-duplicate; identity belongs to whatever holds the document.
+So `meta.id` is twelve base36 characters, in the document, schema version 4.
+
+- A **new** project draws its id at random. Two blank projects made in the same
+  millisecond are not the same project, and a new one has no content to be told
+  apart by.
+- A project written **before ids** gets one derived from what it already says:
+  when it was made, what it is called, the ids of the first few things it
+  holds. Migrations are pure functions with fixture-pair tests, so a random id
+  could not be one — and derived is the better answer anyway, because the same
+  file migrated on two machines comes out with the same id and a link made on
+  one works on the other.
+- A **copy** of a project keeps the original's id. That is the truthful answer:
+  it is the same project. The registry points an id at wherever it was last
+  seen.
+
+Where a project LIVES is still an opaque string, and nothing above
+`ProjectFiles` may parse, join or split one. That part stands.
+
+### D1a. What knows where a project is
+
+A SQLite table in the data directory — `projects(id, address, name, created_at,
+last_opened_at)` — written by the file store itself, because a project is
+opened and saved from four places and a list only some of them updated would be
+worse than none. SQLite because it is a library and not a service: no port, no
+connection string, no second process, and the catalog has used the same one
+since ADR-008 D5. It is the "facts about projects" row of D3, so a hosted
+deployment turns it into a Postgres table without changing anything above it.
+
+A consequence worth stating plainly: **a link to a project this installation
+has never opened cannot be followed.** Nothing here knows where that project
+is. The editor says so and says what to do about it, rather than failing as
+though the project were missing.
 
 ### D2. The address goes in the URL, and the project's name in the title
 
-The URL carries the open project as one query parameter:
+The URL names the open project by id:
 
 ```
-http://127.0.0.1:4360/?project=<the address, percent-encoded>
+http://127.0.0.1:4360/p/g0z9i3cvo7qx
 ```
 
-- Arriving with a `project` that is not what the host holds **opens it**, with
-  the same unsaved-work prompt the File menu uses.
+**Amended 2026-09-19**: this was a query parameter holding the project's
+directory, which is what D1's amendment is about. A path in the address bar
+writes the machine's layout into browser history and bookmarks, breaks when the
+folder moves, and cannot be sent to anyone.
+
+A project's URL is a route, not a file, so the server answers any path without
+an extension with the app. A path WITH one stays a 404, so a mistyped script
+fails loudly instead of being handed a page.
+
+- Arriving with a project id **attaches this tab to it**, opening it if this
+  host is not already holding it.
 - When the open project changes for any reason, the URL is rewritten with
   `history.replaceState`, so the address bar always names what is on screen.
 - `replaceState`, deliberately, not `pushState`: Back would otherwise reopen a
@@ -73,11 +112,10 @@ http://127.0.0.1:4360/?project=<the address, percent-encoded>
 - `document.title` becomes the project's name, with the unsaved mark, so a row
   of browser tabs can be told apart without opening them.
 
-**One host holds one project at a time, and the URL does not change that.**
-Two tabs on one host are two replicas of one store: today, File ▸ Open in one
-already changes the other. Giving the URL the power to open makes that visible
-rather than worse. A tab per project is a *session* question, answered in D4,
-not an addressing one.
+**Superseded 2026-09-19.** This paragraph said one host holds one project at a
+time, and that two tabs were two replicas of one store, so opening in one
+changed the other. D4 is built, so that is no longer true: a tab attaches to
+one project and the others are left alone.
 
 ### D3. The document is a document; the database holds facts about it
 
@@ -104,15 +142,44 @@ put metadata, versions and permissions in a relational database and leave the
 documents as files; the cloud-native exceptions that dissolved documents into
 a database did it as a product bet against ever working offline.
 
-### D4. A session per open project, when hosting needs it
+### D4. A session per open project
 
-P4-2's "multiple projects" is a session question. Today one host process is
-one session holding one store, and the bridge broadcasts to every tab. A
-hosted deployment gives each open project its own session, and a tab attaches
-to one; the address in D2 is how a tab says which.
+**Built 2026-09-19**, rather than deferred to hosting: one host was one
+session holding one store, so two tabs were two views of one document and
+opening a project in one changed it under the other.
 
-Nothing in D1–D3 changes when that happens, which is the point of doing them
-first.
+A workspace holds a session per project, keyed by the project's id. A tab says
+which one it wants in its hello and sees only that one. Opening, making,
+attaching to and closing are workspace operations, so File ▸ Open gives a
+project a session of its own and moves only the tab that asked.
+
+Four things follow, and each was a defect waiting to happen:
+
+- **The change sequence is counted per project.** A replica refuses any change
+  that does not follow the one it holds and asks for a fresh snapshot, so a
+  single counter would have made every edit in one project look like a gap to
+  every tab on another, throwing away sessions over changes they were never
+  sent.
+- **Each project gets its own view of the session log**, stamped with the
+  project a line is about, carrying its own copy of what the project was before
+  the change. One shared copy would diff a change to one project against the
+  state of another and name the wrong thing as having changed.
+- **A render goes to a tab looking at the project that asked for it.** Any
+  other tab would have returned a good picture of the wrong building.
+- **The unsaved-work prompt became unreachable and was replaced.** Opening no
+  longer discards anything, because the project a tab leaves stays open with
+  its work in it. Closing does discard, so that is where the question moved:
+  File ▸ Close project. Closing the last project leaves an empty one, so a tab
+  always has something to draw.
+
+What is open is pushed to every tab, not asked for, because the set changes
+when another tab opens or closes something. View ▸ Switch project shows it.
+
+**What this does not do.** Every open project is held in memory until it is
+closed, with no eviction and no bound. That is right for a person with a few
+projects open and wrong for a shared host, where it is the first thing that
+must change — together with identity, since everything here still assumes one
+trusted local user.
 
 ### D5. The change stream stays unpersisted, for now
 
@@ -153,6 +220,14 @@ sixty-second recovery window in the quality requirements is judged too wide.
   and it hard-codes into the URL shape the assumption D1 exists to prevent.
 - **`pushState` so Back walks through projects.** Rejected: see D2. Losing
   unsaved work to a Back button is not a trade worth the convenience.
+- **Keeping identity out of the document** (D1, as first written). Reversed: a
+  link that does not survive the project being moved is not much of a link.
+- **A random id in the 3-to-4 migration.** Rejected: migrations are pure and
+  fixture-tested, and a derived id makes the same file come out with the same
+  id on every machine, which is what makes a link portable.
+- **Closing a project when the last tab on it goes away.** Not done: a tab is
+  closed by accident far more often than a project is finished with, and the
+  work is unsaved. Projects are let go of deliberately, through File ▸ Close.
 
 ## Consequences
 
@@ -162,7 +237,9 @@ sixty-second recovery window in the quality requirements is judged too wide.
 - A link to a running host names a project. On a local host, following one
   switches what that host has open — including for another tab already on it.
   That is the single-session model being honest, and it is what D4 resolves.
-- `welcome.projectId` currently carries the project's *name*. It is misnamed
-  and nothing should read it as an identifier.
+- `welcome.projectId` carried the project's *name* until ids existed. It
+  carries the id now.
+- Memory grows with the number of open projects and nothing reclaims it. A
+  long-running shared host needs eviction before anything else.
 - The quality requirement "a crash never loses more than 60 seconds" stays as
   it is, resting on the recovery file, until D5 is revisited.
