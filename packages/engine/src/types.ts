@@ -14,6 +14,10 @@ export type PartKind =
   | "opening-head"
   | "opening-jamb"
   | "opening-reveal"
+  // What fills the hole: a pane in a window, a leaf in a door. A passage has neither, which is what
+  // makes it a passage.
+  | "opening-glass"
+  | "opening-leaf"
   | "floor"
   | "floor-side"
   | "floor-bottom"

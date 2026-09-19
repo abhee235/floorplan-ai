@@ -309,6 +309,60 @@ function buildReveal(
   if (!mb.isEmpty) out.push(mb.toPart(c.opening.id, "opening-reveal", revealKey));
 }
 
+/**
+ * What stands in the hole: a pane in a window, a leaf in a door, nothing in a passage.
+ *
+ * Until now an opening was only the surfaces AROUND the hole — sill, head, jambs — so a window was a
+ * gap you could see the garden through and a closed door was a doorway. The schema has carried
+ * `finishes.frame` and `finishes.leaf` and a recipe style of "glazed" all along, with nothing to put
+ * them on.
+ *
+ * One quad at the middle of the wall's thickness, faced both ways. A pane is thin enough that its
+ * thickness is not worth the triangles, and a leaf drawn as a box would be wrong as often as right —
+ * a door is only in its frame when it is closed, and the model does not say whether it is.
+ */
+function buildOpeningFill(
+  left: Side,
+  right: Side,
+  c: Cut,
+  el: WallElevations,
+  out: GeometryPart[],
+  fillKey: string | null,
+): void {
+  if (!fillKey) return;
+  const lf = at(left, c.from);
+  const lt = at(left, c.to);
+  const rf = at(right, c.from);
+  const rt = at(right, c.to);
+  // The centre plane of the wall, so the pane sits in the reveal rather than on one face of it.
+  const mf = { x: (lf.x + rf.x) / 2, y: (lf.y + rf.y) / 2 };
+  const mt = { x: (lt.x + rt.x) / 2, y: (lt.y + rt.y) / 2 };
+  const bottom = Math.max(c.sillZ, el.bottom);
+  const head = c.headZ;
+  if (head <= bottom) return;
+  const along = { x: mt.x - mf.x, y: mt.y - mf.y, z: 0 };
+  const width = Math.hypot(along.x, along.y);
+  if (width <= 0) return;
+  // The face normal is across the wall, which is `along` turned a quarter turn in the plan.
+  const nx = -along.y / width;
+  const ny = along.x / width;
+  const uv = (q: P3): [number, number] => [Math.hypot(q.x - mf.x, q.y - mf.y) / MM_PER_M, q.z / MM_PER_M];
+  const face = [
+    { x: mf.x, y: mf.y, z: bottom },
+    { x: mt.x, y: mt.y, z: bottom },
+    { x: mt.x, y: mt.y, z: head },
+    { x: mf.x, y: mf.y, z: head },
+  ];
+  const mb = new MeshBuilder();
+  mb.addFace(face, { x: nx, y: ny, z: 0 }, uv);
+  // Seen from the other side too: one quad with one normal would be invisible from half the room.
+  mb.addFace([...face].reverse(), { x: -nx, y: -ny, z: 0 }, uv);
+  if (!mb.isEmpty)
+    out.push(
+      mb.toPart(c.opening.id, c.opening.kind === "window" ? "opening-glass" : "opening-leaf", fillKey),
+    );
+}
+
 function buildOpeningFaces(
   left: Side,
   right: Side,
@@ -317,7 +371,9 @@ function buildOpeningFaces(
   el: WallElevations,
   out: GeometryPart[],
   revealKey: string,
+  fillKey: string | null,
 ): void {
+  buildOpeningFill(left, right, c, el, out, fillKey);
   if (c.shape) {
     buildReveal(left, right, len, c, el, out, revealKey);
     return;
@@ -486,7 +542,14 @@ export function buildWalls(
       (p) => [Math.hypot(p.x - le.x, p.y - le.y) / MM_PER_M, p.z / MM_PER_M],
     );
     out.push(capEnd.toPart(w.id, "wall-end-end", edgeKey));
-    for (const c of cutList) buildOpeningFaces(left, right, len, c, el, out, revealKey);
+    for (const c of cutList) {
+      const o = c.opening;
+      // The frame finish dresses what surrounds the hole; the leaf finish dresses what fills it.
+      const frameKey = finishedMaterialKey(revealKey, o.finishes.frame, ctx.textures);
+      const fillBase = o.kind === "window" ? "opening-glass" : o.kind === "door" ? "opening-leaf" : null;
+      const fillKey = fillBase ? finishedMaterialKey(fillBase, o.finishes.leaf, ctx.textures) : null;
+      buildOpeningFaces(left, right, len, c, el, out, frameKey, fillKey);
+    }
     // A baseboard wears its own colour when it has one and its side's otherwise, with the side's shininess
     // either way, and a quiet off-white of its own on an unpainted side (W-112). On glass it is frame.
     for (const [name, side] of [

@@ -860,14 +860,20 @@ describe("editing a door or a window (ADR-017 D3)", () => {
     return { p: project, id: (project.openings.at(-1) as { id: string }).id };
   };
 
-  it("lists a door's kind, its gaps to each end by compass, its size and its swing", () => {
+  it("lists a door's kind, its gaps to each end by compass, its size, its finishes and its swing", () => {
     const p = fixture();
+    // The leaf is what fills the hole and the frame is what surrounds it: a white frame around a dark
+    // leaf is the ordinary case, so they are dressed separately.
     expect(labels(p)).toEqual([
       "Kind",
       "From west end",
       "From east end",
       "Width",
       "Height",
+      "Material of leaf",
+      "Colour of leaf",
+      "Material of frame",
+      "Colour of frame",
       "Hinge",
       "Opens to",
     ]);
@@ -953,8 +959,20 @@ describe("editing a door or a window (ADR-017 D3)", () => {
     expect(describeEntity(window, DOOR)?.title).toBe("Window");
     const door = run(window, typed(window, DOOR, "Kind", "door")).project;
     expect(openingOf(door).swing).toEqual({ hinge: "start", direction: "left" });
+    // A window is glazed, so its fill is offered as glazing rather than as a leaf.
+    expect(labels(window)).toContain("Material of glazing");
+    expect(labels(window)).not.toContain("Material of leaf");
     const passage = run(p, typed(p, DOOR, "Kind", "passage")).project;
-    expect(labels(passage)).toEqual(["Kind", "From west end", "From east end", "Width", "Height"]);
+    // A passage has nothing in it, so it is offered a frame and no fill at all.
+    expect(labels(passage)).toEqual([
+      "Kind",
+      "From west end",
+      "From east end",
+      "Width",
+      "Height",
+      "Material of frame",
+      "Colour of frame",
+    ]);
   });
 
   it("hinges a door at either end, or at neither, and swings it to either side", () => {
@@ -1235,6 +1253,24 @@ describe("choosing what a surface is made of (P3-5)", () => {
     expect(describeEntity(p, W1)?.facts.find((f) => f.label === "Material, left side")?.choices).toEqual([
       { value: PAINT, label: "Paint" },
     ]);
+  });
+
+  it("dresses an opening's fill and its frame separately", () => {
+    // A white frame around a dark leaf is the ordinary case, so one finish for both could not say it.
+    const door = "opening_000001";
+    const opening = (p: ProjectT) => p.openings.find((o) => o.id === door);
+    const painted = runWith(fixture(), typed(fixture(), door, "Colour of leaf", "#8B4513"));
+    expect(opening(painted)?.finishes.leaf).toMatchObject({ color: "#8B4513", textureId: null });
+    expect(opening(painted)?.finishes.frame).toBeNull();
+
+    const framed = runWith(painted, typed(painted, door, "Colour of frame", "#222222"));
+    expect(opening(framed)?.finishes.frame).toMatchObject({ color: "#222222" });
+    // and the leaf is still what it was
+    expect(opening(framed)?.finishes.leaf).toMatchObject({ color: "#8B4513" });
+
+    // a texture replaces the colour, exactly as it does on a wall
+    const textured = pick(framed, door, "Material of leaf", BRICK.id);
+    expect(opening(textured)?.finishes.leaf).toMatchObject({ textureId: BRICK.id, color: null });
   });
 
   it("puts a texture on a wall side in place of its colour, and paint back in place of the texture", () => {

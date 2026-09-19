@@ -11,6 +11,10 @@ export const MATERIAL_COLOURS: Readonly<Record<string, number>> = {
   // an off-white a step lighter than the wall, so a baseboard on an unpainted wall still reads as one
   "wall-skirting": 0xf6f5f1,
   "opening-reveal": 0xf4f2ee,
+  // A window pane takes the same blue as a glass wall, so a glazed partition and a window read alike.
+  "opening-glass": 0xa9cfe4,
+  // A painted door leaf: a shade off the wall, so a closed door is visible against the wall it is in.
+  "opening-leaf": 0xe0dcd4,
   floor: 0xc9c2b8,
   ceiling: 0xfafafa,
   "floor-side": 0xb5ada2,
@@ -143,6 +147,9 @@ export interface MaterialLook {
 /** How a kind of surface differs from the flat, matt, solid default. */
 const LOOKS: Readonly<Record<string, Partial<MaterialLook>>> = {
   "wall-glass": { roughness: 0.05, opacity: 0.3, reflective: true },
+  // Glazing behaves as glass wherever it is: see-through, smooth, reflective.
+  "opening-glass": { roughness: 0.05, opacity: 0.3, reflective: true },
+  "opening-leaf": { roughness: 0.6 },
   "wall-glass-frame": { roughness: 0.35, metalness: 0.6, reflective: true },
   "recipe:display": { roughness: 0.35 },
   "display/frame": { roughness: 0.35 },

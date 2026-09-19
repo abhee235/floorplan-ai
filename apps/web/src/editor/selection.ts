@@ -327,7 +327,7 @@ export function describeEntity(
     return z ? { id, kind, title: z.name ?? zoneTitle(project, z), facts: zoneFacts(project, z) } : null;
   }
   const o = project.openings.find((x) => x.id === id);
-  return o ? { id, kind, title: openingTitle(o), facts: openingFacts(project, o) } : null;
+  return o ? { id, kind, title: openingTitle(o), facts: openingFacts(project, o, materials) } : null;
 }
 
 /** How far from the origin a typed coordinate may be: the same kilometre the wall tool allows (W-072). */
@@ -1318,7 +1318,7 @@ const capital = (word: string): string => word.charAt(0).toUpperCase() + word.sl
  * refused too, though the model only warns of it: as with a baseboard (W-100), the panel should not keep a
  * number the drawing does not show.
  */
-function openingFacts(project: Project, o: Opening): Fact[] {
+function openingFacts(project: Project, o: Opening, materials: (prefer: string) => MaterialChoices): Fact[] {
   const w = project.walls.find((x) => x.id === o.wallId);
   if (!w) return [];
   const level = derive.levelOf(project, o.levelId) ?? derive.lowestLevel(project);
@@ -1411,6 +1411,65 @@ function openingFacts(project: Project, o: Opening): Fact[] {
           : modify({ sill }),
       ),
     });
+  // What fills the hole, and what surrounds it, are dressed separately: a white frame around a dark
+  // leaf is the ordinary case, and one finish for both could not say it. A passage has no fill, so it
+  // is offered only the frame.
+  const surface = (slot: "frame" | "leaf", change: { color?: string | null; textureId?: string | null }) =>
+    modify({
+      finishes: {
+        ...o.finishes,
+        [slot]: tidyFinish({ ...(o.finishes[slot] ?? blankFinish()), ...paintOrTexture(change) }),
+      },
+    });
+  const fill = o.kind === "window" ? "glass" : o.kind === "door" ? "leaf" : null;
+  if (fill) {
+    const isGlass = fill === "glass";
+    const word = isGlass ? "glazing" : "leaf";
+    facts.push(
+      materialFact(capital(word), `Material of ${word}`, o.finishes.leaf, materials(fill), (textureId) =>
+        surface("leaf", { textureId }),
+      ),
+      {
+        group: capital(word),
+        label: `Colour of ${word}`,
+        caption: "Colour",
+        value: o.finishes.leaf?.color ?? "",
+        colour: { effective: o.finishes.leaf?.color ?? (isGlass ? "#A9CFE4" : "#E0DCD4") },
+        empty: {
+          shown: o.finishes.leaf?.textureId ? "material" : "default",
+          action: `Use the default ${word} colour`,
+        },
+        edit: hexEdit(
+          o.finishes.leaf?.color ?? null,
+          (color) => surface("leaf", { color }),
+          "default",
+          isGlass ? "#A9CFE4" : "#E0DCD4",
+        ),
+      },
+    );
+  }
+  facts.push(
+    materialFact("Frame", "Material of frame", o.finishes.frame, materials("frame"), (textureId) =>
+      surface("frame", { textureId }),
+    ),
+    {
+      group: "Frame",
+      label: "Colour of frame",
+      caption: "Colour",
+      value: o.finishes.frame?.color ?? "",
+      colour: { effective: o.finishes.frame?.color ?? "#F4F2EE" },
+      empty: {
+        shown: o.finishes.frame?.textureId ? "material" : "default",
+        action: "Use the default frame colour",
+      },
+      edit: hexEdit(
+        o.finishes.frame?.color ?? null,
+        (color) => surface("frame", { color }),
+        "default",
+        "#F4F2EE",
+      ),
+    },
+  );
   if (o.kind === "door") {
     // A door without a swing is a sliding or pocket door: nothing is drawn sweeping the floor.
     const hinges: Choice[] = [
