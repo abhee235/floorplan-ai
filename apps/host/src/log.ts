@@ -216,12 +216,34 @@ function differences(before: Record<string, unknown> | null, after: unknown): Ch
   return out;
 }
 
+/** How long a piece of text may be before it is cut; a line has to stay a line. */
+const TEXT_LIMIT = 200;
+/** How many fields one gesture may put on its line. */
+const DETAIL_FIELDS = 12;
+
 /** A value small enough to belong on one line; anything bigger is named rather than written out. */
 function small(value: unknown): unknown {
+  if (typeof value === "string") return value.length <= TEXT_LIMIT ? value : `${value.slice(0, TEXT_LIMIT)}…`;
   if (value === null || typeof value !== "object") return value;
   const text = JSON.stringify(value);
-  if (text !== undefined && text.length <= 200) return value;
+  if (text !== undefined && text.length <= TEXT_LIMIT) return value;
   return Array.isArray(value) ? `[${value.length} items]` : "{…}";
+}
+
+/**
+ * The fields of a gesture, trimmed to what belongs on a line (ADR-019 D4). The browser is a replica and
+ * a gesture is never acted on, so this is about size and readability rather than safety — except for the
+ * common fields, which a line may not be talked out of.
+ */
+export function plainDetail(detail: Record<string, unknown> | undefined): Record<string, unknown> {
+  if (!detail) return {};
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(detail)) {
+    if (Object.keys(out).length >= DETAIL_FIELDS) break;
+    if (key === "ts" || key === "seq" || key === "kind" || key === "source") continue;
+    out[key] = small(value);
+  }
+  return out;
 }
 
 /** Keeps the newest `keep` runs and removes the rest, so a long-lived install cannot fill the disk. */

@@ -21,6 +21,20 @@ const TransactionMsg = z.object({
   commands: z.array(z.unknown()).min(1).max(200),
 });
 
+/** How many gestures one frame may carry; a browser with more to say sends another frame. */
+export const GESTURES_PER_FRAME = 40;
+
+/**
+ * Something the person did, for the session log (ADR-019 D4): the tool picked, the selection, a drag
+ * beginning and ending, a value committed in the panel, the view mode. `what` names it and `detail`
+ * says the rest. It is never an instruction — the host writes it down and does nothing else with it.
+ */
+const GestureItem = z.object({
+  what: z.string().min(1).max(40),
+  detail: z.record(z.unknown()).optional(),
+});
+export type GestureItem = z.infer<typeof GestureItem>;
+
 export const ClientMessage = z.discriminatedUnion("type", [
   z.object({
     id: Id,
@@ -48,6 +62,13 @@ export const ClientMessage = z.discriminatedUnion("type", [
     ),
   }),
   z.object({ id: Id, type: z.literal("tool"), name: z.string(), args: z.record(z.unknown()) }),
+  // The one client message that expects no result: there is nothing to wait for, and a round trip per
+  // click would make the log something the editor pays for.
+  z.object({
+    id: Id.optional(),
+    type: z.literal("gesture"),
+    gestures: z.array(GestureItem).min(1).max(GESTURES_PER_FRAME),
+  }),
   z.object({
     id: Id,
     type: z.literal("agent"),

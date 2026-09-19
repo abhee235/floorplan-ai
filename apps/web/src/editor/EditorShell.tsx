@@ -19,6 +19,7 @@ import { CatalogPanel, type CatalogSearch } from "./CatalogPanel.js";
 import { CommandPalette } from "./CommandPalette.js";
 import { pageOf } from "./catalog.js";
 import { CommandRegistry } from "./commands.js";
+import { GestureLog, recordGesture, setGestureLog } from "./gestures.js";
 import { bindItemPlacing, type ItemPlacing } from "./item-placing.js";
 import type { Placeable } from "./item-tool.js";
 import { isInsidePopup, isTypingTarget } from "./keys.js";
@@ -122,6 +123,7 @@ export function EditorShell(): JSX.Element {
     (id: ToolId) => {
       const next = toolById(id);
       if (!next) return;
+      recordGesture("tool", { tool: next.id, from: toolRef.current });
       if (next.id === "item") {
         // The catalog is where a piece is picked, so it opens with the tool every time: with a piece already
         // picked it shows what is being placed and lets another be picked; with none, the tool waits there.
@@ -152,13 +154,20 @@ export function EditorShell(): JSX.Element {
     setOptions((prev) => ({ ...prev, [`${t}.${id}`]: value }));
   }, []);
 
+  // Through here rather than straight to the state setter, so the app bar, the palette and a keyboard
+  // shortcut all leave the same line in the log (ADR-019 D4).
+  const chooseView = useCallback((mode: ViewMode) => {
+    recordGesture("view", { mode });
+    setView(mode);
+  }, []);
+
   const editor: Editor = {
     commands,
     announcer,
     tool,
     setTool,
     view,
-    setView,
+    setView: chooseView,
     option: (t, id) => options[`${t}.${id}`],
     setOption,
     openPalette: () => setPaletteOpen(true),
@@ -190,7 +199,11 @@ export function EditorShell(): JSX.Element {
     });
     setApp(started);
     setLevel(started.plan.level);
+    // From here the editor's gestures have somewhere to go (ADR-019 D4). Until now they went nowhere,
+    // which is also how every component test gets to call recordGesture without arranging anything.
+    setGestureLog(new GestureLog((gestures) => started.client.gesture(gestures)));
     return () => {
+      setGestureLog(null);
       started.client.close();
       started.destroy(); // the size observer outlives the socket otherwise, one leak per remount
     };
@@ -407,9 +420,14 @@ export function EditorShell(): JSX.Element {
           announcer.say("Plan fitted to the window.");
         },
       },
-      { id: "view.plan", title: "Show the plan only", group: "View", run: () => setView("plan") },
-      { id: "view.both", title: "Show the plan and the 3D view", group: "View", run: () => setView("both") },
-      { id: "view.3d", title: "Show the 3D view only", group: "View", run: () => setView("3d") },
+      { id: "view.plan", title: "Show the plan only", group: "View", run: () => chooseView("plan") },
+      {
+        id: "view.both",
+        title: "Show the plan and the 3D view",
+        group: "View",
+        run: () => chooseView("both"),
+      },
+      { id: "view.3d", title: "Show the 3D view only", group: "View", run: () => chooseView("3d") },
       {
         id: "file.import",
         title: "Import plan…",

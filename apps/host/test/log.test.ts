@@ -3,9 +3,11 @@
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PROTOCOL_VERSION } from "@fpv/commands";
 import { afterEach, describe, expect, it } from "vitest";
+import { Bridge, type BridgeSocket } from "../src/bridge.js";
 import { createLog, silentLog } from "../src/log.js";
-import { createSession } from "../src/session.js";
+import { createSession, type Session } from "../src/session.js";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -26,6 +28,120 @@ function lines(dir: string): Record<string, unknown>[] {
     .filter(Boolean)
     .map((l) => JSON.parse(l) as Record<string, unknown>);
 }
+
+/** A socket the test drives by hand, and the frames the host sent back down it. */
+function tab(session: Session): { bridge: Bridge; say: (msg: unknown) => Promise<void>; back: unknown[] } {
+  const back: unknown[] = [];
+  let receive: ((data: unknown) => void) | null = null;
+  const socket: BridgeSocket = {
+    send: (data) => back.push(JSON.parse(data)),
+    close: () => {},
+    readyState: 1,
+    on: (event: string, cb: (data?: unknown) => void) => {
+      if (event === "message") receive = cb as (data: unknown) => void;
+    },
+  } as BridgeSocket;
+  const bridge = new Bridge(session);
+  bridge.attach(socket);
+  return { bridge, back, say: async (msg) => void (await receive?.(JSON.stringify(msg))) };
+}
+
+describe("writing down what the person did", () => {
+  it("writes a line per gesture, beside the commands they caused", async () => {
+    const dir = where();
+    const log = createLog({ dir });
+    const session = createSession({ log });
+    const { say } = tab(session);
+    await say({
+      id: "h",
+      type: "hello",
+      clientVersion: "test",
+      protocolVersion: PROTOCOL_VERSION,
+      capabilities: [],
+    });
+    await say({
+      type: "gesture",
+      gestures: [
+        { what: "tool", detail: { tool: "zone", from: "select" } },
+        { what: "drag", detail: { phase: "begin", kind: "move", target: "zone_a" } },
+        { what: "drag", detail: { phase: "end", kind: "move", sent: [] } },
+      ],
+    });
+    log.close();
+
+    const written = lines(dir).filter((l) => l.kind === "gesture");
+    expect(written.map((l) => l.what)).toEqual(["tool", "drag", "drag"]);
+    expect(written[0]?.tool).toBe("zone");
+    expect(written[1]?.target).toBe("zone_a");
+    // the line this whole exercise is for: a drag that sent nothing, which on the plan looks exactly
+    // like a drag that sent something
+    expect(written[2]?.sent).toEqual([]);
+    expect(written.every((l) => l.source === "editor")).toBe(true);
+  });
+
+  it("answers nothing, so a click costs no round trip", async () => {
+    const dir = where();
+    const log = createLog({ dir });
+    const session = createSession({ log });
+    const { say, back } = tab(session);
+    await say({
+      id: "h",
+      type: "hello",
+      clientVersion: "test",
+      protocolVersion: PROTOCOL_VERSION,
+      capabilities: [],
+    });
+    const answered = back.length;
+    await say({ type: "gesture", gestures: [{ what: "view", detail: { mode: "3d" } }] });
+    expect(back).toHaveLength(answered);
+    // but a caller that asks for an answer by giving an id gets one
+    await say({ id: "g1", type: "gesture", gestures: [{ what: "view", detail: { mode: "plan" } }] });
+    expect(back[back.length - 1]).toMatchObject({ id: "g1", ok: true, result: { written: 1 } });
+    log.close();
+    expect(lines(dir).filter((l) => l.kind === "gesture")).toHaveLength(2);
+  });
+
+  it("keeps a gesture to the size of a line, and lets it rewrite none of the line's own fields", async () => {
+    const dir = where();
+    const log = createLog({ dir });
+    const session = createSession({ log });
+    const { say } = tab(session);
+    await say({
+      id: "h",
+      type: "hello",
+      clientVersion: "test",
+      protocolVersion: PROTOCOL_VERSION,
+      capabilities: [],
+    });
+    await say({
+      type: "gesture",
+      gestures: [
+        {
+          what: "field",
+          detail: { kind: "not a kind", source: "not a source", said: "x".repeat(500), field: "Width" },
+        },
+      ],
+    });
+    log.close();
+    const [line] = lines(dir).filter((l) => l.kind === "gesture");
+    expect(line?.kind).toBe("gesture");
+    expect(line?.source).toBe("editor");
+    expect(line?.field).toBe("Width");
+    expect(String(line?.said)).toHaveLength(201); // cut, and said so
+  });
+
+  it("drops a gesture from a tab that never said hello, having nowhere to put the refusal", async () => {
+    const dir = where();
+    const log = createLog({ dir });
+    const session = createSession({ log });
+    log.write("host", "host", { event: "started" }); // so there is a file to find either way
+    const { say, back } = tab(session);
+    await say({ type: "gesture", gestures: [{ what: "tool", detail: { tool: "zone" } }] });
+    expect(back).toEqual([]);
+    log.close();
+    expect(lines(dir).filter((l) => l.kind === "gesture")).toEqual([]);
+  });
+});
 
 describe("writing down what a session did", () => {
   it("writes a line per change, naming the command, who asked and what moved", () => {

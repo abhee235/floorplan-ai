@@ -8,6 +8,7 @@
 import { derive, type Point, type Project, type Wall } from "@fpv/ir";
 import type { Ctx2D, PlanRenderer, PlanView } from "../plan/plan.js";
 import type { Announcer } from "./announce.js";
+import { recordGesture } from "./gestures.js";
 import type { Placeable } from "./item-tool.js";
 import { formatMm } from "./status.js";
 import {
@@ -102,9 +103,18 @@ export function bindZoneDrawing(deps: ZoneDrawingDeps): ZoneDrawing {
     deps.status(`${formatMm(aim.widthMm)} × ${formatMm(aim.depthMm)} mm · ${aim.fits} pieces`);
   };
 
+  /**
+   * A gesture that ended in nothing, with the reason (ADR-019 D4). A drawing that adds nothing looks
+   * exactly like one that was never made, and "I drew a cluster and nothing happened" is the report.
+   */
+  const nothing = (because: string): void => {
+    recordGesture("draw", { tool: "zone", phase: "end", sent: [], because });
+  };
+
   /** Sends a command and says what happened, in the same words for a drag and for a filled room. */
   const dispatch = (command: ArrangeCommand, where: string): void => {
     const count = command.payload.rule.count;
+    recordGesture("draw", { tool: "zone", phase: "end", where, pieces: count, sent: command.type });
     void deps
       .send(command)
       .then(() => announcer.say(`${count} ${count === 1 ? "piece" : "pieces"} arranged ${where}.`))
@@ -122,11 +132,13 @@ export function bindZoneDrawing(deps: ZoneDrawingDeps): ZoneDrawing {
     const room = derive.containingRoom(project, level, point);
     if (!room) {
       announcer.say("No room there. Drag to mark out the area instead.");
+      nothing("there is no room under the pointer");
       return;
     }
     const command = t.fillRoom(room.id, room.polygon);
     if (!command) {
       announcer.say(`Nothing fits in ${room.name ?? "that room"} at this size and gap.`);
+      nothing("nothing fits in the room at this size and gap");
       return;
     }
     dispatch(command, `in ${room.name ?? "the room"}`);
@@ -140,6 +152,7 @@ export function bindZoneDrawing(deps: ZoneDrawingDeps): ZoneDrawing {
     const command = t.fillRoom(room.id, room.polygon);
     if (!command) {
       announcer.say(`Nothing fits in ${room.name ?? "that room"} at this size and gap.`);
+      nothing("nothing fits in the room at this size and gap");
       return;
     }
     dispatch(command, `in ${room.name ?? "the room"}`);
@@ -164,6 +177,11 @@ export function bindZoneDrawing(deps: ZoneDrawingDeps): ZoneDrawing {
     const t = ensureTool();
     if (!t) return;
     pressedAt = planPoint(e);
+    recordGesture("draw", {
+      tool: "zone",
+      phase: "begin",
+      at: { x: Math.round(pressedAt.x), y: Math.round(pressedAt.y) },
+    });
     t.begin(pressedAt, aimOptions());
     aim = null;
     report();
@@ -203,7 +221,10 @@ export function bindZoneDrawing(deps: ZoneDrawingDeps): ZoneDrawing {
     }
     // Nothing was made. Say which of the two reasons it was, rather than leaving a person to guess.
     if (!dragged) fillAt(point);
-    else announcer.say(`Nothing fits in ${size} at this gap. Nothing was added.`);
+    else {
+      announcer.say(`Nothing fits in ${size} at this gap. Nothing was added.`);
+      nothing(`nothing fits in ${size} at this gap`);
+    }
   };
 
   const onKeyDown = (e: KeyboardEvent): void => {

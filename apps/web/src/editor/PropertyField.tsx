@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ColourPicker } from "./ColourPicker.js";
+import { recordGesture } from "./gestures.js";
 import { PatternSwatch } from "./PatternSwatch.js";
 import { beginScrub, paceOf, scrubKindOf, scrubStart, scrubText } from "./scrub.js";
 import type { Choice, EditCommand, EditOutcome, EmptyMeaning } from "./selection.js";
@@ -732,6 +733,7 @@ function useReport(label: string, send: PropertyFieldProps["send"]) {
     /** `shown` is what stays under the field, when that needs more than the reason itself. */
     refuse: (message: string, shown = message): void => {
       announcer.alert(`${label} not changed. ${message}`);
+      recordGesture("field", { field: label, refused: message });
       setError(shown);
     },
     deliver: async (command: EditCommand, said: string): Promise<void> => {
@@ -739,9 +741,13 @@ function useReport(label: string, send: PropertyFieldProps["send"]) {
       try {
         await send(command);
         announcer.say(`${label} ${said}.`);
+        // `said` is the spoken form of the change, which is also the readable one: "Width set to 4200
+        // millimetres" beside the command it became (ADR-019 D4).
+        recordGesture("field", { field: label, command: command.type, said });
       } catch (e) {
         const reason = e instanceof Error ? e.message : String(e);
         announcer.alert(`${label} not changed: ${reason}`);
+        recordGesture("field", { field: label, command: command.type, refused: reason });
         setError(`Not changed: ${reason}`);
       }
     },

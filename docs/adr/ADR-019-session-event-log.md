@@ -72,13 +72,25 @@ all, and neither is any provider key.
 
 ### D4. The person's gestures are part of the log
 
-The browser sends what it did over the bridge — the tool picked, the selection,
-a drag beginning and ending, a value committed in the panel, the view mode —
-and the host writes those lines into the same file, in order, beside the
-commands they caused. A list of commands says what changed; a list of gestures
-says what was being attempted. Reading "drew a cluster, dragged its edge,
-released, zone.modify refused" is a story, and the story is what debugging
-needs. A gesture is never trusted as an instruction: it is a line in a file.
+The browser sends what it did over the bridge — the tool picked (`tool`), the
+selection (`select`), a drawing beginning and ending (`draw`), a drag beginning
+and ending (`drag`), a value committed in the panel (`field`), the view mode
+(`view`) — and the host writes those lines into the same file, in order, beside
+the commands they caused. A list of commands says what changed; a list of
+gestures says what was being attempted. Reading "drew a cluster, dragged its
+edge, released, zone.modify refused" is a story, and the story is what
+debugging needs.
+
+A gesture that ends in nothing carries the reason. This is the half the
+commands leave out: a drag that sends nothing and a drag that sends something
+look identical on the plan, right up to the moment nothing changes, and
+"I did that and nothing happened" is the most common report there is.
+
+The frame carries a batch and expects no result — the one client message that
+does not, because a round trip per click would make the log something the
+editor pays for. A gesture is never trusted as an instruction: it is trimmed to
+the size of a line, it may not rewrite the line's own fields, and that is the
+whole of the host's interest in it.
 
 ### D5. On by default, and cheap
 

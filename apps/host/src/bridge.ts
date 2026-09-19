@@ -16,6 +16,7 @@ import {
 } from "@fpv/commands";
 import type { DraftPresentation, RenderedImage, RenderRequest, ViewerRenderer } from "@fpv/tools";
 import type { WebSocket } from "ws";
+import { plainDetail } from "./log.js";
 import type { Session } from "./session.js";
 import { staleness, stalenessNote } from "./staleness.js";
 
@@ -137,9 +138,12 @@ export class Bridge implements ViewerRenderer {
     }
     const msg = parsed.message;
     if (msg.type !== "hello" && !state.hello) {
-      this.reply(state, msg.id, false, {
-        error: { code: "bridge.no-hello", message: "send hello first", hint: null },
-      });
+      // A gesture carries no id and expects no answer, so there is nowhere to put the refusal; it is
+      // dropped, which is the right end for a line about a click from a tab that never introduced itself.
+      if (msg.id)
+        this.reply(state, msg.id, false, {
+          error: { code: "bridge.no-hello", message: "send hello first", hint: null },
+        });
       return;
     }
     await this.handle(state, msg);
@@ -270,6 +274,14 @@ export class Bridge implements ViewerRenderer {
             ? { result: r }
             : { error: { code: r.error.code, message: r.error.message, hint: r.error.hint } },
         );
+        return;
+      }
+      case "gesture": {
+        // What the person did, written beside the commands it caused (ADR-019 D4). Nothing is acted on
+        // and nothing is answered: the whole of the host's interest in a gesture is a line in a file.
+        for (const g of msg.gestures)
+          this.session.log.write("gesture", "editor", { ...plainDetail(g.detail), what: g.what });
+        if (msg.id) this.reply(state, msg.id, true, { result: { written: msg.gestures.length } });
         return;
       }
       case "render.result": {

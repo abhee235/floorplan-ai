@@ -106,6 +106,18 @@ export class BridgeClient {
   requestSnapshot(): Promise<ResultMsg> {
     return this.request({ type: "get", what: "snapshot" });
   }
+  /**
+   * Tell the host what the person did, for the session log (ADR-019 D4). The one message that expects no
+   * result: there is nothing to wait for, and a gesture with nowhere to go is dropped rather than queued.
+   */
+  gesture(gestures: { what: string; detail?: Record<string, unknown> }[]): void {
+    if (this.status !== "open" || gestures.length === 0) return;
+    try {
+      this.socket.send(JSON.stringify({ type: "gesture", gestures }));
+    } catch {
+      // the log is never worth an exception in the editor
+    }
+  }
 
   handle(text: string): void {
     let msg: HostMessage;

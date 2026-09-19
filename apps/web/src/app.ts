@@ -9,6 +9,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { BridgeClient, bridgeUrl } from "./bridge/client.js";
+import { recordGesture } from "./editor/gestures.js";
 import {
   footprintOf,
   type ItemCommand,
@@ -488,6 +489,7 @@ export function startApp(el: AppElements): {
           beforeProject: replica.agreed ?? replica.project,
           preview: null,
         };
+        recordGesture("drag", { phase: "begin", kind: "wall-handle", target: shaped.id, at: handle });
         el.plan.setPointerCapture(e.pointerId);
         return;
       }
@@ -506,6 +508,12 @@ export function startApp(el: AppElements): {
           beforeProject: replica.agreed ?? replica.project,
           commands: [],
         };
+        recordGesture("drag", {
+          phase: "begin",
+          kind: "item-handle",
+          target: target.item.id,
+          at: handle.kind,
+        });
         el.plan.style.cursor = handle.kind === "rotate" ? "grabbing" : el.plan.style.cursor;
         el.plan.setPointerCapture(e.pointerId);
         return;
@@ -515,7 +523,7 @@ export function startApp(el: AppElements): {
     // pans. Requiring it to be selected first is what keeps panning usable: otherwise every press that
     // happened to land on a wall would drag it.
     const hit = plan.hitTest(planPointOf(e), SELECTION_PX / plan.view.scale);
-    if (hit && replica.selection.includes(hit) && replica.project)
+    if (hit && replica.selection.includes(hit) && replica.project) {
       moving = {
         fromX: e.clientX,
         fromY: e.clientY,
@@ -524,6 +532,8 @@ export function startApp(el: AppElements): {
         dy: 0,
         before: replica.agreed ?? replica.project,
       };
+      recordGesture("drag", { phase: "begin", kind: "move", target: hit, holding: moving.ids.length });
+    }
     drag = { x: e.clientX, y: e.clientY };
     el.plan.setPointerCapture(e.pointerId);
   });
@@ -644,6 +654,13 @@ export function startApp(el: AppElements): {
       // keeps the far side put is two commands, and undoing it must take both.
       replica.restore();
       const [only] = done.commands;
+      recordGesture("drag", {
+        phase: "end",
+        kind: "item-handle",
+        target: done.item.id,
+        at: done.handle.kind,
+        sent: done.commands.map((c) => c.type),
+      });
       if (done.commands.length > 1)
         void client.transaction(done.handle.kind === "rotate" ? "Turn item" : "Resize item", done.commands);
       else if (only) void client.command(only);
@@ -665,6 +682,13 @@ export function startApp(el: AppElements): {
       // any of it standing would keep a shape on screen that was never accepted if the command is
       // refused. The host's patch lands a moment later and puts the new shape back for real.
       replica.restore();
+      recordGesture("drag", {
+        phase: "end",
+        kind: "wall-handle",
+        target: done.wallId,
+        at: done.handle,
+        sent: command ? [command.type] : [],
+      });
       if (command) void client.command(command);
       plan.invalidateOverlay();
       planDirty = true;
@@ -684,6 +708,15 @@ export function startApp(el: AppElements): {
       // editing this copy without the host's knowledge, so leaving it standing would keep positions on
       // screen that were never accepted if a command is refused. The host's patch follows a moment later.
       replica.restore();
+      // The whole point of writing a gesture down: a drag that sends nothing looks exactly like one that
+      // sends something, right up until the plan does not change.
+      recordGesture("drag", {
+        phase: "end",
+        kind: "move",
+        holding: moved.ids.length,
+        by: { dx: Math.round(dx), dy: Math.round(dy) },
+        sent: commands.map((c) => c.type),
+      });
       for (const command of commands) void client.command(command);
       plan.invalidateOverlay();
       planDirty = true;
@@ -701,7 +734,15 @@ export function startApp(el: AppElements): {
         // a thin wall's footprint is about a pixel wide on screen and cannot be clicked at all.
         const marginMm = SELECTION_PX / plan.view.scale;
         const id = plan.hitTest(at, marginMm);
-        void client.select(nextSelection(replica.selection, id, e.shiftKey));
+        const next = nextSelection(replica.selection, id, e.shiftKey);
+        recordGesture("select", {
+          how: e.shiftKey ? "shift-click" : "click",
+          // What was under the pointer, which is not always what the person was aiming at: a press on a
+          // cluster's edge that finds one of its own chairs is a whole class of "nothing happened".
+          hit: id,
+          ids: next,
+        });
+        void client.select(next);
       }
     }
     drag = null;
