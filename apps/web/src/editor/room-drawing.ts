@@ -11,6 +11,7 @@ import type { Announcer } from "./announce.js";
 import { recordGesture } from "./gestures.js";
 import { type RoomCreateCommand, type RoomDetectCommand, RoomTool } from "./room-tool.js";
 import { formatMm } from "./status.js";
+import { mountTypedEntry, screenOffset } from "./typed-entry.js";
 import type { Aim, AimOptions } from "./wall-tool.js";
 
 const ACCENT = "#1e88e5";
@@ -81,6 +82,17 @@ export function bindRoomDrawing(deps: RoomDrawingDeps): RoomDrawing {
     return tool;
   };
 
+  // The same card the wall tool draws with (ADR-017 D4). RoomTool.seed and RoomTool.typedPoint were
+  // written and tested with the wall tool's, and until now nothing called them: a wall chain could be
+  // typed to the millimetre while a room had to be drawn by eye, which is exactly backwards for a plan
+  // whose room dimensions are the numbers written on it.
+  const entry = mountTypedEntry(element, { tool: "room" });
+
+  const showCard = (): void => {
+    const anchor = tool?.anchor ?? null;
+    entry.show(tool, anchor ? screenOffset(plan.toScreen(anchor), dpr()) : null);
+  };
+
   const pushPreview = (): void => {
     const t = tool;
     if (!t?.drawing) {
@@ -103,6 +115,7 @@ export function bindRoomDrawing(deps: RoomDrawingDeps): RoomDrawing {
     const t = tool;
     tool = null;
     aim = null;
+    entry.hide();
     deps.preview3d([]);
     if (!t) return;
     const command = t.end();
@@ -129,6 +142,38 @@ export function bindRoomDrawing(deps: RoomDrawingDeps): RoomDrawing {
       );
   };
 
+  /** Put a corner down, from wherever it came from, and keep the card and the preview in step. */
+  const place = (point: Point, options = aimOptions()): void => {
+    const t = ensureTool();
+    if (!t) return;
+    const result = t.place(point, options);
+    announcer.say(result.announcement);
+    if (result.closed) {
+      finish();
+      return;
+    }
+    aim = null;
+    showCard();
+    report();
+    pushPreview();
+    deps.redraw();
+  };
+
+  const placeTyped = (): void => {
+    const t = ensureTool();
+    if (!t) return;
+    if (!t.drawing) {
+      // With no pointer, the ring starts at the middle of the view, where the eye already is.
+      const centre = plan.toPlan(plan.view.width / 2, plan.view.height / 2);
+      place(centre, aimOptions(false));
+      announcer.say("Ring started at the centre of the view. Type a length, Tab for the angle, Enter.");
+      return;
+    }
+    const typed = entry.values();
+    const point = t.typedPoint(typed.lengthMm, typed.angleDeg);
+    if (point) place(point, aimOptions(false)); // a typed length and angle are exact, not magnetised
+  };
+
   /** Clicking inside walls with no ring started fills the enclosure instead of beginning one. */
   const fillAt = (point: Point): void => {
     const t = ensureTool();
@@ -153,6 +198,8 @@ export function bindRoomDrawing(deps: RoomDrawingDeps): RoomDrawing {
 
   const onPointerDown = (e: PointerEvent): void => {
     if (!deps.active() || e.button !== 0) return;
+    if (e.target instanceof Node && entry.contains(e.target)) return;
+    entry.touched();
     e.stopPropagation();
     e.preventDefault();
     element.focus();
@@ -168,18 +215,9 @@ export function bindRoomDrawing(deps: RoomDrawingDeps): RoomDrawing {
       return;
     }
 
-    const t = ensureTool();
-    if (!t) return;
-    const result = t.place(point, aimOptions());
-    announcer.say(result.announcement);
-    if (result.closed) {
-      finish();
-      return;
-    }
-    aim = null;
-    report();
-    pushPreview();
-    deps.redraw();
+    // the card sits over the plan: a press on it belongs to the field being typed in, not to the ring
+    if (e.target instanceof Node && entry.contains(e.target)) return;
+    place(point);
   };
 
   const onPointerMove = (e: PointerEvent): void => {
@@ -190,6 +228,8 @@ export function bindRoomDrawing(deps: RoomDrawingDeps): RoomDrawing {
     if (!t) return;
     aim = t.aim(planPoint(e), aimOptions());
     announcer.say(aim.announcement);
+    entry.touched();
+    showCard();
     report();
     pushPreview();
     deps.redraw();
@@ -197,6 +237,9 @@ export function bindRoomDrawing(deps: RoomDrawingDeps): RoomDrawing {
 
   const onDoubleClick = (e: MouseEvent): void => {
     if (!deps.active() || !tool?.drawing) return;
+    // Double-clicking a number in the card selects it, as it does in every other field; it must not end
+    // the ring (the same exception the press handler makes).
+    if (e.target instanceof Node && entry.contains(e.target)) return;
     e.stopPropagation();
     finish();
   };
@@ -209,15 +252,24 @@ export function bindRoomDrawing(deps: RoomDrawingDeps): RoomDrawing {
       // Deliberately not stopped: the shell takes the same Escape back to the select tool (ADR-017 D2).
       return;
     }
-    if (e.key === "Enter" && tool?.drawing) {
+    if (e.key === "Enter") {
       e.preventDefault();
-      finish();
+      // Enter used to end the ring outright. It places a corner now, as it does for walls, and a second
+      // Enter with nothing changed in between ends it (ADR-017 D4) — which is the same gesture the
+      // pointer makes with a double-click. Escape still ends it in one press.
+      if (tool?.drawing && entry.repeatedEnter()) {
+        finish();
+        return;
+      }
+      placeTyped();
       return;
     }
     if (e.key === "z" && (e.ctrlKey || e.metaKey) && tool?.drawing) {
       e.stopPropagation();
       e.preventDefault();
       if (tool.undoSegment()) announcer.say("Last corner taken back.");
+      entry.touched();
+      showCard();
       report();
       pushPreview();
       deps.redraw();

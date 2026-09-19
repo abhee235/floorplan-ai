@@ -6,6 +6,7 @@ import type { Ctx2D, PlanRenderer, PlanView } from "../plan/plan.js";
 import type { Announcer } from "./announce.js";
 import { recordGesture } from "./gestures.js";
 import { formatMm } from "./status.js";
+import { mountTypedEntry, screenOffset } from "./typed-entry.js";
 import { type Aim, type AimOptions, type WallChainCommand, WallTool } from "./wall-tool.js";
 
 const ACCENT = "#1e88e5";
@@ -70,48 +71,15 @@ export function bindWallDrawing(deps: WallDrawingDeps): WallDrawing {
     shiftHeld,
   });
 
-  // ---- the floating length and angle card (the design's keyboard entry) ----
+  // ---- the floating length and angle card (ADR-017 D4) ----
   //
-  // The classes are Tailwind utilities written as literals, not hand-rolled `fpv-` names. The old ones
-  // were styled by CSS in index.html that the React port deleted, which left this card rendering as bare
-  // text on the canvas — Preflight strips an input's border and background, so the fields looked like
-  // paragraphs. Tailwind's scanner reads .ts files, so literals here do generate.
-  //
-  // `absolute` is part of the fix rather than decoration: the card positions itself with style.left/top,
-  // which meant nothing once the old CSS (and its `position: absolute`) went, so it sat at the top-left of
-  // the plan instead of beside the cursor.
-  const card = document.createElement("div");
-  card.className =
-    "fpv-wall-entry absolute z-10 flex flex-col gap-1 rounded-md border bg-card/95 p-2 shadow-md " +
-    "text-xs text-foreground";
-  card.hidden = true;
-  const lengthInput = numberField("Length", "mm");
-  const angleInput = numberField("Angle", "°");
-  const relativeNote = document.createElement("p");
-  relativeNote.className = "text-[11px] text-muted-foreground";
-  relativeNote.textContent = "relative to the last wall";
-  card.append(lengthInput.row, angleInput.row, relativeNote);
-  element.append(card);
+  // Shared with the room tool rather than owned here: both tools have had seed() and typedPoint() since
+  // they were written, and only this one had anything to type into.
+  const entry = mountTypedEntry(element, { tool: "wall" });
 
   const showCard = (): void => {
-    if (!tool?.drawing) {
-      card.hidden = true;
-      return;
-    }
-    const seed = tool.seed();
-    if (document.activeElement !== lengthInput.input && document.activeElement !== angleInput.input) {
-      lengthInput.input.value = String(Math.round(seed.lengthMm));
-      angleInput.input.value = String(Math.round(seed.angleDeg));
-    }
-    relativeNote.textContent =
-      tool.points.length >= 2 ? "relative to the last wall" : "measured from the x axis";
-    const anchor = tool.anchor;
-    if (anchor) {
-      const screen = plan.toScreen(anchor);
-      card.style.left = `${screen.x / dpr() + 12}px`;
-      card.style.top = `${screen.y / dpr() + 12}px`;
-    }
-    card.hidden = false;
+    const anchor = tool?.anchor ?? null;
+    entry.show(tool, anchor ? screenOffset(plan.toScreen(anchor), dpr()) : null);
   };
 
   // ---- gestures ----------------------------------------------------------
@@ -170,7 +138,7 @@ export function bindWallDrawing(deps: WallDrawingDeps): WallDrawing {
     const t = tool;
     tool = null;
     aim = null;
-    card.hidden = true;
+    entry.hide();
     // Clear before the command goes out, not after it returns: the committed walls arrive as a patch and
     // build themselves, and leaving the preview up until then would briefly show every wall twice.
     deps.preview3d([]);
@@ -203,7 +171,8 @@ export function bindWallDrawing(deps: WallDrawingDeps): WallDrawing {
     if (!deps.active() || e.button !== 0) return;
     // the length and angle card sits over the plan: a press on it belongs to the field being typed in,
     // not to the drawing, or the fields could never be reached with a pointer at all
-    if (e.target instanceof Node && card.contains(e.target)) return;
+    if (e.target instanceof Node && entry.contains(e.target)) return;
+    entry.touched();
     // the wall tool owns the press: the pan and select handlers on the plan must not also run
     e.stopPropagation();
     e.preventDefault();
@@ -230,6 +199,10 @@ export function bindWallDrawing(deps: WallDrawingDeps): WallDrawing {
 
   const onDoubleClick = (e: MouseEvent): void => {
     if (!deps.active() || !tool?.drawing) return;
+    // Not a double-click on the card: selecting a number by double-clicking it is how anybody edits a
+    // field, and it used to end the chain instead. The press handler has always made this exception;
+    // this one did not, so the card was usable with a pointer only if you never double-clicked in it.
+    if (e.target instanceof Node && entry.contains(e.target)) return;
     e.stopPropagation();
     finish();
   };
@@ -244,7 +217,8 @@ export function bindWallDrawing(deps: WallDrawingDeps): WallDrawing {
       announcer.say("Chain started at the centre of the view. Type a length, Tab for the angle, Enter.");
       return;
     }
-    const point = t.typedPoint(Number(lengthInput.input.value), Number(angleInput.input.value));
+    const typed = entry.values();
+    const point = t.typedPoint(typed.lengthMm, typed.angleDeg);
     if (point) place(point, false); // a typed length and angle are exact, not magnetised
   };
 
@@ -259,6 +233,13 @@ export function bindWallDrawing(deps: WallDrawingDeps): WallDrawing {
     }
     if (e.key === "Enter") {
       e.preventDefault();
+      // A second Enter with nothing changed in between ends the chain, which is what the pointer says
+      // with a double-click (ADR-017 D4). Anything at all — a digit typed, the pointer moved, a wall
+      // placed — makes the next Enter place again, so this cannot end a chain still being drawn.
+      if (tool?.drawing && entry.repeatedEnter()) {
+        finish();
+        return;
+      }
       placeTyped();
       return;
     }
@@ -371,7 +352,7 @@ export function bindWallDrawing(deps: WallDrawingDeps): WallDrawing {
       element.removeEventListener("dblclick", onDoubleClick, { capture: true });
       element.removeEventListener("keydown", onKeyDown);
       deps.preview3d([]); // a torn-down binding must not leave a half-drawn chain standing in the scene
-      card.remove();
+      entry.destroy();
     },
   };
 }
@@ -388,25 +369,4 @@ function ring(ctx: Ctx2D, at: Point, radius: number, colour: string, px: number)
 /** The overlay is drawn in plan millimetres with y up; text has to be placed in screen pixels. */
 function toScreenPoint(view: PlanView, p: Point): { x: number; y: number } {
   return { x: view.offsetX + p.x * view.scale, y: view.offsetY - p.y * view.scale };
-}
-
-function numberField(name: string, unit: string): { row: HTMLElement; input: HTMLInputElement } {
-  const row = document.createElement("label");
-  row.className = "flex items-center gap-1.5";
-  const caption = document.createElement("span");
-  caption.className = "w-12 text-muted-foreground";
-  caption.textContent = name;
-  const input = document.createElement("input");
-  input.type = "number";
-  // The border and background are stated because Preflight removes both from an input; without them the
-  // field is indistinguishable from the label beside it.
-  input.className =
-    "h-6 w-20 rounded border border-input bg-background px-1.5 text-right tabular-nums " +
-    "outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
-  input.setAttribute("aria-label", `${name} in ${unit === "°" ? "degrees" : unit}`);
-  const suffix = document.createElement("span");
-  suffix.className = "w-4 text-muted-foreground";
-  suffix.textContent = unit;
-  row.append(caption, input, suffix);
-  return { row, input };
 }
