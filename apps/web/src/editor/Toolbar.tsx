@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { Replica } from "../replica.js";
 import { Keyed } from "./Phrase.js";
 import type { ToolOption } from "./tools.js";
@@ -32,9 +33,6 @@ const VIEWS: [ViewMode, string, LucideIcon][] = [
   ["both", "Plan + 3D", Columns2],
   ["3d", "3D", Box],
 ];
-
-/** 28px, one step under the registry's `sm` (h-8), matching the rest of the chrome. */
-const CONTROL = "h-7 gap-1.5 px-2.5 font-normal";
 
 export interface ToolbarProps {
   replica: Replica | null;
@@ -57,7 +55,7 @@ export function Toolbar({ replica, level, onLevel }: ToolbarProps): JSX.Element 
       className="flex h-9 items-center gap-2 overflow-hidden border-b bg-muted/30 px-3 whitespace-nowrap"
     >
       <Select value={level ?? ""} onValueChange={onLevel}>
-        <SelectTrigger size="sm" aria-label="Level" className="h-7 w-[104px] gap-1">
+        <SelectTrigger size="sm" aria-label="Level" className="w-[104px] gap-1 data-[size=sm]:h-7">
           <SelectValue placeholder="—" />
         </SelectTrigger>
         <SelectContent>
@@ -70,14 +68,21 @@ export function Toolbar({ replica, level, onLevel }: ToolbarProps): JSX.Element 
       </Select>
 
       <div className="flex gap-0.5" role="group" aria-label="History">
-        <Button variant="outline" className={CONTROL} onClick={() => run("edit.undo")}>
-          <Undo2 aria-hidden />
-          Undo
-        </Button>
-        <Button variant="outline" className={CONTROL} onClick={() => run("edit.redo")}>
-          <Redo2 aria-hidden />
-          Redo
-        </Button>
+        {(
+          [
+            ["edit.undo", "Undo", Undo2],
+            ["edit.redo", "Redo", Redo2],
+          ] as const
+        ).map(([id, name, Icon]) => (
+          <Tooltip key={id}>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" aria-label={name} className="size-7 p-0" onClick={() => run(id)}>
+                <Icon aria-hidden />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{name}</TooltipContent>
+          </Tooltip>
+        ))}
       </div>
 
       <Separator orientation="vertical" className="mx-1 h-4" />
@@ -177,7 +182,7 @@ function OptionField({ option }: { option: ToolOption }): JSX.Element {
         {option.label}
       </Label>
       <Select value={String(value ?? "")} onValueChange={(next) => editor.setOption(toolId, option.id, next)}>
-        <SelectTrigger id={id} size="sm" className="h-7 gap-1">
+        <SelectTrigger id={id} size="sm" className="gap-1 data-[size=sm]:h-7">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>

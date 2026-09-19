@@ -146,7 +146,7 @@ function Lines({ entries, commands }: { entries: MenuEntry[]; commands: CommandR
         if ("separator" in entry) return <MenubarSeparator key={key} />;
         if ("label" in entry)
           return (
-            <MenubarLabel key={key} inset={inset} className="text-muted-foreground text-xs">
+            <MenubarLabel key={key} inset={inset}>
               {entry.label}
             </MenubarLabel>
           );

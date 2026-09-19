@@ -8,6 +8,7 @@
 // first tool on the rail with nothing behind it.
 import { render } from "@testing-library/react";
 import { beforeAll, describe, expect, it } from "vitest";
+import { TooltipProvider } from "../../src/components/ui/tooltip.js";
 import { Announcer } from "../../src/editor/announce.js";
 import { CommandRegistry } from "../../src/editor/commands.js";
 import { Toolbar } from "../../src/editor/Toolbar.js";
@@ -47,11 +48,14 @@ function editorStub(tool: ToolDefinition, over: Partial<Editor> = {}): Editor {
 const show = (tool: ToolDefinition) =>
   render(
     <EditorContext.Provider value={editorStub(tool)}>
-      <Toolbar replica={null} level={null} onLevel={() => {}} />
+      {/* Undo and Redo are icon buttons wearing tooltips, as a ribbon draws them. */}
+      <TooltipProvider>
+        <Toolbar replica={null} level={null} onLevel={() => {}} />
+      </TooltipProvider>
     </EditorContext.Provider>,
   );
 
-describe("the tool options bar (ADR-017 D2)", () => {
+describe("the toolbar (ADR-017 D1 amendment, D2)", () => {
   it("names the tool and the modifiers that invert its snapping (W-082)", () => {
     const { container } = show(toolById("select") as ToolDefinition);
     expect(container.textContent).toContain("Select");

@@ -9,7 +9,6 @@
 // is not a menu, it is not often there, and when it is there it should catch the eye.
 
 import type { JSX } from "react";
-import { Separator } from "@/components/ui/separator";
 import type { Replica } from "../replica.js";
 import { MainMenu } from "./MainMenu.js";
 import { StaleNote } from "./StaleNote.js";
@@ -25,16 +24,20 @@ export function AppBar({ replica, stale = null }: AppBarProps): JSX.Element {
   const project = useProject(replica);
 
   return (
-    <header className="flex h-10 items-center gap-2 border-b bg-card px-3">
-      <strong className="truncate font-semibold">{project?.meta.name ?? "floorplan-ai"}</strong>
-
-      <Separator orientation="vertical" className="mx-1 h-4" />
-
+    <header className="relative flex h-10 items-center gap-2 border-b bg-card px-3">
       <MainMenu />
 
       <span className="grow" />
 
       <StaleNote note={stale} />
+
+      {/* Centred on the window rather than placed after the menus, as a word processor centres the
+          document name in its title bar: it names what is open, which is not a control and does not
+          belong in the row of them. Absolutely positioned so it is centred on the WINDOW and does not
+          shift when a menu name changes length, and click-through so it can never swallow a menu. */}
+      <strong className="pointer-events-none absolute inset-x-0 mx-auto w-fit max-w-[40%] truncate text-center font-semibold">
+        {project?.meta.name ?? "floorplan-ai"}
+      </strong>
     </header>
   );
 }
