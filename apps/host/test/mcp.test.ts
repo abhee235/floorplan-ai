@@ -139,7 +139,25 @@ describe("MCP adapter over an in-memory transport (ADR-005 D1, D7)", () => {
       agent: null,
       steps: null,
       log: null,
+      logs: false,
+      run: null,
+      follow: false,
+      find: null,
     });
+    // reading the log back: --logs alone lists the runs, and takes an optional run to print
+    expect(parseArgs(["--logs"])).toMatchObject({ logs: true, run: null, follow: false });
+    expect(parseArgs(["--logs", "last", "--follow"])).toMatchObject({
+      logs: true,
+      run: "last",
+      follow: true,
+    });
+    expect(parseArgs(["--logs", "--find", "item_7f"])).toMatchObject({
+      logs: true,
+      run: null,
+      find: "item_7f",
+    });
+    // a flag after --logs is the next flag, not the name of a run
+    expect(parseArgs(["--logs", "--follow"]).run).toBeNull();
     // how much is written down, and a level only taken when it is one this understands
     expect(parseArgs(["--log", "verbose"]).log).toBe("verbose");
     expect(parseArgs(["--log", "loud"]).log).toBeNull();
@@ -160,6 +178,10 @@ describe("MCP adapter over an in-memory transport (ADR-005 D1, D7)", () => {
       agent: null,
       steps: null,
       log: null,
+      logs: false,
+      run: null,
+      follow: false,
+      find: null,
     });
   });
 });

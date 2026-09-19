@@ -68,6 +68,9 @@ export function createSession(options: SessionOptions = {}): Session {
   const store = createStore(project, { ids, now, catalog: catalogSourceOf(catalog, now) });
   const log = options.log ?? silentLog();
   // Everything that changes the project passes here, whoever asked (ADR-019 D1).
+  // What the project was before anything happened, so the run's first change reads as what moved
+  // rather than as a wholesale replacement (ADR-019 D3).
+  log.baseline(store.project);
   store.subscribe((event) => log.fromStore(event, store.project));
   const transcript = createTranscript();
   const bindable = options.files as { bind?: (s: Store) => unknown } | null | undefined;

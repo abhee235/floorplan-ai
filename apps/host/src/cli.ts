@@ -14,6 +14,7 @@ import { loadDotEnv } from "./env.js";
 import { FileExportWriter } from "./exports.js";
 import { ProjectFileStore } from "./files.js";
 import { createLog, type LogLevel } from "./log.js";
+import { formatEntry, formatRuns, pickRun, readFrom, readRun, runs } from "./log-read.js";
 import { serveStdio } from "./mcp.js";
 import { dataPaths } from "./paths.js";
 import { FilePlanReader } from "./plans.js";
@@ -37,6 +38,13 @@ export interface CliArgs {
   steps: number | null;
   /** How much of what happens is written down (ADR-019); null takes FPV_LOG, which defaults to info. */
   log: LogLevel | null;
+  /** Read the log back instead of running: true lists the runs, a name or "last" prints one. */
+  logs: boolean;
+  run: string | null;
+  /** With a run, keep printing as it grows. */
+  follow: boolean;
+  /** With a run, only the lines holding this text. */
+  find: string | null;
 }
 
 /** FPV_LOG, when it says something this understands; otherwise everything is written down. */
@@ -55,6 +63,10 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     agent: null,
     steps: null,
     log: null,
+    logs: false,
+    run: null,
+    follow: false,
+    find: null,
   };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
@@ -81,6 +93,18 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     } else if (a === "--agent") {
       out.agent = argv[i + 1] ?? null;
       i += 1;
+    } else if (a === "--logs") {
+      out.logs = true;
+      // An optional value: the run to print. Anything starting with a dash is the next flag, not a run.
+      const next = argv[i + 1];
+      if (next !== undefined && !next.startsWith("-")) {
+        out.run = next;
+        i += 1;
+      }
+    } else if (a === "--follow") out.follow = true;
+    else if (a === "--find") {
+      out.find = argv[i + 1] ?? null;
+      i += 1;
     } else if (a === "--steps") {
       const n = Number(argv[i + 1]);
       if (Number.isInteger(n) && n > 0) out.steps = n;
@@ -88,6 +112,47 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     }
   }
   return out;
+}
+
+/** How often a followed run is looked at again. */
+const FOLLOW_MS = 250;
+
+/**
+ * `--logs`: the runs, or one of them, read back (ADR-019). This is the other half of keeping a log —
+ * a file nobody can read is a file nobody reads — and on Windows there is no `tail -f` to fall back on.
+ */
+function showLogs(args: CliArgs): void {
+  const dir = join(dataPaths(args.data ?? undefined).dir, "logs");
+  const out = (text: string): void => void process.stdout.write(text);
+  if (!args.run) {
+    out(`${formatRuns(runs(dir)).join("\n")}\n`);
+    if (runs(dir).length > 0) out("\n--logs last prints the newest; add --follow to watch it.\n");
+    return;
+  }
+  const run = pickRun(dir, args.run);
+  if (!run) {
+    process.stderr.write(`no run matches "${args.run}" in ${dir}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  out(`${run.path}\n`);
+  let at = readRun(run.path, { find: args.find, write: out });
+  if (!args.follow) return;
+  // Following: the host appends to this file as it goes, and only whole lines are taken, so a line
+  // caught half written waits for the rest rather than printing as nonsense.
+  const timer = setInterval(() => {
+    const { text, end } = readFrom(run.path, at);
+    at = end;
+    for (const line of text.split("\n"))
+      if (line.trim() && (!args.find || line.includes(args.find)))
+        for (const formatted of formatEntry(line)) out(`${formatted}\n`);
+  }, FOLLOW_MS);
+  const stop = (): void => {
+    clearInterval(timer);
+    process.exit(0);
+  };
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
 }
 
 /** Open the catalog database in the data directory and make sure the seed library is installed. */
@@ -103,6 +168,12 @@ export function openCatalog(
 
 export async function main(argv: readonly string[] = process.argv.slice(2)): Promise<void> {
   const args = parseArgs(argv);
+  // Reading the log back is a job of its own: it loads no configuration, opens no catalog, starts no
+  // server and writes nothing, so that nothing it prints is in front of the lines that were asked for.
+  if (args.logs) {
+    showLogs(args);
+    return;
+  }
   // model providers, keys and roles come from the nearest .env; the shell environment wins
   const dotenv = loadDotEnv();
   if (dotenv.file) process.stderr.write(`floorplan-ai env: ${dotenv.file}\n`);
@@ -112,6 +183,9 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
       "usage: host [--mcp] [--serve] [--port <n>] [--project <project.json>] [--profile high|medium|low] [--data <dir>]\n" +
         "            [--agent <task> [--steps <n>]]\n" +
         "  --log    off | info | verbose: how much of what happens is written to <data>/logs (default info)\n" +
+        "  --logs   list the runs written so far; --logs last prints the newest, --logs <name> one by name\n" +
+        "           with --follow it keeps printing as the run goes on; --find <text> keeps only the\n" +
+        "           lines holding that text, which is how to follow one object through a session\n" +
         "  --mcp    serve the tool registry over stdio for an MCP client\n" +
         "  --serve  serve the web viewer and the bridge on http://127.0.0.1:<port>/ (default 4310)\n" +
         "  --data   directory for the catalog database and libraries (default: the platform data dir)\n" +

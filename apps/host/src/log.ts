@@ -38,12 +38,25 @@ export interface EventLog {
   write(kind: string, source: string, fields?: Record<string, unknown>): void;
   /** A change the store made: what was asked, who asked, and what moved. */
   fromStore(event: StoreEvent, project: Project): void;
+  /**
+   * The project as it stands, before anything has changed. Without it the first change of a run has
+   * nothing to be compared with and reads as "the whole thing was replaced", which is exactly the
+   * change someone is most likely to be asking about.
+   */
+  baseline(project: Project): void;
   close(): void;
 }
 
 /** A log that writes nothing, for `FPV_LOG=off` and for tests that do not care. */
 export function silentLog(): EventLog {
-  return { path: null, level: "off", write: () => {}, fromStore: () => {}, close: () => {} };
+  return {
+    path: null,
+    level: "off",
+    write: () => {},
+    fromStore: () => {},
+    baseline: () => {},
+    close: () => {},
+  };
 }
 
 export interface LogOptions {
@@ -119,6 +132,9 @@ export function createLog(options: LogOptions): EventLog {
           level === "verbose" ? Number.POSITIVE_INFINITY : PATCHES_AT_INFO,
         ),
       });
+      last = project;
+    },
+    baseline(project) {
       last = project;
     },
     close() {

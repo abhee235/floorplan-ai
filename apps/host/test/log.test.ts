@@ -183,6 +183,43 @@ describe("writing down what a session did", () => {
     expect(written.map((l) => l.seq)).toEqual([1, 2]);
   });
 
+  it("says what moved on the very first change of a run, not that everything was replaced", () => {
+    // Most reducers rewrite the whole object, so without the project as it stood beforehand the first
+    // change reads as "item_7f was replaced" — and the first thing someone does after opening a file
+    // is usually the thing they are about to ask about.
+    const dir = where();
+    const log = createLog({ dir });
+    const session = createSession({ log });
+    const level = session.store.project.levels[0]?.id as string;
+    const placed = session.store.apply(
+      {
+        type: "item.place",
+        payload: {
+          levelId: level,
+          ref: { kind: "recipe", recipe: { kind: "chair", size: { w: 600, d: 600, h: 900 } } },
+          position: { x: 1000, y: 1000 },
+        },
+      },
+      "editor",
+    );
+    const id = (placed as { result: { id: string } }).result.id;
+    log.close();
+    rmSync(dir, { recursive: true, force: true });
+
+    // A second session, opened on a project that already holds the chair: its first change is a move.
+    const again = where();
+    const log2 = createLog({ dir: again });
+    const session2 = createSession({ log: log2, project: session.store.project });
+    session2.store.apply({ type: "item.move", payload: { itemIds: [id], dx: 300, dy: 0 } }, "editor");
+    log2.close();
+
+    const [first] = lines(again);
+    const changed = first?.changed as { entity: string; at: string; from: unknown; to: unknown }[];
+    expect(changed[0]?.at).toBe("position");
+    expect(changed[0]?.from).toEqual({ x: 1000, y: 1000 });
+    expect(changed[0]?.to).toEqual({ x: 1300, y: 1000 });
+  });
+
   it("writes a refusal from a tool, with the reason", () => {
     const dir = where();
     const log = createLog({ dir });

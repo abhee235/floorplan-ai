@@ -106,6 +106,20 @@ already emits, so a subscriber can say what was asked as well as what changed.
 Everything else — files, rotation, formatting — is `apps/host`, which is where
 I/O belongs (ADR-002).
 
+### D7. The host reads it back too
+
+`--logs` lists the runs; `--logs last` prints one as lines a person reads, with
+each change set under the command that made it; `--follow` keeps printing as
+the run goes on; `--find <text>` keeps only the lines holding it, which is how
+one object is followed through a session.
+
+JSONL was chosen so that `grep` and `tail -f` work, and they do — but this is
+developed on Windows, where neither is at hand, and JSON on a terminal is not
+something anyone reads twice. A log nobody can read is a log nobody reads. The
+reader hides nothing: a kind it has never seen still prints with every field on
+it, and a torn last line is passed through rather than swallowed, because being
+read while it is written is exactly the case it exists for.
+
 ## Alternatives considered
 
 - **A logging library.** Rejected: one writer of one shape needs no levels,
