@@ -146,7 +146,7 @@ export const modifyWall = defineTool({
   },
 });
 
-const HexS = z
+export const HexS = z
   .string()
   .refine((v) => parseHexColour(v) !== null, "a colour is hex, e.g. #E8E6E1 or #FFF")
   .describe("hex colour, e.g. #E8E6E1");
@@ -253,7 +253,7 @@ export const finishWall = defineTool({
  * texture — so a surface never says one thing while the view shows another. Shared by every tool that
  * dresses something, because three copies of it would eventually be two rules.
  */
-function dress(
+export function dress(
   current: FinishRef | null | undefined,
   fields: {
     colour?: string | null | undefined;

@@ -1,13 +1,14 @@
-// Item tools (spec 04 section 5): place_item, modify_item, arrange.
+// Item tools (spec 04 section 5): place_item, modify_item, finish_item, arrange.
+import { itemMaterialSlots } from "@fpv/commands";
 import { doorSwingZones } from "@fpv/geometry";
 import type { Item, Point, Project, Zone } from "@fpv/ir";
-import { derive, PrimitiveRecipe, poly } from "@fpv/ir";
+import { derive, FINISH_NAMES, finishNameOf, PrimitiveRecipe, poly } from "@fpv/ir";
 import { z } from "zod";
 import { type CatalogSearch, sizesFor } from "../context.js";
 import { invalidArg, ToolError } from "../envelope.js";
 import { defineTool, type ToolCall } from "../registry.js";
 import { ItemViewS, itemView } from "../views.js";
-import { roomOrThrow, run } from "./structure.js";
+import { dress, HexS, roomOrThrow, run, runAll } from "./structure.js";
 
 const PointS = z.object({ x: z.number(), y: z.number() });
 const CompassS = z.enum(["north", "south", "east", "west"]);
@@ -159,6 +160,18 @@ export const placeItem = defineTool({
   },
 });
 
+export function itemOrThrow(p: Project, id: string): Item {
+  const it = p.items.find((i) => i.id === id);
+  if (!it)
+    throw new ToolError(
+      "ref.missing",
+      `item "${id}" does not resolve`,
+      null,
+      "use get_scene with types ['item']",
+    );
+  return it;
+}
+
 export const modifyItem = defineTool({
   name: "modify_item",
   description:
@@ -192,14 +205,7 @@ export const modifyItem = defineTool({
   output: z.object({ item: ItemViewS, descendants: z.array(ItemViewS) }),
   run(args, call) {
     const p0 = call.ctx.store.project;
-    const it = p0.items.find((i) => i.id === args.itemId);
-    if (!it)
-      throw new ToolError(
-        "ref.missing",
-        `item "${args.itemId}" does not resolve`,
-        null,
-        "use get_scene with types ['item']",
-      );
+    const it = itemOrThrow(p0, args.itemId);
     const commands: unknown[] = [];
     const ids = [it.id];
     if (args.x !== undefined || args.y !== undefined) {
@@ -240,6 +246,93 @@ export const modifyItem = defineTool({
     return {
       item: itemView(p, item, sizes, call.ctx.catalog),
       descendants: descendants.map((d) => itemView(p, d, sizes, call.ctx.catalog)),
+    };
+  },
+});
+
+const PartFinishS = z.object({
+  itemId: z.string(),
+  part: z.string(),
+  colour: z.string().nullable(),
+  texture: z.string().nullable(),
+  finish: z.string(),
+  /** False when the part carries no finish of its own and follows the item's. */
+  own: z.boolean(),
+});
+
+/**
+ * Every part an item is drawn in and how each is dressed now.
+ *
+ * Reported by finish_item because the part names are otherwise undiscoverable: they come from the
+ * recipe behind a product's category, not from anything the model can see. A call that names no part
+ * dresses the whole item and answers with the list, so one call teaches the next.
+ */
+function partFinishes(p: Project, it: Item): z.infer<typeof PartFinishS>[] {
+  const slots = itemMaterialSlots(p, it) ?? [];
+  return slots.map((part) => {
+    const own = it.materials[part] ?? null;
+    const f = own ?? it.finish;
+    return {
+      itemId: it.id,
+      part,
+      colour: f?.color ?? null,
+      texture: f?.textureId ?? null,
+      finish: finishNameOf(f?.shininess ?? null),
+      own: own !== null,
+    };
+  });
+}
+
+export const finishItem = defineTool({
+  name: "finish_item",
+  description:
+    "Paint or texture items, or one part of them: a chair's fabric or frame, a table's top or legs. Give part to dress that part alone, or leave it out to dress the whole item, which every part without a finish of its own follows. A part given anything of its own stops following the item, so to keep the item's colour on a part, give that colour to the part as well. colour is hex (#RRGGBB or #RGB) or null for the default; texture is a texture id from search_catalog, or null for paint; finish is matt, satin or gloss. The answer lists every part of every item, with `own` saying which parts carry a finish of their own, and is how the part names are learnt.",
+  tier: "primitive",
+  mutating: true,
+  input: z.object({
+    itemIds: z.array(z.string()).min(1).describe("one or more items, e.g. ['item_0000a1']"),
+    part: z
+      .string()
+      .optional()
+      .describe("a part name such as fabric, frame, top or legs; omit for the whole item"),
+    colour: HexS.nullable().optional(),
+    texture: z.string().nullable().optional().describe("a texture id from search_catalog, or null for paint"),
+    finish: z.enum(FINISH_NAMES as [string, ...string[]]).optional(),
+  }),
+  output: z.object({ items: z.array(ItemViewS), parts: z.array(PartFinishS) }),
+  run(args, call) {
+    const { itemIds, part, ...fields } = args;
+    if (Object.values(fields).every((v) => v === undefined))
+      throw invalidArg("colour", "give at least one of colour, texture, finish");
+    const p0 = call.ctx.store.project;
+    // One command per item rather than one for all: each is dressed from its own current finish, so a
+    // colour given to a mixed set changes the colour and leaves each item's texture and sheen alone.
+    const commands = itemIds.map((id) => {
+      const it = itemOrThrow(p0, id);
+      if (part === undefined)
+        return { type: "item.setFinish", payload: { itemIds: [it.id], finish: dress(it.finish, fields) } };
+      const slots = itemMaterialSlots(p0, it);
+      if (slots && !slots.includes(part))
+        throw new ToolError(
+          "item.material-slot",
+          `"${part}" is not a part of ${it.id}`,
+          it.id,
+          slots.length
+            ? `its parts are ${slots.join(", ")}`
+            : "this item has no named parts; dress it without a part",
+        );
+      return {
+        type: "item.setFinish",
+        payload: { itemIds: [it.id], materials: { [part]: dress(it.materials[part], fields) } },
+      };
+    });
+    runAll(call, "finish_item", commands);
+    const p = call.ctx.store.project;
+    const sizes = sizesFor(p, call.ctx.catalog);
+    const after = itemIds.map((id) => itemOrThrow(p, id));
+    return {
+      items: after.map((it) => itemView(p, it, sizes, call.ctx.catalog)),
+      parts: after.flatMap((it) => partFinishes(p, it)),
     };
   },
 });

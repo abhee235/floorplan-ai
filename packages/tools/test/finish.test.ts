@@ -246,3 +246,156 @@ describe("modify_opening (ADR-021)", () => {
     if (!missing.ok) expect(missing.error.code).toBe("ref.missing");
   });
 });
+// finish_item (ADR-021): the agent dresses an item, or one part of it, as the properties panel can.
+//
+// The panel has painted a chair's fabric and a table's legs since P3-5. No tool could, so a hosted agent
+// asked for "the same chairs but in grey" had to delete them and place them again — and could not have,
+// because place_item takes no finish either.
+describe("finish_item (ADR-021)", () => {
+  interface Placed {
+    item: { id: string };
+  }
+  interface Dressed {
+    items: { id: string }[];
+    parts: {
+      itemId: string;
+      part: string;
+      colour: string | null;
+      texture: string | null;
+      finish: string;
+      own: boolean;
+    }[];
+  }
+
+  async function withChair(): Promise<{ h: Harness; chair: string; table: string }> {
+    const h = harness();
+    const { roomId } = await buildFixtureRoom(h);
+    const table = await h.ok<Placed>("place_item", {
+      productId: "acme-boardroom-3600",
+      roomId,
+      anchor: "center",
+    });
+    const chair = await h.ok<Placed>("place_item", {
+      productId: "acme-task-chair",
+      roomId,
+      anchor: "north-west-corner",
+    });
+    return { h, chair: chair.result.item.id, table: table.result.item.id };
+  }
+
+  const itemOf = (h: Harness, id: string) => h.ctx.store.project.items.find((i) => i.id === id);
+
+  it("paints one part and leaves the others alone", async () => {
+    const { h, chair } = await withChair();
+    const r = await h.ok<Dressed>("finish_item", { itemIds: [chair], part: "fabric", colour: "#4A6D8C" });
+    expect(itemOf(h, chair)?.materials.fabric?.color).toBe("#4A6D8C");
+    expect(itemOf(h, chair)?.materials.frame).toBeUndefined();
+    expect(itemOf(h, chair)?.finish).toBeNull();
+    // and the answer names every part, which is the only way the part names can be learnt
+    expect(r.result.parts.map((p) => p.part)).toEqual(["fabric", "frame"]);
+    expect(r.result.parts.find((p) => p.part === "fabric")).toMatchObject({
+      itemId: chair,
+      colour: "#4A6D8C",
+      own: true,
+    });
+    expect(r.result.parts.find((p) => p.part === "frame")).toMatchObject({ colour: null, own: false });
+  });
+
+  it("dresses the whole item when no part is named, and a part still wins over it", async () => {
+    const { h, chair } = await withChair();
+    await h.ok("finish_item", { itemIds: [chair], colour: "#222222" });
+    expect(itemOf(h, chair)?.finish?.color).toBe("#222222");
+    expect(itemOf(h, chair)?.materials.fabric).toBeUndefined();
+    // every part follows the item until one is given a finish of its own
+    const all = await h.ok<Dressed>("finish_item", { itemIds: [chair], finish: "satin" });
+    expect(all.result.parts.every((p) => p.colour === "#222222" && !p.own)).toBe(true);
+
+    await h.ok("finish_item", { itemIds: [chair], part: "fabric", colour: "#4A6D8C" });
+    expect(itemOf(h, chair)?.materials.fabric?.color).toBe("#4A6D8C");
+    expect(itemOf(h, chair)?.finish?.color).toBe("#222222");
+  });
+
+  it("stops a part following the item the moment the part is given anything of its own", async () => {
+    // The IR's fallback is the whole finish, not field by field: materials[slot] ?? item.finish. So a
+    // part given only a sheen keeps no colour from the item — it goes back to its plain material and
+    // wears the sheen. The properties panel writes exactly this, and the answer says `own` so the
+    // caller can see which parts still follow. Per-field inheritance would be a change to the IR.
+    const { h, chair } = await withChair();
+    await h.ok("finish_item", { itemIds: [chair], colour: "#222222" });
+    const after = await h.ok<Dressed>("finish_item", { itemIds: [chair], part: "frame", finish: "gloss" });
+    expect(after.result.parts.find((p) => p.part === "frame")).toMatchObject({
+      colour: null,
+      finish: "gloss",
+      own: true,
+    });
+    // the fabric was given nothing, so it still follows the item
+    expect(after.result.parts.find((p) => p.part === "fabric")).toMatchObject({
+      colour: "#222222",
+      own: false,
+    });
+  });
+
+  it("dresses several items in one step, each from its own finish", async () => {
+    const { h, chair, table } = await withChair();
+    await h.ok("finish_item", { itemIds: [chair], part: "frame", finish: "gloss" });
+    const before = h.ctx.store.historyPosition;
+    const r = await h.ok<Dressed>("finish_item", { itemIds: [chair, table], colour: "#E8E6E1" });
+    // one entry in the history: "make them all cream" is one thing a person did, so one undo
+    expect(h.ctx.store.historyPosition).toBe(before + 1);
+    expect(itemOf(h, chair)?.finish?.color).toBe("#E8E6E1");
+    expect(itemOf(h, table)?.finish?.color).toBe("#E8E6E1");
+    // the chair's own frame sheen survived, because each item was dressed from what it already wore
+    expect(itemOf(h, chair)?.materials.frame?.shininess).toBeGreaterThan(0);
+    expect(r.result.items.map((i) => i.id)).toEqual([chair, table]);
+    expect(r.result.parts.map((p) => p.part)).toEqual(["fabric", "frame", "top", "legs"]);
+  });
+
+  it("refuses a part the item does not have, and says which parts it has", async () => {
+    const { h, chair } = await withChair();
+    const bad = await h.call("finish_item", { itemIds: [chair], part: "legs", colour: "#000000" });
+    expect(bad.ok).toBe(false);
+    if (bad.ok) return;
+    expect(bad.error.code).toBe("item.material-slot");
+    expect(bad.error.hint).toContain("fabric");
+    expect(bad.error.hint).toContain("frame");
+    // nothing was written on the way to refusing
+    expect(itemOf(h, chair)?.materials).toEqual({});
+  });
+
+  it("refuses the whole call when one of several items cannot take the part", async () => {
+    const { h, chair, table } = await withChair();
+    const bad = await h.call("finish_item", { itemIds: [chair, table], part: "fabric", colour: "#000000" });
+    expect(bad.ok).toBe(false);
+    // a transaction, so the chair was not left dressed while the table was refused
+    expect(itemOf(h, chair)?.materials.fabric).toBeUndefined();
+  });
+
+  it("swaps paint for a texture and back, never holding both", async () => {
+    const { h, chair } = await withChair();
+    await h.ok("finish_item", { itemIds: [chair], part: "fabric", colour: "#4A6D8C" });
+    const bad = await h.call("finish_item", {
+      itemIds: [chair],
+      part: "fabric",
+      texture: "generated/not-a-texture",
+    });
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.error.code).toBe("catalog.missing-texture");
+    expect(itemOf(h, chair)?.materials.fabric?.color).toBe("#4A6D8C");
+  });
+
+  it("takes a part back to the default, which stores nothing at all", async () => {
+    const { h, chair } = await withChair();
+    await h.ok("finish_item", { itemIds: [chair], part: "fabric", colour: "#4A6D8C", finish: "gloss" });
+    await h.ok("finish_item", { itemIds: [chair], part: "fabric", colour: null, finish: "matt" });
+    expect(itemOf(h, chair)?.materials.fabric).toBeUndefined();
+  });
+
+  it("says so when the item does not exist, and when nothing was asked for", async () => {
+    const { h, chair } = await withChair();
+    const missing = await h.call("finish_item", { itemIds: ["item_zzzzzz"], colour: "#000000" });
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.error.code).toBe("ref.missing");
+    const empty = await h.call("finish_item", { itemIds: [chair], part: "fabric" });
+    expect(empty.ok).toBe(false);
+  });
+});

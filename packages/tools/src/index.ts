@@ -7,7 +7,7 @@ import { Registry } from "./registry.js";
 import { exportTool } from "./tools/export.js";
 import { importPlan } from "./tools/import.js";
 import { describeRoom, getScene, measure, searchCatalog, validateTool } from "./tools/inspect.js";
-import { arrange, modifyItem, placeItem } from "./tools/items.js";
+import { arrange, finishItem, modifyItem, placeItem } from "./tools/items.js";
 import { createRoomFromBrief, furnishRoom } from "./tools/semantic.js";
 import { batch, getBom, history, project, render, verifyProduct } from "./tools/session.js";
 import {
@@ -52,6 +52,7 @@ export const TOOLS = [
   finishOpening,
   modifyOpening,
   finishWall,
+  finishItem,
 ] as const;
 
 export function createRegistry(ctx: ToolContext): Registry {

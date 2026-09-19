@@ -6,8 +6,8 @@ describe("registry conventions (spec 04 section 1, ADR-006 D3, D4)", () => {
   it("registers the 23 first-release tools, import_plan and the two finish tools with descriptions", () => {
     const h = harness();
     const names = h.registry.list().map((t) => t.name);
-    expect(names).toHaveLength(27);
-    expect(new Set(names).size).toBe(27);
+    expect(names).toHaveLength(28);
+    expect(new Set(names).size).toBe(28);
     expect(TOOLS.every((t) => t.description.length > 20)).toBe(true);
   });
 
@@ -95,7 +95,7 @@ describe("registry conventions (spec 04 section 1, ADR-006 D3, D4)", () => {
 
   it("profiles advertise a subset while every tool stays callable (ADR-006 D6)", async () => {
     const h = harness();
-    expect(h.registry.advertised("high")).toHaveLength(27);
+    expect(h.registry.advertised("high")).toHaveLength(28);
     expect(h.registry.advertised("medium").map((t) => t.name)).not.toContain("modify_wall");
     const low = h.registry.advertised("low").map((t) => t.name);
     expect(low).toHaveLength(14);
