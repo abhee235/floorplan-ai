@@ -1,6 +1,7 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "meta": {
+    "id": "g0z9i3cvo7qx",
     "name": "Boardroom task card",
     "createdAt": "2026-09-15T12:00:00.000Z",
     "updatedAt": "2026-09-15T12:00:00.000Z",

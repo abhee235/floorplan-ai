@@ -1,5 +1,6 @@
 // Forward-only migrations (ADR-012 D5, spec 01 section 8). Each entry maps a raw document
 // at version N to version N+1. Pure functions; every migration ships with a fixture pair test (P-047).
+import { derivedProjectId } from "./project-id.js";
 import { SCHEMA_VERSION } from "./schema.js";
 
 export type RawDocument = Record<string, unknown> & { schemaVersion?: unknown };
@@ -96,5 +97,33 @@ function withKeyAfter(object: object, after: string, key: string, value: unknown
   return out;
 }
 
+/**
+ * Version 3 to 4: the project carries its own id (ADR-020 D1).
+ *
+ * The id is DERIVED from what the document already says rather than drawn at random, for two reasons.
+ * Migrations are pure functions with fixture-pair tests, and a random one could not be tested that way.
+ * And a derived id is the better answer: the same file migrated on two machines comes out with the same
+ * id, so a link made on one works on the other, and a project restored from a backup is still itself.
+ *
+ * The seed is the fields that were already there to identify it — when it was made, what it is called,
+ * and the ids of whatever it holds. Two genuinely different projects agreeing on all of that is not a
+ * case worth defending against; two copies of ONE project agreeing is the point.
+ */
+export function addProjectId(raw: RawDocument): RawDocument {
+  const meta = raw.meta;
+  if (!meta || typeof meta !== "object" || "id" in meta) return raw;
+  const m = meta as Record<string, unknown>;
+  const parts = [String(m.createdAt ?? ""), String(m.name ?? "")];
+  for (const coll of ["levels", "walls", "rooms", "items"]) {
+    const list = raw[coll];
+    if (!Array.isArray(list)) continue;
+    for (const entity of list.slice(0, 8))
+      if (entity && typeof entity === "object") parts.push(String((entity as { id?: unknown }).id ?? ""));
+  }
+  // `id` first, because a saved file lists it first and a migrated one should read the same.
+  return { ...raw, meta: { id: derivedProjectId(parts.join("|")), ...m } };
+}
+
 MIGRATIONS.set(1, addSkirtingColour);
 MIGRATIONS.set(2, addWallPattern);
+MIGRATIONS.set(3, addProjectId);

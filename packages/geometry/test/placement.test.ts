@@ -34,7 +34,15 @@ const NOW = "2026-09-15T12:00:00.000Z";
 function project(over: Partial<Project> = {}): Project {
   return {
     schemaVersion: SCHEMA_VERSION,
-    meta: { name: "t", createdAt: NOW, updatedAt: NOW, currency: "USD", north: 90, units: "mm" },
+    meta: {
+      id: "geometrytst1",
+      name: "t",
+      createdAt: NOW,
+      updatedAt: NOW,
+      currency: "USD",
+      north: 90,
+      units: "mm",
+    },
     levels: [defaultLevel(L, { name: "G", height: 2700, elevation: 0 })],
     walls: [],
     openings: [],

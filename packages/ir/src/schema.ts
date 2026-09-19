@@ -1,7 +1,9 @@
 // Scene IR schema. Normative source: docs/spec/01-scene-ir.md (ADR-001).
 // Lengths are integer millimetres, angles degrees in [0, 360), fractions in [0, 1].
 // Plan coordinates: x right, y up; rotation counter-clockwise positive.
+
 import { z } from "zod";
+import { PROJECT_ID_PATTERN } from "./project-id.js";
 
 // ---- primitives ---------------------------------------------------------
 
@@ -242,6 +244,12 @@ export const Provenance = z.object({
 });
 
 export const Meta = z.object({
+  /**
+   * The project's own identity (ADR-020 D1), twelve base36 characters. It lives in the document so that
+   * a link to a project survives the folder being moved, renamed or copied to another machine; a
+   * registry keyed by location cannot do that.
+   */
+  id: z.string().regex(PROJECT_ID_PATTERN, "a project id is twelve characters, 0-9 and a-z"),
   name: z.string().min(1),
   createdAt: Timestamp,
   updatedAt: Timestamp,
@@ -255,7 +263,7 @@ export const Meta = z.object({
 export const ProductSnapshot = z.object({ id: ProductId, snapshotAt: Timestamp }).passthrough();
 export const TextureSnapshot = z.object({ id: TextureId }).passthrough();
 
-export const SCHEMA_VERSION = 3 as const;
+export const SCHEMA_VERSION = 4 as const;
 
 export const Project = z.object({
   schemaVersion: z.literal(SCHEMA_VERSION),

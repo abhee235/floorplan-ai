@@ -57,11 +57,17 @@ export interface Harness {
   ok<T = unknown>(name: string, args?: unknown): Promise<ToolOk<T>>;
 }
 
+/** The id every blank test project gets, so two harnesses build the same project. */
+export const TEST_PROJECT_ID = "testproject0";
+
 export function harness(project?: Project, options: Partial<ToolContext> = {}): Harness {
   const now = () => NOW;
   const catalog = options.catalog ?? memoryCatalog(PRODUCTS);
   const ids = sequentialIdGenerator(1);
-  const store = createStore(project ?? blankProject("Test", NOW), {
+  // The project id is pinned for the same reason `ids` and `now` are: a replay test asks whether the
+  // same calls give the same project, and a fresh identity per session would make every such
+  // comparison fail on a field that is identity rather than content (ADR-020 D1).
+  const store = createStore(project ?? blankProject("Test", NOW, TEST_PROJECT_ID), {
     ids,
     now,
     catalog: catalogSourceOf(catalog, now),
