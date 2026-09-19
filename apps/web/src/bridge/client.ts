@@ -45,6 +45,15 @@ export type BridgeStatus = "connecting" | "open" | "closed" | "version-mismatch"
 export class BridgeClient {
   private seq = 0;
   private pending = new Map<string, { resolve: (m: ResultMsg) => void; reject: (e: Error) => void }>();
+  /**
+   * Frames written before the socket finished connecting, sent in order once it has.
+   *
+   * A WebSocket refuses `send` while it is CONNECTING, and the editor asks for things the moment it
+   * renders: the catalog searched on every page load and the answer was an error message about a
+   * socket, shown to the person, on every single load. Whoever asks should not have to know what the
+   * socket is doing — the alternative was every caller learning to wait, and only some of them ever did.
+   */
+  private waiting: string[] = [];
   status: BridgeStatus = "connecting";
   welcome: Extract<HostMessage, { type: "welcome" }> | null = null;
 
@@ -55,16 +64,21 @@ export class BridgeClient {
   ) {
     socket.onopen = () => {
       this.setStatus("open");
+      // The hello goes first and on its own: everything else is refused until the host has had it.
       void this.request({
         type: "hello",
         clientVersion: options.clientVersion,
         protocolVersion: PROTOCOL_VERSION,
         capabilities: options.capabilities,
       });
+      this.flush();
     };
     socket.onmessage = (ev) => this.handle(String(ev.data));
     socket.onclose = (ev) => {
       this.setStatus(ev.code === CLOSE_VERSION_MISMATCH ? "version-mismatch" : "closed");
+      // Anything still waiting for the socket to open never will; its promise is in `pending` and is
+      // rejected here with everything else, so nothing is left hanging on a socket that has gone.
+      this.waiting = [];
       for (const p of this.pending.values()) p.reject(new Error(`bridge closed: ${ev.reason || ev.code}`));
       this.pending.clear();
     };
@@ -76,13 +90,28 @@ export class BridgeClient {
     this.options.onStatus?.(s);
   }
 
-  /** Send a message that expects exactly one result. */
+  /** Send a message that expects exactly one result; it waits for the socket if it has to. */
   request(body: Record<string, unknown>): Promise<ResultMsg> {
     const id = `c${(this.seq += 1)}`;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      this.socket.send(JSON.stringify({ id, ...body }));
+      this.post(JSON.stringify({ id, ...body }));
     });
+  }
+
+  /** Out now, or held until the socket opens. Order is kept either way. */
+  private post(frame: string): void {
+    if (this.status === "connecting") {
+      this.waiting.push(frame);
+      return;
+    }
+    this.socket.send(frame);
+  }
+
+  private flush(): void {
+    const frames = this.waiting;
+    this.waiting = [];
+    for (const frame of frames) this.socket.send(frame);
   }
 
   command(command: unknown): Promise<ResultMsg> {

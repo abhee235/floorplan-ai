@@ -32,6 +32,48 @@ function snapshot(project: ProjectT, seq = 0): SnapshotMsg {
   return { type: "snapshot", seq, project, historyPosition: 0, savedPosition: 0 };
 }
 
+describe("asking before the socket has opened", () => {
+  // The editor asks for things the moment it renders. A WebSocket refuses `send` while it is still
+  // CONNECTING, so the catalog's first search failed on every page load and the person was shown an
+  // error message about a socket. Whoever asks should not have to know what the socket is doing.
+  it("holds what was asked for until the socket opens, then sends it after the hello", () => {
+    const socket = new FakeSocket();
+    const client = new BridgeClient(socket, new Replica(), { clientVersion: "t", capabilities: ["plan"] });
+
+    // nothing is written while it is connecting, and nothing throws
+    const first = client.tool("search_catalog", { query: "chair" });
+    const second = client.request({ type: "get", what: "textures" });
+    expect(socket.sent).toEqual([]);
+
+    socket.onopen?.({});
+    // the hello leads, because the host refuses everything else until it has had one
+    expect(socket.sent.map((m) => m.type)).toEqual(["hello", "tool", "get"]);
+    expect(first).toBeInstanceOf(Promise);
+    expect(second).toBeInstanceOf(Promise);
+  });
+
+  it("answers what was held once the host replies to it", async () => {
+    const socket = new FakeSocket();
+    const client = new BridgeClient(socket, new Replica(), { clientVersion: "t", capabilities: ["plan"] });
+    const asked = client.tool("search_catalog", { query: "chair" });
+    socket.onopen?.({});
+    const sent = socket.sent.find((m) => m.type === "tool") as { id: string };
+    socket.receive({ id: sent.id, type: "result", ok: true, result: { hits: [] } });
+    await expect(asked).resolves.toMatchObject({ ok: true });
+  });
+
+  it("rejects what was held when the socket closes instead of opening", async () => {
+    const socket = new FakeSocket();
+    const client = new BridgeClient(socket, new Replica(), { clientVersion: "t", capabilities: ["plan"] });
+    const asked = client.tool("search_catalog", { query: "chair" });
+    socket.close(1006, "gone");
+    await expect(asked).rejects.toThrow(/bridge closed/);
+    // and nothing held is sent to a socket that opens later by mistake
+    socket.onopen?.({});
+    expect(socket.sent.filter((m) => m.type === "tool")).toEqual([]);
+  });
+});
+
 describe("bridge client and replica (spec 06 part B)", () => {
   it("says hello on open, takes the snapshot, and applies patch streams in sequence", () => {
     const socket = new FakeSocket();
@@ -97,6 +139,7 @@ describe("bridge client and replica (spec 06 part B)", () => {
   it("requests resolve with their result; pending requests reject when the socket closes", async () => {
     const socket = new FakeSocket();
     const client = new BridgeClient(socket, new Replica(), { clientVersion: "t", capabilities: [] });
+    socket.onopen?.({}); // frames written before the socket opens are held until it does
     const p = client.select(["wall_000001"]);
     const id = socket.sent.at(-1)?.id as string;
     socket.receive({ id, type: "result", ok: true, result: { ids: ["wall_000001"] } });
