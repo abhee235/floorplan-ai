@@ -7,6 +7,7 @@
 import type { Point, Project } from "@fpv/ir";
 import type { Ctx2D, PlanRenderer, PlanView } from "../plan/plan.js";
 import type { Announcer } from "./announce.js";
+import { recordGesture } from "./gestures.js";
 import {
   FINE_NUDGE_MM,
   type ItemAim,
@@ -90,6 +91,11 @@ export function bindItemPlacing(deps: ItemPlacingDeps): ItemPlacing {
     if (!p) return;
     const command = p.command(settings());
     const name = p.piece.name;
+    recordGesture("place", {
+      piece: name,
+      at: command.payload.position,
+      sent: command.type,
+    });
     void deps
       .send(command)
       .then((id) => {

@@ -4,6 +4,7 @@
 import type { Point, Project, Wall } from "@fpv/ir";
 import type { Ctx2D, PlanRenderer, PlanView } from "../plan/plan.js";
 import type { Announcer } from "./announce.js";
+import { recordGesture } from "./gestures.js";
 import { formatMm } from "./status.js";
 import { type Aim, type AimOptions, type WallChainCommand, WallTool } from "./wall-tool.js";
 
@@ -179,9 +180,17 @@ export function bindWallDrawing(deps: WallDrawingDeps): WallDrawing {
     report();
     if (!command) {
       announcer.say("Nothing drawn.");
+      recordGesture("draw", { tool: "wall", phase: "end", sent: [], because: "nothing was drawn" });
       return;
     }
     const count = command.payload.closed ? command.payload.points.length : command.payload.points.length - 1;
+    recordGesture("draw", {
+      tool: "wall",
+      phase: "end",
+      walls: count,
+      closed: command.payload.closed === true,
+      sent: command.type,
+    });
     void deps
       .send(command)
       .then(() => announcer.say(`${count} ${count === 1 ? "wall" : "walls"} drawn.`))

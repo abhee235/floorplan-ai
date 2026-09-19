@@ -8,6 +8,7 @@
 import type { Point, Project, Wall } from "@fpv/ir";
 import type { Ctx2D, PlanRenderer, PlanView } from "../plan/plan.js";
 import type { Announcer } from "./announce.js";
+import { recordGesture } from "./gestures.js";
 import { type RoomCreateCommand, type RoomDetectCommand, RoomTool } from "./room-tool.js";
 import { formatMm } from "./status.js";
 import type { Aim, AimOptions } from "./wall-tool.js";
@@ -111,8 +112,15 @@ export function bindRoomDrawing(deps: RoomDrawingDeps): RoomDrawing {
       // R-041: under three corners there is no room. Say so plainly rather than reporting a success, and
       // rather than silently discarding what was clicked.
       announcer.say("A room needs three corners. Nothing was drawn.");
+      recordGesture("draw", { tool: "room", phase: "end", sent: [], because: "fewer than three corners" });
       return;
     }
+    recordGesture("draw", {
+      tool: "room",
+      phase: "end",
+      corners: command.payload.polygon.length,
+      sent: command.type,
+    });
     void deps
       .send(command)
       .then(() => announcer.say(`Room drawn, ${command.payload.polygon.length} corners.`))
@@ -126,6 +134,13 @@ export function bindRoomDrawing(deps: RoomDrawingDeps): RoomDrawing {
     const t = ensureTool();
     if (!t) return;
     const command = t.detectAt(point);
+    recordGesture("draw", {
+      tool: "room",
+      phase: "end",
+      how: "filled from the walls",
+      at: { x: Math.round(point.x), y: Math.round(point.y) },
+      sent: command.type,
+    });
     void deps
       .send(command)
       .then(() => announcer.say("Room filled from the walls around that point."))

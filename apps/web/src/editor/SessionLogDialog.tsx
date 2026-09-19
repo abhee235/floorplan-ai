@@ -65,15 +65,22 @@ function brief(value: unknown): string {
   return text.length <= 160 ? text : `${text.slice(0, 157)}…`;
 }
 
-/** The headline of a line: what it was, then everything on it that is not furniture. */
+/**
+ * The headline of a line: what it was, then everything on it that is not furniture.
+ *
+ * Only the field actually used as the lead is left out of the rest. Excluding a fixed list dropped the
+ * one that mattered: a gesture says `what: "tool"` with a detail field also called `tool` naming the
+ * tool picked, so "picked the cluster tool" rendered as "tool from=select" — the answer removed.
+ */
 function headline(entry: LogEntry): string {
   const kind = String(entry.kind ?? "");
-  const lead =
+  const leadKey =
     kind === "gesture"
-      ? String(entry.what ?? "")
-      : String(entry.command ?? entry.tool ?? entry.label ?? entry.event ?? "");
+      ? "what"
+      : (["command", "tool", "label", "event"].find((k) => entry[k] !== undefined) ?? "");
+  const lead = leadKey ? String(entry[leadKey] ?? "") : "";
   const rest = Object.entries(entry)
-    .filter(([k]) => !COMMON.has(k) && k !== "what" && k !== "command" && k !== "tool" && k !== "event")
+    .filter(([k]) => !COMMON.has(k) && k !== leadKey)
     .map(([k, v]) => `${k}=${brief(v)}`);
   return [lead, ...rest].filter(Boolean).join("  ");
 }
