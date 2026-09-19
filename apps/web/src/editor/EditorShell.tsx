@@ -24,6 +24,7 @@ import { AboutDialog, ShortcutsDialog } from "./HelpDialogs.js";
 import { bindItemPlacing, type ItemPlacing } from "./item-placing.js";
 import type { Placeable } from "./item-tool.js";
 import { isInsidePopup, isTypingTarget } from "./keys.js";
+import { bindMeasureDrawing } from "./measure-drawing.js";
 import { bindOpeningDrawing } from "./opening-drawing.js";
 import { PropertiesPanel } from "./PropertiesPanel.js";
 import { bindRoomDrawing } from "./room-drawing.js";
@@ -357,6 +358,20 @@ export function EditorShell(): JSX.Element {
       status: setSnap,
     });
 
+    const measureDrawing = bindMeasureDrawing({
+      plan,
+      element: planRef.current as HTMLElement,
+      announcer,
+      project: () => replica.project,
+      settings: () => ({
+        units: String(optionsRef.current["measure.units"] ?? "mm") as "mm" | "m" | "ft",
+        magnetism: optionsRef.current["measure.snapWalls"] !== false,
+      }),
+      active: () => toolRef.current === "measure",
+      redraw,
+      status: setSnap,
+    });
+
     const zoneDrawing = bindZoneDrawing({
       plan,
       element: planRef.current as HTMLElement,
@@ -390,6 +405,7 @@ export function EditorShell(): JSX.Element {
       () => itemPlacing.finish(),
       () => zoneDrawing.finish(),
       () => openingDrawing.finish(),
+      () => measureDrawing.finish(),
     ];
 
     // One overlay painter: the draft review panel, both drawing tools and the compass all draw over the
@@ -401,6 +417,7 @@ export function EditorShell(): JSX.Element {
       roomDrawing.draw(ctx, view2);
       itemPlacing.draw(ctx, view2);
       openingDrawing.draw(ctx, view2);
+      measureDrawing.draw(ctx, view2);
       zoneDrawing.draw(ctx, view2);
       app.drawSelectionDrag(ctx, view2);
       const north = replica.project?.meta.north;
@@ -658,6 +675,7 @@ export function EditorShell(): JSX.Element {
       roomDrawing.destroy();
       itemPlacing.destroy();
       openingDrawing.destroy();
+      measureDrawing.destroy();
       zoneDrawing.destroy();
       itemPlacingRef.current = null;
       zoneDrawingRef.current = null;

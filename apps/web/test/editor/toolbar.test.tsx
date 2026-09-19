@@ -77,11 +77,10 @@ describe("the toolbar (ADR-017 D1 amendment, D2)", () => {
   });
 
   it("admits when a tool has nothing behind it rather than pretending", () => {
-    const { container } = show(toolById("measure") as ToolDefinition);
-    expect(container.textContent).toContain("Measure");
+    // Annotations are the last thing on the rail still to build; measure used to be the example here
+    // and is not one any more, which is exactly what the test below exists to notice.
+    const { container } = show(toolById("annotate") as ToolDefinition);
     expect(container.textContent).toContain("Not built yet");
-    // and it does not claim modifiers that would do nothing
-    expect(container.textContent).not.toContain("to measure along an axis");
   });
 
   it("stops saying that once a tool's gestures land", () => {
@@ -96,6 +95,10 @@ describe("the toolbar (ADR-017 D1 amendment, D2)", () => {
     expect(item.textContent).toContain("Place item");
     expect(item.textContent).not.toContain("Not built yet");
     expect(item.textContent).toContain("to bypass snapping");
+    // and measure, which graduated on 2026-09-19 and was the inert example until it did
+    const m = show(toolById("measure") as ToolDefinition).container;
+    expect(m.textContent).not.toContain("Not built yet");
+    expect(m.textContent).toContain("to measure along an axis");
   });
 
   it("is a toolbar, so assistive technology treats it as one group", () => {

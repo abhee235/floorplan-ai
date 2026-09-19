@@ -59,10 +59,13 @@ describe("the tools on the rail (ADR-017 D2)", () => {
       "opening",
       "item",
       "zone",
+      "measure",
       "pan",
     ]);
-    // Still honest about the one that is genuinely not built.
-    expect(toolReady("measure")).toBe(false);
+    // Annotations are the one thing on the rail still to build, so the rail greys it and says so
+    // rather than quietly doing nothing.
+    expect(toolReady("annotate")).toBe(false);
+    expect(toolReady("measure")).toBe(true);
     expect(toolReady("wall")).toBe(true);
     expect(toolReady("room")).toBe(true);
   });
