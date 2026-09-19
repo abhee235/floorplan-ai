@@ -29,6 +29,12 @@ export interface ProjectHost {
     result?: unknown;
     error?: { message?: string } | undefined;
   }>;
+  /** Open, make, attach to or let go of a project (ADR-020 D4). */
+  workspace(body: Record<string, unknown>): Promise<{
+    ok: boolean;
+    result?: unknown;
+    error?: { message?: string } | undefined;
+  }>;
 }
 
 export interface ProjectFacts {
@@ -55,6 +61,7 @@ export interface ProjectFilesApi {
     openPath: (path: string) => Promise<void>;
     save: () => Promise<void>;
     saveAs: () => Promise<void>;
+    closeProject: () => Promise<void>;
   };
   /** The lately-opened projects, for the Open recent submenu. */
   recent: RecentProject[];
@@ -99,6 +106,25 @@ export function useProjectFiles(
     if (!reply.ok) throw new Error(reply.error?.message ?? "the host refused");
   }, []);
 
+  /**
+   * Open, make or attach to a project (ADR-020 D4).
+   *
+   * Opening goes through the WORKSPACE rather than the project tool, and the difference is the whole
+   * point: the tool replaces the document in this tab's session, which every other tab on this host is
+   * also looking at. The workspace gives the project a session of its own and moves only this tab to
+   * it, so another tab keeps the project it had.
+   */
+  const workspace = useCallback(
+    async (body: Record<string, unknown>): Promise<{ projectId: string; name: string }> => {
+      const client = hostRef.current;
+      if (!client) throw new Error("not connected to the host");
+      const reply = await client.workspace(body);
+      if (!reply.ok) throw new Error(reply.error?.message ?? "the host refused");
+      return (reply.result ?? {}) as { projectId: string; name: string };
+    },
+    [],
+  );
+
   const loadRecent = useCallback(() => {
     void ask({ type: "files", op: "recent" })
       .then((body) => setRecent((body.recent as RecentProject[]) ?? []))
@@ -115,9 +141,14 @@ export function useProjectFiles(
   /**
    * Ask before throwing work away, and act on the answer. Resolves true when the caller may carry on.
    *
+   * Only closing a project reaches this now. Opening one used to: it replaced the document in this
+   * session, so whatever was unsaved went with it. With a session per project (ADR-020 D4) opening
+   * leaves the old project open on the host, so there is nothing to warn about and the question is not
+   * worth asking. Closing genuinely does let the work go.
+   *
    * Saving from here can itself need the Save as dialog, and that dialog resolves later and elsewhere —
    * so a save with no path answers false and the person is left in the dialog, rather than the project
-   * being replaced behind it.
+   * being closed behind it.
    */
   const mayDiscard = useCallback(
     async (action: string): Promise<boolean> => {
@@ -147,21 +178,21 @@ export function useProjectFiles(
   );
 
   const openPath = useCallback(
-    async (path: string): Promise<void> => {
-      if (!(await mayDiscard("Opening another project"))) return;
-      await project({ op: "open", path });
-      announcer.say(`Opened ${path}.`);
+    async (address: string): Promise<void> => {
+      // No prompt about unsaved work: nothing is discarded. The project this tab is leaving stays open
+      // on the host, with everything in it, and going back to it is a link away.
+      const opened = await workspace({ op: "open", address });
+      announcer.say(`Opened ${opened.name}.`);
       loadRecent();
     },
-    [mayDiscard, project, announcer, loadRecent],
+    [workspace, announcer, loadRecent],
   );
 
   const actions = useMemo(
     () => ({
       newProject: async (): Promise<void> => {
-        if (!(await mayDiscard("Starting a new project"))) return;
         try {
-          await project({ op: "new", name: "Untitled" });
+          await workspace({ op: "new", name: "Untitled" });
           announcer.say("New project. It has no file yet; Save will ask where to put it.");
         } catch (e) {
           announcer.alert(`No new project: ${e instanceof Error ? e.message : String(e)}`);
@@ -193,8 +224,17 @@ export function useProjectFiles(
       saveAs: async (): Promise<void> => {
         setMode("save");
       },
+      closeProject: async (): Promise<void> => {
+        if (!(await mayDiscard("Closing it"))) return;
+        try {
+          await workspace({ op: "close", project: now.current.projectId });
+          announcer.say("Closed. The projects still open are in File ▸ Open recent.");
+        } catch (e) {
+          announcer.alert(`It could not be closed: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      },
     }),
-    [mayDiscard, project, openPath, announcer],
+    [mayDiscard, project, openPath, workspace, announcer],
   );
 
   // ---- the address bar (ADR-020 D2) ---------------------------------------
@@ -223,29 +263,22 @@ export function useProjectFiles(
     if (wanted === null || wanted === facts.projectId) return;
     void (async () => {
       try {
-        const body = await ask({ type: "files", op: "resolve", project: wanted });
-        const known = body.project as { address: string; name: string } | null;
-        if (!known) {
-          announcer.alert(
-            `That link names a project this installation has not opened before, so there is nothing to open. Use File ▸ Open to find it once, and the link will work from then on.`,
-          );
-          showProject(now.current.projectId);
-          return;
-        }
-        await project({ op: "open", path: known.address });
-        announcer.say(`Opened ${known.name}.`);
+        // The host is asked to attach this tab to that project, opening it if it is not open already.
+        // It knows where the project lives; nothing here does, which is the point of an id.
+        const opened = await workspace({ op: "attach", project: wanted });
+        announcer.say(`Opened ${opened.name}.`);
         loadRecent();
       } catch (e) {
         announcer.alert(
-          `The link asked for a project that could not be opened: ${
+          `That link names a project this installation has not opened before, so there is nothing to open. Use File ▸ Open to find it once, and the link will work from then on. (${
             e instanceof Error ? e.message : String(e)
-          }`,
+          })`,
         );
         // put back what is actually open, so the address bar never lies about what is on screen
         showProject(now.current.projectId);
       }
     })();
-  }, [host, claimed, facts.known, facts.projectId, ask, project, announcer, loadRecent]);
+  }, [host, claimed, facts.known, facts.projectId, workspace, announcer, loadRecent]);
 
   // And from then on the address bar follows what is open, however it came to be open.
   useEffect(() => {
@@ -280,10 +313,8 @@ export function useProjectFiles(
             loadRecent();
             return;
           }
-          // Open from the dialog still asks about unsaved work, and a refusal there closes nothing.
-          if (!(await mayDiscard("Opening another project"))) throw new Error("Cancelled.");
-          await project({ op: "open", path });
-          announcer.say(`Opened ${path}.`);
+          const opened = await workspace({ op: "open", address: path });
+          announcer.say(`Opened ${opened.name}.`);
           loadRecent();
         }}
       />

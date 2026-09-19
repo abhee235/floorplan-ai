@@ -42,6 +42,12 @@ export const ClientMessage = z.discriminatedUnion("type", [
     clientVersion: z.string(),
     protocolVersion: z.number().int().optional(),
     capabilities: z.array(z.enum(["render", "plan"])),
+    /**
+     * The project this tab wants, from its URL (ADR-020 D4). A tab that names none, or names one this
+     * host is not holding, gets whatever was opened last — which is what a host started with a single
+     * `--project` has always given it.
+     */
+    project: z.string().optional(),
   }),
   CommandMsg,
   TransactionMsg,
@@ -83,6 +89,22 @@ export const ClientMessage = z.discriminatedUnion("type", [
     path: z.string().optional(),
     /** For `resolve`: the project id from a link, answered with where that project lives. */
     project: z.string().optional(),
+  }),
+  // Several projects open at once (ADR-020 D4). A host holds a session per project and a tab looks at
+  // one of them: `attach` moves this tab to a project it already holds or that the registry can find,
+  // `open` reads a directory, `new` starts an empty one, `close` lets one go, `list` says what is open.
+  z.object({
+    id: Id,
+    type: z.literal("workspace"),
+    op: z.enum(["attach", "open", "new", "close", "list"]),
+    /** A project id, for attach and close. */
+    project: z.string().optional(),
+    /** Where a project lives, for open; also accepted by attach when the id is not known here. */
+    address: z.string().optional(),
+    /** A name, for new. */
+    name: z.string().optional(),
+    /** With open: take the newer recovery file (ADR-012 D6). */
+    recover: z.boolean().optional(),
   }),
   // The one client message that expects no result: there is nothing to wait for, and a round trip per
   // click would make the log something the editor pays for.

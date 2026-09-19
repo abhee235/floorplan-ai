@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import { Bridge, type RecentEntry } from "./bridge.js";
 import type { Session } from "./session.js";
+import { Workspace } from "./workspace.js";
 
 export const DEFAULT_PORT = 4310;
 
@@ -28,7 +29,6 @@ export interface ServeOptions {
   host?: string;
   /** Directory with the built web app (apps/web/dist by default). */
   webDir?: string;
-  projectPath?: () => string | null;
   /** Texture images by id, served at /textures/<id> for the viewer (P3-5). */
   textures?: (id: string) => { bytes: Uint8Array; type: string } | null;
   /** The lately-opened projects, for File ▸ Open recent; read fresh on every request. */
@@ -105,11 +105,17 @@ function serveTexture(textures: ServeOptions["textures"], req: IncomingMessage, 
     .end(image.bytes);
 }
 
-/** Start serving the session: static web app plus `/bridge`. Resolves once listening. */
-export function serve(session: Session, options: ServeOptions = {}): Promise<Served> {
+/**
+ * Start serving: the static web app, plus `/bridge`.
+ *
+ * Takes a workspace of several projects, or one session — a host that opened a single project, and
+ * every test that only cares about one, is a workspace of one (ADR-020 D4).
+ */
+export function serve(target: Session | Workspace, options: ServeOptions = {}): Promise<Served> {
   const webDir = resolve(options.webDir ?? defaultWebDir());
   const host = options.host ?? "127.0.0.1";
-  const bridge = new Bridge(session, options.projectPath ?? (() => null), {
+  const workspace = target instanceof Workspace ? target : Workspace.of(target);
+  const bridge = new Bridge(workspace, {
     ...(options.recent ? { recent: options.recent } : {}),
     ...(options.resolve ? { resolve: options.resolve } : {}),
   });

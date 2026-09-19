@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Bridge, type BridgeSocket } from "../src/bridge.js";
 import { createLog, silentLog } from "../src/log.js";
 import { createSession, type Session } from "../src/session.js";
+import { Workspace } from "../src/workspace.js";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -41,7 +42,8 @@ function tab(session: Session): { bridge: Bridge; say: (msg: unknown) => Promise
       if (event === "message") receive = cb as (data: unknown) => void;
     },
   } as BridgeSocket;
-  const bridge = new Bridge(session);
+  // a bridge over a workspace of one, which is what a host with a single project is
+  const bridge = new Bridge(Workspace.of(session));
   bridge.attach(socket);
   return { bridge, back, say: async (msg) => void (await receive?.(JSON.stringify(msg))) };
 }

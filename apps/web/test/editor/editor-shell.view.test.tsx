@@ -287,6 +287,7 @@ describe("switching what is on screen (ADR-017 D1)", () => {
       "Open recent",
       "Save",
       "Save as…",
+      "Close project",
       "Import plan…",
       "Export",
     ]);

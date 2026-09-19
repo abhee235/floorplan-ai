@@ -12,7 +12,6 @@ import { describeEvent, loadAgentConfig, runAgentTask } from "./agent.js";
 import { HOST_VERSION } from "./bridge.js";
 import { loadDotEnv } from "./env.js";
 import { FileExportWriter } from "./exports.js";
-import { ProjectFileStore } from "./files.js";
 import { createLog, type LogLevel } from "./log.js";
 import { formatEntry, formatRuns, pickRun, readFrom, readRun, runs } from "./log-read.js";
 import { serveStdio } from "./mcp.js";
@@ -21,9 +20,9 @@ import { FilePlanReader } from "./plans.js";
 import { ProjectRegistry } from "./projects.js";
 import { createReader, loadReaderConfig } from "./reader.js";
 import { DEFAULT_PORT, serve } from "./server.js";
-import { createSession } from "./session.js";
 import { TextureImages } from "./textures.js";
 import { createVerifier, loadHostConfig } from "./verifier.js";
+import { Workspace } from "./workspace.js";
 
 export interface CliArgs {
   mcp: boolean;
@@ -214,16 +213,9 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     data: catalog.dir,
     argv: [...argv],
   });
-  // one file store per session; a project given on the command line is opened before anything listens
   // Every project this session opens or saves is remembered by its own id (ADR-020 D1), so a link
   // keeps working after the folder is moved and File ▸ Open recent has something to offer.
   const projects = ProjectRegistry.open(catalog.dir);
-  const files = new ProjectFileStore({ remember: (entry) => projects.remember(entry) });
-  const opened = args.project ? await files.open(args.project) : null;
-  if (opened?.recoveryAt)
-    process.stderr.write(
-      `a recovery file from ${opened.recoveryAt} is newer; open with recover: true to use it\n`,
-    );
   // product verification: search and model are optional; without them callers pass sources and a proposal
   const loaded = loadHostConfig({ dataDir: catalog.dir });
   for (const note of loaded.notes) process.stderr.write(`floorplan-ai config: ${note}\n`);
@@ -233,31 +225,34 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   for (const note of readerConfig.notes) process.stderr.write(`floorplan-ai config: ${note}\n`);
   const planReaderSetup = createReader(readerConfig.model);
   process.stderr.write(`floorplan-ai reader: ${planReaderSetup.describe}\n`);
-  const session = createSession({
-    files,
-    log,
+  // Several projects can be open at once (ADR-020 D4). A host started with --project holds that one
+  // to begin with, and a tab can open others without disturbing it.
+  const workspace = new Workspace({
     now,
+    log,
+    registry: projects,
     catalog: catalog.store,
     verifier: verification.verifier,
     rules: AV_CORE,
-    writer: new FileExportWriter({ baseDir: () => files.path() ?? join(catalog.dir, "exports") }),
+    writer: (store) => new FileExportWriter({ baseDir: () => store.path() ?? join(catalog.dir, "exports") }),
     plans: new FilePlanReader({ baseDir: () => process.cwd(), raster: planReaderSetup.reader }),
-    ...(opened ? { project: opened.project } : {}),
   });
-  files.startAutosave();
-  if (opened)
-    log.write("file", "host", {
-      event: "opened",
-      path: args.project,
-      migrated: opened.migrated,
-      modifiedOutside: opened.modifiedOutside,
-      recoveryAt: opened.recoveryAt ?? null,
-    });
+  const first = args.project ? await workspace.open(args.project) : workspace.create();
+  const files = first.files;
+  const session = first.session;
+  if (args.project) {
+    const recoveryAt = files.recoveryAt();
+    if (recoveryAt)
+      process.stderr.write(
+        `a recovery file from ${recoveryAt} is newer; open with recover: true to use it\n`,
+      );
+    log.write("file", "host", { event: "opened", path: args.project, recoveryAt });
+  }
   if (args.serve) {
     const images = new TextureImages(catalog.store, catalog.dir);
-    const served = await serve(session, {
+    const served = await serve(workspace, {
       port: args.port,
-      projectPath: () => files.path(),
+
       textures: (id) => images.image(id),
       // Read fresh per request: another host may have opened something since this one started.
       recent: () => projects.recentPresent(),
@@ -267,7 +262,8 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     process.stderr.write(`floorplan-ai viewer: ${served.url}\n`);
     await files.writeSession(served.port, PROTOCOL_VERSION);
     const bye = () => {
-      files.stopAutosave();
+      workspace.closeAll();
+      projects.close();
       catalog.store.close();
       log.write("host", "host", { event: "stopping" });
       log.close();

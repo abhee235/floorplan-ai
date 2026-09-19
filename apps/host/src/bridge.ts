@@ -18,10 +18,11 @@ import {
 import type { DraftPresentation, RenderedImage, RenderRequest, ViewerRenderer } from "@fpv/tools";
 import type { WebSocket } from "ws";
 import { browse, places, startingDir } from "./browse.js";
-import { plainDetail } from "./log.js";
+import { plainDetail, silentLog } from "./log.js";
 import { entriesFrom, pickRun, runs } from "./log-read.js";
 import type { Session } from "./session.js";
 import { staleness, stalenessNote } from "./staleness.js";
+import type { Held, Workspace } from "./workspace.js";
 
 /** The `type` of a command, for a log line, without trusting it to be one. */
 function commandTypeOf(command: unknown): string {
@@ -49,6 +50,13 @@ interface ClientState {
   socket: BridgeSocket;
   capabilities: Set<"render" | "plan">;
   hello: boolean;
+  /**
+   * The project this tab is looking at (ADR-020 D4), or null before it has said.
+   *
+   * This is what ends one-host-one-project: changes, problems, the selection and render requests all
+   * go to the tabs attached to the project they belong to, and to no others.
+   */
+  held: Held | null;
 }
 
 /** One project this installation opened lately, as the editor's Open dialog shows it. */
@@ -67,42 +75,73 @@ export interface BridgeOptions {
   resolve?: (id: string) => RecentEntry | null;
 }
 
-export class Bridge implements ViewerRenderer {
+export class Bridge {
   private readonly clients = new Set<ClientState>();
-  private seq = 0;
+  /**
+   * The change sequence, counted PER PROJECT.
+   *
+   * A replica refuses any change that does not follow the one it holds and asks for a fresh snapshot
+   * instead (spec 06 B3). One counter shared across projects would step on every change to any of
+   * them, so a change in the second tab's project would look like a gap to the first tab and throw
+   * away its session — for a change it was never sent and does not care about.
+   */
+  private readonly seqs = new Map<string, number>();
   private renderSeq = 0;
   private readonly pendingRenders = new Map<
     string,
     { resolve: (images: RenderedImage[]) => void; reject: (e: Error) => void }
   >();
-  private readonly unsubscribe: () => void;
-  private readonly unwatchFiles: (() => void) | null;
-  /** The draft under review, sent to clients that connect while it is open. */
-  private draft: DraftMsg | null = null;
+  /** One per project being followed, undone when the bridge closes. */
+  private readonly stopFollowing = new Map<string, () => void>();
+  /** The draft under review per project, sent to a tab that attaches while one is open. */
+  private readonly drafts = new Map<string, DraftMsg>();
 
   constructor(
-    private readonly session: Session,
-    private readonly projectPath: () => string | null = () => null,
+    private readonly workspace: Workspace,
     private readonly options: BridgeOptions = {},
   ) {
-    // What is open and whether it is saved changes without the history moving — a save, an open, a
-    // recovery write — so none of it appears in the change stream below (ADR-012 D8).
+    for (const held of workspace.list()) this.follow(held);
+    this.stopFollowing.set(
+      "__workspace",
+      workspace.watch((held) => this.follow(held)),
+    );
+  }
+
+  /**
+   * Start sending one project's changes to the tabs looking at it.
+   *
+   * Each project gets its own viewer, rather than the bridge being one: a render asked for by the
+   * project in the second tab must be drawn by a tab showing THAT project, or the picture comes back
+   * of something else entirely.
+   */
+  private follow(held: Held): void {
+    if (this.stopFollowing.has(held.id)) return;
+    const { session } = held;
     const files = session.ctx.files;
-    this.unwatchFiles = files?.watch ? files.watch(() => this.broadcast(this.projectState())) : null;
-    this.unsubscribe = session.store.subscribe((e) => {
+    const unwatchFiles = files?.watch
+      ? files.watch(() => this.broadcast(held, this.projectState(held)))
+      : null;
+    const unsubscribe = session.store.subscribe((e) => {
       const msg: ChangesMsg = {
         type: "changes",
-        seq: (this.seq += 1),
+        seq: this.nextSeq(held),
         changeSet: e.changes,
         historyPosition: e.historyPosition,
         origin: e.origin,
         patches: e.patches,
       };
-      this.broadcast(msg);
-      this.broadcast({ type: "problems", problems: session.registry.problems() });
+      this.broadcast(held, msg);
+      this.broadcast(held, { type: "problems", problems: session.registry.problems() });
     });
-    // the tools' render goes through this bridge
-    session.ctx.viewer = this;
+    session.ctx.viewer = {
+      render: (req) => this.renderFor(held, req),
+      presentDraft: (presentation) => this.presentDraftFor(held, presentation),
+    };
+    this.stopFollowing.set(held.id, () => {
+      unsubscribe();
+      unwatchFiles?.();
+      if (session.ctx.viewer && "render" in session.ctx.viewer) session.ctx.viewer = null;
+    });
   }
 
   get clientCount(): number {
@@ -114,7 +153,12 @@ export class Bridge implements ViewerRenderer {
   }
 
   attach(socket: BridgeSocket | WebSocket): void {
-    const state: ClientState = { socket: socket as BridgeSocket, capabilities: new Set(), hello: false };
+    const state: ClientState = {
+      socket: socket as BridgeSocket,
+      capabilities: new Set(),
+      hello: false,
+      held: null,
+    };
     this.clients.add(state);
     (socket as BridgeSocket).on("message", (data: unknown) => this.receive(state, String(data)));
     (socket as BridgeSocket).on("close", () => this.clients.delete(state));
@@ -128,8 +172,26 @@ export class Bridge implements ViewerRenderer {
     }
   }
 
-  private broadcast(msg: HostMessage): void {
-    for (const c of this.clients) if (c.hello) this.send(c, msg);
+  private nextSeq(held: Held): number {
+    const next = (this.seqs.get(held.id) ?? 0) + 1;
+    this.seqs.set(held.id, next);
+    return next;
+  }
+
+  /** To the tabs looking at this project, and to no others (ADR-020 D4). */
+  private broadcast(held: Held, msg: HostMessage): void {
+    for (const c of this.clients) if (c.hello && c.held?.id === held.id) this.send(c, msg);
+  }
+
+  /** Put a tab on a project and send it everything it needs to draw that project from nothing. */
+  private showProjectTo(state: ClientState, held: Held): void {
+    state.held = held;
+    this.send(state, this.snapshot(held));
+    this.send(state, this.projectState(held));
+    this.send(state, { type: "problems", problems: held.session.registry.problems() });
+    this.send(state, { type: "selection", ids: held.session.store.selection });
+    const draft = this.drafts.get(held.id);
+    if (draft) this.send(state, draft);
   }
 
   private reply(
@@ -142,13 +204,13 @@ export class Bridge implements ViewerRenderer {
   }
 
   /** What is open and whether it is saved, as the editor's title and File menu need it. */
-  private projectState(): ProjectStateMsg {
-    const store = this.session.store;
-    const files = this.session.ctx.files;
+  private projectState(held: Held): ProjectStateMsg {
+    const store = held.session.store;
+    const files = held.session.ctx.files;
     return {
       type: "project.state",
       projectId: store.project.meta.id,
-      path: files?.path() ?? this.projectPath(),
+      path: files?.path() ?? null,
       name: store.project.meta.name,
       historyPosition: store.historyPosition,
       savedPosition: store.savedPosition,
@@ -158,11 +220,11 @@ export class Bridge implements ViewerRenderer {
     };
   }
 
-  private snapshot(): HostMessage {
-    const store = this.session.store;
+  private snapshot(held: Held): HostMessage {
+    const store = held.session.store;
     return {
       type: "snapshot",
-      seq: this.seq,
+      seq: this.seqs.get(held.id) ?? 0,
       project: store.project,
       historyPosition: store.historyPosition,
       savedPosition: store.savedPosition,
@@ -192,55 +254,37 @@ export class Bridge implements ViewerRenderer {
   }
 
   private async handle(state: ClientState, msg: ClientMessage): Promise<void> {
-    const store = this.session.store;
+    if (msg.type === "hello") {
+      this.hello(state, msg);
+      return;
+    }
+    if (msg.type === "workspace") {
+      await this.workspaceMessage(state, msg);
+      return;
+    }
+    // Everything else is about one project, and a tab that is not looking at one has nothing to say
+    // about any of them. This is not reachable through the editor, which attaches with its hello.
+    const held = state.held;
+    if (!held) {
+      if (msg.id)
+        this.reply(state, msg.id, false, {
+          error: {
+            code: "bridge.no-project",
+            message: "this tab is not looking at a project",
+            hint: "attach to one first",
+          },
+        });
+      return;
+    }
+    const session = held.session;
+    const store = session.store;
     switch (msg.type) {
-      case "hello": {
-        const v = msg.protocolVersion ?? PROTOCOL_VERSION;
-        if (v !== PROTOCOL_VERSION) {
-          this.reply(state, msg.id, false, {
-            error: {
-              code: "bridge.version",
-              message: `host speaks protocol ${PROTOCOL_VERSION}, client ${v}`,
-              hint: v < PROTOCOL_VERSION ? "update the client" : "update the host",
-            },
-          });
-          state.socket.close(CLOSE_VERSION_MISMATCH, `protocol ${PROTOCOL_VERSION} required`);
-          return;
-        }
-        state.hello = true;
-        state.capabilities = new Set(msg.capabilities);
-        const behind = stalenessNote(staleness(REPO_ROOT, STARTED_AT));
-        this.session.log.write("bridge", "host", {
-          event: "joined",
-          client: msg.clientVersion,
-          protocolVersion: v,
-          capabilities: [...state.capabilities],
-          ...(behind ? { behind } : {}),
-        });
-        this.send(state, {
-          id: msg.id,
-          type: "welcome",
-          hostVersion: HOST_VERSION,
-          protocolVersion: PROTOCOL_VERSION,
-          projectId: store.project.meta.id,
-          path: this.projectPath(),
-          // Worked out per connection, not at startup: the code changes while the host runs, which is
-          // the whole point of asking.
-          stale: behind,
-        });
-        this.send(state, this.snapshot());
-        this.send(state, this.projectState());
-        this.send(state, { type: "problems", problems: this.session.registry.problems() });
-        this.send(state, { type: "selection", ids: store.selection });
-        if (this.draft) this.send(state, this.draft);
-        return;
-      }
       case "command": {
         const r = store.apply(msg.command, "editor");
         // A refusal emits nothing from the store, and "I did that and nothing happened" is the most
         // common report there is; it is written down here, where it is known (ADR-019 D2).
         if (!r.ok)
-          this.session.log.write("command", "editor", {
+          session.log.write("command", "editor", {
             command: commandTypeOf(msg.command),
             ok: false,
             refused: r.error.code,
@@ -259,7 +303,7 @@ export class Bridge implements ViewerRenderer {
       case "transaction": {
         const t = store.transaction(msg.label, msg.commands, "editor");
         if (!t.ok)
-          this.session.log.write("transaction", "editor", {
+          session.log.write("transaction", "editor", {
             label: msg.label,
             commands: msg.commands.map(commandTypeOf),
             ok: false,
@@ -285,7 +329,7 @@ export class Bridge implements ViewerRenderer {
         this.reply(state, msg.id, true, { result: { changes: store.redo() } });
         return;
       case "get": {
-        if (msg.what === "snapshot") this.send(state, this.snapshot());
+        if (msg.what === "snapshot") this.send(state, this.snapshot(held));
         const result =
           msg.what === "history"
             ? {
@@ -295,20 +339,20 @@ export class Bridge implements ViewerRenderer {
             : msg.what === "selection"
               ? { ids: store.selection }
               : msg.what === "problems"
-                ? { problems: this.session.registry.problems() }
+                ? { problems: session.registry.problems() }
                 : msg.what === "textures"
-                  ? { textures: textureList(this.session) }
-                  : { seq: this.seq };
+                  ? { textures: textureList(session) }
+                  : { seq: this.seqs.get(held.id) ?? 0 };
         this.reply(state, msg.id, true, { result });
         return;
       }
       case "select":
         store.setSelection(msg.ids);
         this.reply(state, msg.id, true, { result: { ids: msg.ids } });
-        this.broadcast({ type: "selection", ids: msg.ids });
+        this.broadcast(held, { type: "selection", ids: msg.ids });
         return;
       case "tool": {
-        const r = await this.session.registry.call(msg.name, msg.args);
+        const r = await session.registry.call(msg.name, msg.args);
         this.reply(
           state,
           msg.id,
@@ -319,14 +363,14 @@ export class Bridge implements ViewerRenderer {
         );
         // `project new` replaces the project without touching a file, so the files' own watcher never
         // fires; the saved position still moved and every tab needs the new answer.
-        if (msg.name === "project") this.broadcast(this.projectState());
+        if (msg.name === "project") this.broadcast(held, this.projectState(held));
         return;
       }
       case "files": {
         // The host lists its own folders so the editor can offer a picker (ADR-012 D8). A browser
         // cannot show one for a directory on this machine, and `project open` takes any path already.
         if (msg.op === "recent") {
-          const current = this.session.ctx.files?.path() ?? this.projectPath();
+          const current = held.files.path();
           this.reply(state, msg.id, true, {
             result: {
               recent: this.options.recent?.() ?? [],
@@ -344,13 +388,13 @@ export class Bridge implements ViewerRenderer {
           this.reply(state, msg.id, true, { result: { project: known } });
           return;
         }
-        const where = msg.path ?? startingDir(this.session.ctx.files?.path() ?? this.projectPath());
+        const where = msg.path ?? startingDir(held.files.path());
         this.reply(state, msg.id, true, { result: await browse(where) });
         return;
       }
       case "log": {
         // Reading the log back in the editor (ADR-019 D7). The host owns the files; the tab asks.
-        const dir = this.session.log.dir;
+        const dir = session.log.dir;
         if (!dir) {
           this.reply(state, msg.id, false, {
             error: {
@@ -368,7 +412,7 @@ export class Bridge implements ViewerRenderer {
                 name: r.name,
                 at: r.at ? r.at.toISOString() : null,
                 bytes: r.bytes,
-                current: r.path === this.session.log.path,
+                current: r.path === session.log.path,
               })),
             },
           });
@@ -391,7 +435,7 @@ export class Bridge implements ViewerRenderer {
         // What the person did, written beside the commands it caused (ADR-019 D4). Nothing is acted on
         // and nothing is answered: the whole of the host's interest in a gesture is a line in a file.
         for (const g of msg.gestures)
-          this.session.log.write("gesture", "editor", { ...plainDetail(g.detail), what: g.what });
+          session.log.write("gesture", "editor", { ...plainDetail(g.detail), what: g.what });
         if (msg.id) this.reply(state, msg.id, true, { result: { written: msg.gestures.length } });
         return;
       }
@@ -412,15 +456,158 @@ export class Bridge implements ViewerRenderer {
     }
   }
 
+  /**
+   * A tab introducing itself, and saying which project it wants (ADR-020 D4).
+   *
+   * `project` is the id from its URL. A tab that names none, or names one this host is not holding,
+   * gets whatever was opened last — which for a host started with `--project` is that project, exactly
+   * as before.
+   */
+  private hello(state: ClientState, msg: Extract<ClientMessage, { type: "hello" }>): void {
+    const v = msg.protocolVersion ?? PROTOCOL_VERSION;
+    if (v !== PROTOCOL_VERSION) {
+      this.reply(state, msg.id, false, {
+        error: {
+          code: "bridge.version",
+          message: `host speaks protocol ${PROTOCOL_VERSION}, client ${v}`,
+          hint: v < PROTOCOL_VERSION ? "update the client" : "update the host",
+        },
+      });
+      state.socket.close(CLOSE_VERSION_MISMATCH, `protocol ${PROTOCOL_VERSION} required`);
+      return;
+    }
+    state.hello = true;
+    state.capabilities = new Set(msg.capabilities);
+    const held = (msg.project ? this.workspace.get(msg.project) : null) ?? this.workspace.default();
+    const behind = stalenessNote(staleness(REPO_ROOT, STARTED_AT));
+    (held?.session.log ?? this.anyLog()).write("bridge", "host", {
+      event: "joined",
+      client: msg.clientVersion,
+      protocolVersion: v,
+      capabilities: [...state.capabilities],
+      asked: msg.project ?? null,
+      ...(behind ? { behind } : {}),
+    });
+    this.send(state, {
+      id: msg.id,
+      type: "welcome",
+      hostVersion: HOST_VERSION,
+      protocolVersion: PROTOCOL_VERSION,
+      projectId: held?.session.store.project.meta.id ?? "",
+      path: held?.files.path() ?? null,
+      // Worked out per connection, not at startup: the code changes while the host runs, which is
+      // the whole point of asking.
+      stale: behind,
+    });
+    if (held) this.showProjectTo(state, held);
+  }
+
+  /** Opening, making, listing and leaving projects (ADR-020 D4). */
+  private async workspaceMessage(
+    state: ClientState,
+    msg: Extract<ClientMessage, { type: "workspace" }>,
+  ): Promise<void> {
+    const describe = (held: Held) => ({
+      projectId: held.id,
+      name: held.session.store.project.meta.name,
+      address: held.files.path(),
+    });
+    try {
+      switch (msg.op) {
+        case "list":
+          this.reply(state, msg.id, true, { result: { open: this.workspace.list().map(describe) } });
+          return;
+        case "attach": {
+          // By id when this host is already holding it, else by where the registry says it lives, so a
+          // link works on a host that has never had that project open.
+          const byId = msg.project ? this.workspace.get(msg.project) : null;
+          const address = msg.address ?? (msg.project ? this.options.resolve?.(msg.project)?.address : null);
+          const held = byId ?? (address ? await this.workspace.open(address) : null);
+          if (!held) {
+            this.reply(state, msg.id, false, {
+              error: {
+                code: "not-found",
+                message: "nothing here knows that project",
+                hint: "open it once by name and the link will work from then on",
+              },
+            });
+            return;
+          }
+          this.showProjectTo(state, held);
+          this.reply(state, msg.id, true, { result: describe(held) });
+          return;
+        }
+        case "open": {
+          if (!msg.address) {
+            this.reply(state, msg.id, false, {
+              error: { code: "invalid", message: "open needs an address", hint: null },
+            });
+            return;
+          }
+          const held = await this.workspace.open(msg.address, msg.recover ? { recover: true } : {});
+          this.showProjectTo(state, held);
+          this.reply(state, msg.id, true, { result: describe(held) });
+          return;
+        }
+        case "new": {
+          const held = this.workspace.create(msg.name ?? "Untitled");
+          this.showProjectTo(state, held);
+          this.reply(state, msg.id, true, { result: describe(held) });
+          return;
+        }
+        case "close": {
+          const held = msg.project ? this.workspace.get(msg.project) : null;
+          if (held) {
+            // Any tab still looking at it is put back on whatever remains, rather than left watching a
+            // project that no longer exists.
+            for (const c of this.clients) if (c.held?.id === held.id) c.held = null;
+            this.workspace.close(held.id);
+            this.stopFollowing.get(held.id)?.();
+            this.stopFollowing.delete(held.id);
+            this.drafts.delete(held.id);
+            this.seqs.delete(held.id);
+            // A tab always has a project to be looking at. Closing the last one leaves an empty one
+            // rather than a tab attached to nothing, which nothing in the editor is built to draw.
+            const left = this.workspace.default() ?? this.workspace.create();
+            for (const c of this.clients) if (c.hello && !c.held) this.showProjectTo(c, left);
+          }
+          this.reply(state, msg.id, true, { result: { open: this.workspace.list().map(describe) } });
+          return;
+        }
+      }
+    } catch (e) {
+      this.reply(state, msg.id, false, {
+        error: {
+          code: (e as { code?: string }).code ?? "file.error",
+          message: e instanceof Error ? e.message : String(e),
+          hint: (e as { hint?: string | null }).hint ?? null,
+        },
+      });
+    }
+  }
+
+  /** Any session's log; they all write to the same run, and the host's own lines belong to no project. */
+  private anyLog(): Session["log"] {
+    const held = this.workspace.default() ?? this.workspace.list()[0];
+    return held ? held.session.log : silentLog();
+  }
+
   /** ViewerRenderer for the render tool: first render-capable client, 30 s timeout (ADR-005 D6, D8). */
-  render(req: RenderRequest): Promise<{ images: RenderedImage[] }> {
+  private renderFor(held: Held, req: RenderRequest): Promise<{ images: RenderedImage[] }> {
+    // A tab showing ANOTHER project would draw a perfectly good picture of the wrong building.
     const target = [...this.clients].find(
       (c) =>
         c.hello &&
+        c.held?.id === held.id &&
         c.capabilities.has("render") &&
         (c.socket.readyState === undefined || c.socket.readyState === 1),
     );
-    if (!target) return Promise.reject(new Error("no viewer with the render capability is connected"));
+    if (!target)
+      return Promise.reject(
+        new Error(
+          `no viewer with the render capability is looking at ${held.session.store.project.meta.name}`,
+        ),
+      );
     const requestId = `r${(this.renderSeq += 1)}`;
     const views =
       req.view === "overhead" ? ["overhead-ne", "overhead-nw", "overhead-se", "overhead-sw"] : [req.view];
@@ -449,8 +636,8 @@ export class Bridge implements ViewerRenderer {
     });
   }
 
-  /** Show a draft for review in every connected viewer, or close the review (ADR-011 D5). */
-  presentDraft(presentation: DraftPresentation | null): void {
+  /** Show a draft for review in the viewers of one project, or close the review (ADR-011 D5). */
+  private presentDraftFor(held: Held, presentation: DraftPresentation | null): void {
     const msg: DraftMsg = presentation
       ? {
           type: "draft",
@@ -461,16 +648,16 @@ export class Bridge implements ViewerRenderer {
           warnings: presentation.warnings,
         }
       : { type: "draft", draftId: null, draft: null, preview: null, image: null, warnings: [] };
-    this.draft = presentation ? msg : null;
-    this.broadcast(msg);
+    if (presentation) this.drafts.set(held.id, msg);
+    else this.drafts.delete(held.id);
+    this.broadcast(held, msg);
   }
 
   close(): void {
-    this.unsubscribe();
-    this.unwatchFiles?.();
+    for (const stop of this.stopFollowing.values()) stop();
+    this.stopFollowing.clear();
     for (const c of this.clients) c.socket.close(1001, "host closing");
     this.clients.clear();
-    if (this.session.ctx.viewer === this) this.session.ctx.viewer = null;
   }
 }
 

@@ -38,6 +38,15 @@ export interface EventLog {
   readonly level: LogLevel;
   /** One line. `fields` is merged in after the common ones, and may not overwrite them. */
   write(kind: string, source: string, fields?: Record<string, unknown>): void;
+  /**
+   * A view of this log for one project: the same file, with every line stamped with which project it
+   * is about (ADR-020 D4).
+   *
+   * It carries its own "what the project was before the change", which is the part that matters. One
+   * shared copy across several open projects would diff a change to one against the state of another,
+   * and a log that reports the wrong thing changed is worse than no log.
+   */
+  forProject(projectId: string): EventLog;
   /** A change the store made: what was asked, who asked, and what moved. */
   fromStore(event: StoreEvent, project: Project): void;
   /**
@@ -55,6 +64,7 @@ export function silentLog(): EventLog {
     path: null,
     dir: null,
     level: "off",
+    forProject: () => silentLog(),
     write: () => {},
     fromStore: () => {},
     baseline: () => {},
@@ -105,47 +115,68 @@ export function createLog(options: LogOptions): EventLog {
     }
   };
 
+  // The sequence counts lines in the FILE, so it is shared: every view appends to the same run, and a
+  // line's number is where it sits in that run whichever project it came from.
   let seq = 0;
-  // The project as it was after the last change, so a patch that replaces a whole entity can be turned
-  // into the fields that actually differ. Most reducers rewrite the object rather than one field, and
-  // "item_7f was replaced" answers none of the questions a log is kept for.
-  let last: Project | null = null;
-  const log: EventLog = {
-    path,
-    dir: options.dir,
-    level,
-    write(kind, source, fields) {
-      seq += 1;
-      // The common fields go last, so a caller cannot rewrite when something happened or who did it.
-      const entry: LogEntry = { ...fields, ts: now().toISOString(), seq, kind, source };
-      waiting.push(`${JSON.stringify(entry)}` + LINE_END);
-      // unref: a log that has not been flushed yet must not hold the process open
-      if (!due) due = setTimeout(flush, FLUSH_MS).unref();
-    },
-    fromStore(event, project) {
-      const { changes } = event;
-      log.write(kindOf(event), event.origin, {
-        command: changes.commandType,
-        entities: entities(changes),
-        historyPosition: event.historyPosition,
-        patchCount: event.patches.length,
-        changed: named(
-          project,
-          last,
-          event.patches,
-          level === "verbose" ? Number.POSITIVE_INFINITY : PATCHES_AT_INFO,
-        ),
-      });
-      last = project;
-    },
-    baseline(project) {
-      last = project;
-    },
-    close() {
-      flush();
-    },
+
+  /**
+   * One view of the run. `tag` names the project its lines are about, or is null for the host's own
+   * lines — starting up, a tab joining — which belong to no project in particular.
+   */
+  const make = (tag: string | null): EventLog => {
+    // The project as it was after the last change, so a patch that replaces a whole entity can be turned
+    // into the fields that actually differ. Most reducers rewrite the object rather than one field, and
+    // "item_7f was replaced" answers none of the questions a log is kept for.
+    //
+    // Per view, not shared: two open projects each need their own, or a change to one is diffed against
+    // the other and the log reports the wrong thing as having changed.
+    let last: Project | null = null;
+    const view: EventLog = {
+      path,
+      dir: options.dir,
+      level,
+      forProject: (projectId) => make(projectId),
+      write(kind, source, fields) {
+        seq += 1;
+        // The common fields go last, so a caller cannot rewrite when something happened or who did it.
+        const entry: LogEntry = {
+          ...fields,
+          ...(tag ? { project: tag } : {}),
+          ts: now().toISOString(),
+          seq,
+          kind,
+          source,
+        };
+        waiting.push(`${JSON.stringify(entry)}` + LINE_END);
+        // unref: a log that has not been flushed yet must not hold the process open
+        if (!due) due = setTimeout(flush, FLUSH_MS).unref();
+      },
+      fromStore(event, project) {
+        const { changes } = event;
+        view.write(kindOf(event), event.origin, {
+          command: changes.commandType,
+          entities: entities(changes),
+          historyPosition: event.historyPosition,
+          patchCount: event.patches.length,
+          changed: named(
+            project,
+            last,
+            event.patches,
+            level === "verbose" ? Number.POSITIVE_INFINITY : PATCHES_AT_INFO,
+          ),
+        });
+        last = project;
+      },
+      baseline(project) {
+        last = project;
+      },
+      close() {
+        flush();
+      },
+    };
+    return view;
   };
-  return log;
+  return make(null);
 }
 
 function kindOf(event: StoreEvent): string {

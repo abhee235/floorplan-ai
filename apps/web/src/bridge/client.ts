@@ -33,6 +33,11 @@ export interface RenderHandler {
 export interface BridgeClientOptions {
   clientVersion: string;
   capabilities: Capability[];
+  /**
+   * The project this tab wants, from its URL (ADR-020 D4). Absent means "whatever was opened last",
+   * which is what a host started with a single project has always given.
+   */
+  project?: string | null;
   /** Answers render requests when the client advertised the render capability. */
   onRender?: RenderHandler;
   onStatus?: (status: BridgeStatus) => void;
@@ -70,6 +75,7 @@ export class BridgeClient {
         clientVersion: options.clientVersion,
         protocolVersion: PROTOCOL_VERSION,
         capabilities: options.capabilities,
+        ...(options.project ? { project: options.project } : {}),
       });
       this.flush();
     };
@@ -134,6 +140,10 @@ export class BridgeClient {
   }
   requestSnapshot(): Promise<ResultMsg> {
     return this.request({ type: "get", what: "snapshot" });
+  }
+  /** Open, make, attach to, list or let go of a project (ADR-020 D4). */
+  workspace(body: Record<string, unknown>): Promise<ResultMsg> {
+    return this.request({ type: "workspace", ...body });
   }
   /**
    * Tell the host what the person did, for the session log (ADR-019 D4). The one message that expects no

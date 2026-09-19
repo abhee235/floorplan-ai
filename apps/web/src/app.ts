@@ -9,6 +9,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { BridgeClient, bridgeUrl } from "./bridge/client.js";
+import { projectAsked } from "./editor/address.js";
 import { recordGesture } from "./editor/gestures.js";
 import {
   footprintOf,
@@ -907,6 +908,8 @@ export function startApp(el: AppElements): {
   const client = new BridgeClient(socket, replica, {
     clientVersion: CLIENT_VERSION,
     capabilities: ["render", "plan"],
+    // Which project this tab is for, read from its own URL (ADR-020 D2, D4).
+    project: projectAsked(),
     onStatus: () => updateStatus(),
     onDraft: (msg) => {
       const wasActive = review.active;

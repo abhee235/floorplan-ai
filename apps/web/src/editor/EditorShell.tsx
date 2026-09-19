@@ -483,6 +483,13 @@ export function EditorShell(): JSX.Element {
         run: () => void filesRef.current.save(),
       },
       {
+        id: "file.close",
+        title: "Close project",
+        group: "File",
+        detail: "the others stay open",
+        run: () => void filesRef.current.closeProject(),
+      },
+      {
         id: "file.saveAs",
         title: "Save as…",
         group: "File",

@@ -307,7 +307,7 @@ describe("what is open, over the bridge (ADR-012 D8)", () => {
     const files = new ProjectFileStore({ now: () => NOW });
     const opened = await files.open(project);
     const session = createSession({ files, project: opened.project, now: () => NOW });
-    served = await serve(session, { port: 0, projectPath: () => files.path() });
+    served = await serve(session, { port: 0 });
     const tab = new Tab(`ws://127.0.0.1:${served.port}/bridge`);
     await tab.open();
     await tab.send({ type: "hello", clientVersion: "t", capabilities: ["plan"] });
@@ -386,7 +386,7 @@ describe("what is open, over the bridge (ADR-012 D8)", () => {
     const other = makeProject(dir, "other-project");
     const files = new ProjectFileStore({ now: () => NOW });
     const session = createSession({ files, now: () => NOW });
-    served = await serve(session, { port: 0, projectPath: () => files.path() });
+    served = await serve(session, { port: 0 });
     const tab = new Tab(`ws://127.0.0.1:${served.port}/bridge`);
     await tab.open();
     await tab.send({ type: "hello", clientVersion: "t", capabilities: ["plan"] });

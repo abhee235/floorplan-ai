@@ -67,6 +67,8 @@ export function menus(view: string): MenuDefinition[] {
         "file.save",
         "file.saveAs",
         { separator: true },
+        "file.close",
+        { separator: true },
         "file.import",
         {
           title: "Export",
