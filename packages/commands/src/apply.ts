@@ -1,5 +1,5 @@
 // apply(project, command, ctx): dispatch to a reducer on an Immer draft, normalise, validate, return patches (ADR-004 D1).
-import type { Project } from "@fpv/ir";
+import type { Author, Authorship, Project } from "@fpv/ir";
 import {
   normalizeItem,
   normalizeOpening,
@@ -18,6 +18,7 @@ import * as openings from "./reducers/openings.js";
 import * as rooms from "./reducers/rooms.js";
 import * as walls from "./reducers/walls.js";
 import * as zones from "./reducers/zones.js";
+import type { Origin } from "./store.js";
 import { Command, type Command as CommandT } from "./types.js";
 
 enablePatches();
@@ -112,6 +113,51 @@ function normalizeTouched(draft: Project, changes: Changes): void {
   }
 }
 
+/** The command layer's origins as authors (ADR-023 D2). */
+const AUTHOR_OF: Readonly<Record<Origin, Author | null>> = {
+  editor: "person",
+  agent: "agent",
+  import: "import",
+  // A replay is not an author. The patches being replayed carry whoever made the change, so undoing
+  // an agent's move of a person's sofa restores the person's own stamp without anyone writing it.
+  undo: null,
+  redo: null,
+  restore: null,
+};
+
+/**
+ * Stamp who did this on everything the command made or changed (ADR-023 D2).
+ *
+ * Here rather than in the forty reducers, because this is the one place that already knows every
+ * entity a command touched, and forty places is forty places to forget. Tools cannot write the
+ * field: no payload schema accepts it.
+ */
+function stampAuthorship(draft: Project, changes: Changes, origin: Origin, at: string): void {
+  const author = AUTHOR_OF[origin];
+  if (!author) return;
+  const made = new Set(changes.added.map((r) => `${r.type}:${r.id}`));
+  const lists: Record<string, { id: string; by?: Authorship }[]> = {
+    level: draft.levels,
+    wall: draft.walls,
+    opening: draft.openings,
+    room: draft.rooms,
+    item: draft.items,
+    zone: draft.zones,
+    annotation: draft.annotations,
+  };
+  for (const ref of [...changes.added, ...changes.updated]) {
+    const entity = lists[ref.type]?.find((e) => e.id === ref.id);
+    if (!entity) continue;
+    const fresh = made.has(`${ref.type}:${ref.id}`) || !entity.by;
+    entity.by = {
+      createdBy: fresh ? author : (entity.by?.createdBy ?? "unknown"),
+      editedBy: author,
+      editedAt: at,
+      touchedByPerson: (entity.by?.touchedByPerson ?? false) || author === "person",
+    };
+  }
+}
+
 const problemKey = (p: Problem) => `${p.code}|${p.entityId ?? ""}`;
 
 /**
@@ -141,6 +187,7 @@ export function apply(project: Project, command: unknown, ctx: Ctx): ApplyResult
       const reducer = REDUCERS[cmd.type];
       result = reducer(draft as Project, cmd.payload as never, ctx, changes);
       normalizeTouched(draft as Project, changes);
+      stampAuthorship(draft as Project, changes, ctx.origin ?? "editor", ctx.now());
       // reducers return draft references; expose plain copies of the created entities instead
       result = result === undefined ? undefined : JSON.parse(JSON.stringify(result));
     });

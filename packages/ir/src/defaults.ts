@@ -3,6 +3,7 @@
 
 import type { z } from "zod";
 import type {
+  Authorship,
   FinishRef,
   Item,
   ItemRef,
@@ -26,6 +27,21 @@ export const DEFAULTS = {
   roomLabelYOffset: 0,
 } as const;
 
+/**
+ * The stamp a new entity starts with (ADR-023 D1).
+ *
+ * "unknown" rather than a guess: `apply` writes the real author over it in the same pass that runs
+ * the reducer, and a factory called from a test or a migration has no way of knowing who is asking.
+ * The timestamp is the epoch for the same reason -- it is always replaced, and a fake "now" in a
+ * pure factory would make two identical projects differ.
+ */
+export const UNKNOWN_AUTHOR: Authorship = {
+  createdBy: "unknown",
+  editedBy: "unknown",
+  editedAt: "1970-01-01T00:00:00.000Z",
+  touchedByPerson: false,
+};
+
 export function defaultLevel(id: string, over: Partial<Level> = {}): Level {
   return {
     id,
@@ -36,6 +52,7 @@ export function defaultLevel(id: string, over: Partial<Level> = {}): Level {
     index: 0,
     viewable: true,
     backgroundImage: null,
+    by: { ...UNKNOWN_AUTHOR },
     ...over,
   };
 }
@@ -63,6 +80,7 @@ export function defaultWall(
     finishes: { left: null, right: null, top: null },
     skirting: { left: null, right: null },
     properties: {},
+    by: { ...UNKNOWN_AUTHOR },
     ...over,
   };
 }
@@ -91,6 +109,7 @@ export function defaultOpening(
       kind === "window" ? { style: "glazed" } : kind === "door" ? { style: "single" } : { style: "plain" },
     finishes: { frame: null, leaf: null },
     properties: {},
+    by: { ...UNKNOWN_AUTHOR },
     ...over,
   };
 }
@@ -119,6 +138,7 @@ export function defaultRoom(
     source: "manual",
     boundingWallIds: [],
     properties: {},
+    by: { ...UNKNOWN_AUTHOR },
     ...over,
   };
 }
@@ -149,6 +169,7 @@ export function defaultItem(
     visible: true,
     tags: [],
     properties: {},
+    by: { ...UNKNOWN_AUTHOR },
     ...over,
   };
 }

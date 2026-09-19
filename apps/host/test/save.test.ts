@@ -295,5 +295,11 @@ function blankItem() {
     visible: true,
     tags: [],
     properties: {},
+    by: {
+      createdBy: "unknown",
+      editedBy: "unknown",
+      editedAt: "1970-01-01T00:00:00.000Z",
+      touchedByPerson: true,
+    },
   };
 }

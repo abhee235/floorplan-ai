@@ -1,6 +1,6 @@
 // Zone reducers and arrangement patterns (spec 03 sections 3 and 4; spec 05 section 6, grid and rows in phase 0).
 import type { Item, Point, Project, Size3, Zone } from "@fpv/ir";
-import { defaultItem, derive, normalizeDeg, poly } from "@fpv/ir";
+import { defaultItem, derive, normalizeDeg, poly, UNKNOWN_AUTHOR } from "@fpv/ir";
 import { type Changes, type Ctx, ensureSnapshot, levelById, roomById, zoneById } from "../context.js";
 import { precondition } from "../errors.js";
 import type { PayloadOf } from "../types.js";
@@ -163,6 +163,7 @@ function deleteGenerated(p: Project, zone: Zone, changes: Changes): void {
 export function zoneCreate(p: Project, payload: PayloadOf<"zone.create">, ctx: Ctx, changes: Changes): Zone {
   levelById(p, payload.levelId);
   const zone: Zone = {
+    by: { ...UNKNOWN_AUTHOR },
     id: ctx.ids.next("zone"),
     levelId: payload.levelId,
     name: payload.name ?? null,

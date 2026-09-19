@@ -158,7 +158,8 @@ export class Store {
 
   /** Apply a command; outside a transaction it becomes its own history entry. */
   apply(command: unknown, origin: Origin = "editor"): ApplyResult {
-    const r = apply(this.current, command, this.ctx);
+    // the origin rides on the context so `apply` can stamp who made what (ADR-023 D2)
+    const r = apply(this.current, command, { ...this.ctx, origin });
     if (!r.ok) return r;
     this.current = r.project;
     if (this.tx) {

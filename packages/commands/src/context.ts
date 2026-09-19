@@ -1,7 +1,9 @@
 // Reducer context, change-set builder, and lookup helpers shared by all reducers.
+
 import type { IdGenerator, Item, Level, Opening, Project, Room, Size3, Wall, Zone } from "@fpv/ir";
 import { derive } from "@fpv/ir";
 import { missingRef, precondition } from "./errors.js";
+import type { Origin } from "./store.js";
 
 export type EntityType = "level" | "wall" | "opening" | "room" | "item" | "zone" | "annotation" | "meta";
 
@@ -33,6 +35,12 @@ export interface Ctx {
   ids: IdGenerator;
   now(): string;
   catalog?: CatalogSource;
+  /**
+   * Who is asking, for the authorship stamp (ADR-023 D2). The store sets it per command from the
+   * origin it was given; a caller that builds a Ctx by hand gets "editor", which is what a person
+   * sitting in front of the editor is.
+   */
+  origin?: Origin;
 }
 
 export class Changes implements ChangeSet {

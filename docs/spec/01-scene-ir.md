@@ -149,6 +149,42 @@ An opening always cuts both faces of its wall. Its depth is the wall
 thickness; the product's embed fractions describe where the frame sits
 within that depth (spec 02).
 
+### 4.3a Authorship (every entity, schema version 5)
+
+```ts
+export const Author = z.enum(["person", "agent", "import", "unknown"]);
+export const Authorship = z.object({
+  createdBy: Author,
+  editedBy: Author,               // whoever wrote it last
+  editedAt: Timestamp,
+  touchedByPerson: z.boolean(),   // never cleared by a later edit
+});
+// on Level, Wall, Opening, Room, Item, Zone and Annotation:
+  by: Authorship,
+```
+
+Written by `apply`, from the origin the store was given, over the entities the
+change set names as added or updated (ADR-023 D2). Reducers do not write it and
+payload schemas do not accept it, so the stamp always says who actually held
+the store's handle.
+
+`Author` is not the command layer's `Origin`: `editor` becomes `person`, and
+`undo`, `redo` and `restore` are not authors at all. They replay patches that
+already carry the stamps of the change being replayed, so undoing an agent's
+move of a person's sofa restores the person's own stamp without anyone writing
+it. That is the reason the field is in the document rather than beside it.
+
+`touchedByPerson` is what the agent reads before changing anything (ADR-023
+D3). It is sticky: an agent that changes a person's sofa with permission does
+not thereby make the sofa its own.
+
+Migration 4 to 5 marks everything in an older file `createdBy: "unknown"`,
+`editedBy: "unknown"`, `touchedByPerson: true`, dated from the project's own
+`createdAt`. Nobody can know who drew a wall last year, and of the two possible
+mistakes only one is recoverable: an agent that asks once about an old file
+wastes a question, an agent that assumes an old file is its own rearranges work
+somebody spent a week on.
+
 ### 4.4 Room
 
 ```ts

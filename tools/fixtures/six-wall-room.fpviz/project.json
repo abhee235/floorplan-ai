@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "meta": {
     "id": "d0iymk967x88",
     "name": "Six-wall L-shaped room",
@@ -18,7 +18,13 @@
       "floorThickness": 300,
       "index": 0,
       "viewable": true,
-      "backgroundImage": null
+      "backgroundImage": null,
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T00:00:00.000Z",
+        "touchedByPerson": true
+      }
     }
   ],
   "walls": [
@@ -58,7 +64,13 @@
         "left": null,
         "right": null
       },
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T00:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "wall_000002",
@@ -96,7 +108,13 @@
         "left": null,
         "right": null
       },
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T00:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "wall_000003",
@@ -134,7 +152,13 @@
         "left": null,
         "right": null
       },
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T00:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "wall_000004",
@@ -172,7 +196,13 @@
         "left": null,
         "right": null
       },
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T00:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "wall_000005",
@@ -210,7 +240,13 @@
         "left": null,
         "right": null
       },
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T00:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "wall_000006",
@@ -248,7 +284,13 @@
         "left": null,
         "right": null
       },
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T00:00:00.000Z",
+        "touchedByPerson": true
+      }
     }
   ],
   "openings": [
@@ -274,7 +316,13 @@
         "frame": null,
         "leaf": null
       },
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T00:00:00.000Z",
+        "touchedByPerson": true
+      }
     }
   ],
   "rooms": [],

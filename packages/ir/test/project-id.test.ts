@@ -8,6 +8,7 @@ import {
   newProjectId,
   PROJECT_ID_LENGTH,
   type RawDocument,
+  SCHEMA_VERSION,
 } from "../src/index.js";
 
 /** A version 3 document, as every project file was until ids arrived. */
@@ -93,7 +94,7 @@ describe("the id a migration gives an older file (ADR-020 D1)", () => {
   it("runs as part of the ordinary migration chain", () => {
     const out = migrate(v3());
     expect(out.migrated).toBe(true);
-    expect(out.raw.schemaVersion).toBe(4);
+    expect(out.raw.schemaVersion).toBe(SCHEMA_VERSION);
     expect(isProjectId((out.raw.meta as { id: string }).id)).toBe(true);
   });
 

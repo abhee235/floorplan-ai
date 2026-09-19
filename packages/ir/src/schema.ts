@@ -56,6 +56,27 @@ export const FinishRef = z.object({
 
 // ---- entities -----------------------------------------------------------
 
+/**
+ * Who made a thing and who changed it last (ADR-023 D1).
+ *
+ * Not the same as the command layer's `Origin`: "editor" is a place, "person" is who was there, and
+ * undo, redo and restore are not authors at all -- they replay patches that already carry whoever
+ * made the change being replayed. That is why this lives in the document rather than beside it:
+ * undoing an agent's move of a person's sofa gives the sofa back its own stamp for free.
+ */
+export const Author = z.enum(["person", "agent", "import", "unknown"]);
+
+export const Authorship = z.object({
+  createdBy: Author,
+  editedBy: Author,
+  editedAt: Timestamp,
+  /**
+   * A person has made or changed this at some point. Never cleared by a later edit, so an agent that
+   * moves a person's sofa with permission does not thereby make the sofa its own.
+   */
+  touchedByPerson: z.boolean(),
+});
+
 export const Level = z.object({
   id: LevelId,
   name: z.string().min(1),
@@ -67,6 +88,7 @@ export const Level = z.object({
   backgroundImage: z
     .object({ assetRef: z.string(), scaleMmPerPx: z.number().positive(), origin: Point, angle: Deg })
     .nullable(),
+  by: Authorship,
 });
 
 export const WallKind = z.enum(["exterior", "interior", "partition", "glass"]);
@@ -95,6 +117,7 @@ export const Wall = z.object({
   finishes: z.object({ left: FinishRef.nullable(), right: FinishRef.nullable(), top: FinishRef.nullable() }),
   skirting: z.object({ left: Skirting.nullable(), right: Skirting.nullable() }),
   properties: z.record(z.string()),
+  by: Authorship,
 });
 
 export const OpeningKind = z.enum(["door", "window", "passage"]);
@@ -114,6 +137,7 @@ export const Opening = z.object({
   recipe: z.object({ style: z.enum(["single", "double", "sliding", "glazed", "plain"]) }).nullable(),
   finishes: z.object({ frame: FinishRef.nullable(), leaf: FinishRef.nullable() }),
   properties: z.record(z.string()),
+  by: Authorship,
 });
 
 export const RoomPurpose = z.enum([
@@ -177,6 +201,7 @@ export const Room = z.object({
   source: z.enum(["manual", "detected", "imported"]),
   boundingWallIds: z.array(WallId),
   properties: z.record(z.string()),
+  by: Authorship,
 });
 
 export const PrimitiveRecipe = z.discriminatedUnion("kind", [
@@ -223,6 +248,7 @@ export const Item = z.object({
   visible: z.boolean(),
   tags: z.array(z.string()),
   properties: z.record(z.string()),
+  by: Authorship,
 });
 
 export const ArrangementRule = z.object({
@@ -244,9 +270,10 @@ export const Zone = z.object({
   rule: ArrangementRule.nullable(),
   generatedItemIds: z.array(ItemId),
   properties: z.record(z.string()),
+  by: Authorship,
 });
 
-const annotationBase = { id: AnnotationId, levelId: LevelId };
+const annotationBase = { id: AnnotationId, levelId: LevelId, by: Authorship };
 export const Annotation = z.discriminatedUnion("kind", [
   z.object({ ...annotationBase, kind: z.literal("scale-bar"), from: Point, to: Point, lengthMm: MmPositive }),
   z.object({ ...annotationBase, kind: z.literal("north"), position: Point, angle: Deg }),
@@ -296,7 +323,7 @@ export const Meta = z.object({
 export const ProductSnapshot = z.object({ id: ProductId, snapshotAt: Timestamp }).passthrough();
 export const TextureSnapshot = z.object({ id: TextureId }).passthrough();
 
-export const SCHEMA_VERSION = 4 as const;
+export const SCHEMA_VERSION = 5 as const;
 
 export const Project = z.object({
   schemaVersion: z.literal(SCHEMA_VERSION),
@@ -324,6 +351,8 @@ export type Room = z.infer<typeof Room>;
 export type Item = z.infer<typeof Item>;
 export type Zone = z.infer<typeof Zone>;
 export type Annotation = z.infer<typeof Annotation>;
+export type Author = z.infer<typeof Author>;
+export type Authorship = z.infer<typeof Authorship>;
 export type Point = z.infer<typeof Point>;
 export type Size3 = z.infer<typeof Size3>;
 export type FinishRef = z.infer<typeof FinishRef>;

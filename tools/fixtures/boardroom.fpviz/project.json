@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "meta": {
     "id": "g0z9i3cvo7qx",
     "name": "Boardroom task card",
@@ -18,7 +18,13 @@
       "floorThickness": 300,
       "index": 0,
       "viewable": true,
-      "backgroundImage": null
+      "backgroundImage": null,
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T12:00:00.000Z",
+        "touchedByPerson": true
+      }
     }
   ],
   "walls": [
@@ -58,7 +64,13 @@
         "left": null,
         "right": null
       },
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T12:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "wall_000002",
@@ -96,7 +108,13 @@
         "left": null,
         "right": null
       },
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T12:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "wall_000003",
@@ -134,7 +152,13 @@
         "left": null,
         "right": null
       },
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T12:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "wall_000004",
@@ -172,7 +196,13 @@
         "left": null,
         "right": null
       },
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T12:00:00.000Z",
+        "touchedByPerson": true
+      }
     }
   ],
   "openings": [
@@ -198,7 +228,13 @@
         "frame": null,
         "leaf": null
       },
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T12:00:00.000Z",
+        "touchedByPerson": true
+      }
     }
   ],
   "rooms": [
@@ -265,7 +301,13 @@
         "wall_000003",
         "wall_000004"
       ],
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T12:00:00.000Z",
+        "touchedByPerson": true
+      }
     }
   ],
   "items": [
@@ -296,7 +338,13 @@
       "pose": null,
       "visible": true,
       "tags": [],
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T12:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "item_000002",
@@ -325,7 +373,13 @@
       "pose": null,
       "visible": true,
       "tags": [],
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T12:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "item_000003",
@@ -354,7 +408,13 @@
       "pose": null,
       "visible": true,
       "tags": [],
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T12:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "item_000004",
@@ -383,7 +443,13 @@
       "pose": null,
       "visible": true,
       "tags": [],
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T12:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "item_000005",
@@ -412,7 +478,13 @@
       "pose": null,
       "visible": true,
       "tags": [],
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T12:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "item_000006",
@@ -441,7 +513,13 @@
       "pose": null,
       "visible": true,
       "tags": [],
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T12:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "item_000007",
@@ -470,7 +548,13 @@
       "pose": null,
       "visible": true,
       "tags": [],
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T12:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "item_000008",
@@ -499,7 +583,13 @@
       "pose": null,
       "visible": true,
       "tags": [],
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T12:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "item_000009",
@@ -528,7 +618,13 @@
       "pose": null,
       "visible": true,
       "tags": [],
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T12:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "item_00000a",
@@ -557,7 +653,13 @@
       "pose": null,
       "visible": true,
       "tags": [],
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T12:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "item_00000b",
@@ -586,7 +688,13 @@
       "pose": null,
       "visible": true,
       "tags": [],
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T12:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "item_00000c",
@@ -615,7 +723,13 @@
       "pose": null,
       "visible": true,
       "tags": [],
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T12:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "item_00000d",
@@ -644,7 +758,13 @@
       "pose": null,
       "visible": true,
       "tags": [],
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T12:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "item_00000e",
@@ -673,7 +793,13 @@
       "pose": null,
       "visible": true,
       "tags": [],
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T12:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "item_00000f",
@@ -702,7 +828,13 @@
       "pose": null,
       "visible": true,
       "tags": [],
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T12:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "item_00000g",
@@ -731,7 +863,13 @@
       "pose": null,
       "visible": true,
       "tags": [],
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T12:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "item_00000h",
@@ -760,7 +898,13 @@
       "pose": null,
       "visible": true,
       "tags": [],
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T12:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "item_00000i",
@@ -789,7 +933,13 @@
       "pose": null,
       "visible": true,
       "tags": [],
-      "properties": {}
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T12:00:00.000Z",
+        "touchedByPerson": true
+      }
     }
   ],
   "zones": [],

@@ -127,3 +127,33 @@ export function addProjectId(raw: RawDocument): RawDocument {
 MIGRATIONS.set(1, addSkirtingColour);
 MIGRATIONS.set(2, addWallPattern);
 MIGRATIONS.set(3, addProjectId);
+
+/**
+ * Version 4 to 5: every entity records who made it and who changed it last (ADR-023 D1).
+ *
+ * Everything already in a file is marked as the person's: `createdBy` and `editedBy` "unknown", and
+ * `touchedByPerson` true. That is a deliberate lie in one direction and the right one. Nobody can
+ * know now who drew a wall six months ago, and the field exists so the agent asks before changing a
+ * person's work. Marked as the person's, the agent asks about everything in an old file once;
+ * marked as its own, it would quietly rearrange a drawing somebody spent a week on. Only one of
+ * those two mistakes is recoverable.
+ *
+ * The timestamp is the project's own creation time where the document has one, so a migrated file
+ * carries a date that is at least true of the project rather than of the migration.
+ */
+export function addAuthorship(raw: RawDocument): RawDocument {
+  const meta = raw.meta as { createdAt?: unknown } | undefined;
+  const at =
+    typeof meta?.createdAt === "string" && meta.createdAt ? meta.createdAt : "1970-01-01T00:00:00.000Z";
+  const by = { createdBy: "unknown", editedBy: "unknown", editedAt: at, touchedByPerson: true };
+  const stamp = (entity: unknown): unknown =>
+    entity && typeof entity === "object" && !("by" in entity) ? { ...entity, by: { ...by } } : entity;
+  const out: RawDocument = { ...raw };
+  for (const coll of ["levels", "walls", "openings", "rooms", "items", "zones", "annotations"]) {
+    const list = raw[coll];
+    if (Array.isArray(list)) out[coll] = list.map(stamp);
+  }
+  return out;
+}
+
+MIGRATIONS.set(4, addAuthorship);

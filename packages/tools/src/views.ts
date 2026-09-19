@@ -10,6 +10,36 @@ const Size3S = z.object({ w: z.number(), d: z.number(), h: z.number() });
 const CompassS = z.enum(["north", "south", "east", "west"]);
 const RectS = z.object({ minX: z.number(), minY: z.number(), maxX: z.number(), maxY: z.number() });
 
+/**
+ * Who made this and whether a person has had a hand in it (ADR-023 D3).
+ *
+ * Present on a view only when the answer is "not yours to change freely", so a model reading a
+ * scene of its own work sees nothing extra, and the one line it does see is the one that matters.
+ */
+export const ByS = z.object({
+  createdBy: z.enum(["person", "agent", "import", "unknown"]),
+  editedBy: z.enum(["person", "agent", "import", "unknown"]),
+  /** True means ask before changing this (ask_user, kind consent). */
+  askFirst: z.boolean(),
+});
+
+/** The stamp as a view field, or nothing when the agent may change the thing without asking. */
+function byOf(e: { by?: { createdBy: string; editedBy: string; touchedByPerson: boolean } }): {
+  by?: z.infer<typeof ByS>;
+} {
+  const by = e.by;
+  if (!by) return {};
+  const askFirst = by.touchedByPerson || by.createdBy === "import";
+  if (!askFirst) return {};
+  return {
+    by: {
+      createdBy: by.createdBy as "person",
+      editedBy: by.editedBy as "person",
+      askFirst,
+    },
+  };
+}
+
 export const WallViewS = z.object({
   id: z.string(),
   levelId: z.string(),
@@ -26,6 +56,7 @@ export const WallViewS = z.object({
   compass: z.object({ left: CompassS, right: CompassS }),
   joins: z.object({ start: z.string().nullable(), end: z.string().nullable() }),
   openingIds: z.array(z.string()),
+  by: ByS.optional(),
   /** Present only when a face has a colour, a finish or a baseboard, so plain walls stay short. */
   faces: z
     .array(
@@ -54,6 +85,7 @@ export const OpeningViewS = z.object({
   hinge: CompassS.nullable(),
   swingDirection: z.enum(["left", "right"]).nullable(),
   productId: z.string().nullable(),
+  by: ByS.optional(),
 });
 export type OpeningView = z.infer<typeof OpeningViewS>;
 
@@ -78,6 +110,7 @@ export const RoomViewS = z.object({
   ceilingHeight: z.number(),
   source: z.string(),
   stale: z.boolean(),
+  by: ByS.optional(),
 });
 export type RoomView = z.infer<typeof RoomViewS>;
 
@@ -103,6 +136,7 @@ export const ItemViewS = z.object({
   parentId: z.string().nullable(),
   mount: z.object({ kind: z.string(), targetId: z.string().nullable(), height: z.number().nullable() }),
   verified: z.boolean(),
+  by: ByS.optional(),
 });
 export type ItemView = z.infer<typeof ItemViewS>;
 
@@ -132,6 +166,7 @@ export function wallView(p: Project, w: Wall): WallView {
     },
     joins: { start: w.joins.start?.wallId ?? null, end: w.joins.end?.wallId ?? null },
     openingIds: p.openings.filter((o) => o.wallId === w.id).map((o) => o.id),
+    ...byOf(w),
     ...facesOf(p, w),
   };
 }
@@ -168,6 +203,7 @@ export function openingView(p: Project, o: Opening): OpeningView {
     hinge: w ? derive.openingHingeCompass(o, w, p.meta.north) : null,
     swingDirection: o.swing?.direction ?? null,
     productId: o.productId,
+    ...byOf(o),
   };
 }
 
@@ -241,6 +277,7 @@ export function roomView(p: Project, r: Room, sizes: derive.SizeSource, stale = 
     ceilingHeight: r.ceilingHeight ?? level?.height ?? 0,
     source: r.source,
     stale,
+    ...byOf(r),
   };
 }
 
@@ -306,6 +343,7 @@ export function itemView(
     parentId: it.parentId,
     mount: it.mount,
     verified,
+    ...byOf(it),
   };
 }
 
