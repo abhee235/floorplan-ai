@@ -2,7 +2,7 @@
 import * as derive from "./derive.js";
 import { idType } from "./ids.js";
 import * as poly from "./poly.js";
-import type { Item, Level, Project, Wall } from "./schema.js";
+import type { Item, Level, Point, Project, Room, Wall } from "./schema.js";
 
 export type Severity = "error" | "warning";
 
@@ -32,6 +32,63 @@ function problem(
   related: string[] = [],
 ): Problem {
   return { code, severity, entityId, message, hint, related };
+}
+
+/** A room edge is bare when this much of it has no wall along it. */
+const BARE_EDGE_MM = 500;
+/** How far from a wall's face the back of a bed, a wardrobe or a sofa may stand. */
+const BACK_TO_WALL_MM = 250;
+/** Categories and recipe kinds that are put against a wall and are wrong anywhere else. */
+const BACKS_TO_WALL: ReadonlySet<string> = new Set(["bed", "wardrobe", "sofa", "kitchen-run"]);
+
+/** Stretches of a room's edges with no wall running along them, longest first. */
+function bareEdges(project: Project, r: Room): { from: Point; to: Point; gapMm: number }[] {
+  const walls = project.walls.filter((w) => w.levelId === r.levelId && !derive.isArc(w));
+  const out: { from: Point; to: Point; gapMm: number }[] = [];
+  for (let i = 0; i < r.polygon.length; i += 1) {
+    const a = r.polygon[i] as Point;
+    const b = r.polygon[(i + 1) % r.polygon.length] as Point;
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    if (len < BARE_EDGE_MM) continue;
+    const ux = (b.x - a.x) / len;
+    const uy = (b.y - a.y) / len;
+    // the stretches of this edge that some wall covers, in mm from a
+    const covered: { from: number; to: number }[] = [];
+    for (const w of walls) {
+      const run = derive.roomWallRun(w, r);
+      if (!run) continue;
+      const wlen = derive.wallLength(w);
+      if (wlen === 0) continue;
+      const wx = (w.end.x - w.start.x) / wlen;
+      const wy = (w.end.y - w.start.y) / wlen;
+      // only a wall parallel to this edge, and lying on it, covers it
+      if (Math.abs(wx * uy - wy * ux) > 0.035) continue;
+      const at = (t: number) => ({ x: w.start.x + wx * t, y: w.start.y + wy * t });
+      const ends = [at(run.fromMm), at(run.toMm)];
+      const perp = ends.map((q) => Math.abs((q.x - a.x) * uy - (q.y - a.y) * ux));
+      if (Math.max(...perp) > w.thickness / 2 + derive.WALL_ROOM_GAP_MM) continue;
+      const along = ends.map((q) => (q.x - a.x) * ux + (q.y - a.y) * uy);
+      const from = Math.max(0, Math.min(...along));
+      const to = Math.min(len, Math.max(...along));
+      if (to - from > 1) covered.push({ from, to });
+    }
+    covered.sort((x, y) => x.from - y.from);
+    let cursor = 0;
+    const gap = (from: number, to: number) => {
+      if (to - from < BARE_EDGE_MM) return;
+      out.push({
+        from: { x: a.x + ux * from, y: a.y + uy * from },
+        to: { x: a.x + ux * to, y: a.y + uy * to },
+        gapMm: to - from,
+      });
+    };
+    for (const c of covered) {
+      if (c.from > cursor) gap(cursor, Math.min(c.from, len));
+      cursor = Math.max(cursor, c.to);
+    }
+    if (cursor < len) gap(cursor, len);
+  }
+  return out.sort((x, y) => y.gapMm - x.gapMm);
 }
 
 export function validate(project: Project, options: ValidateOptions = {}): Problem[] {
@@ -261,6 +318,20 @@ export function validate(project: Project, options: ValidateOptions = {}): Probl
     }
     for (const wid of r.boundingWallIds)
       if (!walls.has(wid)) err("ref.missing", r.id, `boundingWallIds entry "${wid}" does not resolve`);
+    // Is the room fenced in? A room is a polygon, not an enclosure, so one can be drawn over open
+    // floor and look right in a list of rooms while having no wall along one of its sides. A flat
+    // drawn by an agent had five such rooms, and a bed standing against nothing.
+    const bare = bareEdges(project, r);
+    if (bare.length > 0) {
+      const worst = bare.reduce((a, b) => (a.gapMm >= b.gapMm ? a : b));
+      warn(
+        "room.unenclosed",
+        r.id,
+        `${bare.length === 1 ? "one side has" : `${bare.length} sides have`} no wall along ${bare.length === 1 ? "it" : "them"}: ` +
+          `${Math.round(worst.gapMm)} mm of the ${bare.length === 1 ? "side" : "longest one"} from (${Math.round(worst.from.x)}, ${Math.round(worst.from.y)}) to (${Math.round(worst.to.x)}, ${Math.round(worst.to.y)})`,
+        "draw a wall along that side, or move the room polygon onto the walls that are there",
+      );
+    }
   }
 
   // ---- items --------------------------------------------------------------
@@ -361,6 +432,53 @@ export function validate(project: Project, options: ValidateOptions = {}): Probl
     if (size) {
       const pts = derive.itemFootprint(i, size);
       footprints.set(i.id, { item: i, pts, rect: poly.bounds(pts), size });
+      // Standing in a doorway, or across a window. The recipe that placed a wardrobe over every
+      // bedroom door looked only at the wall's length, never at what was already in it.
+      if (i.mount.kind === "floor" && !i.parentId) {
+        for (const o of project.openings) {
+          const w = walls.get(o.wallId);
+          if (!w || w.levelId !== i.levelId || derive.wallLength(w) === 0) continue;
+          const len = derive.wallLength(w);
+          const ux = (w.end.x - w.start.x) / len;
+          const uy = (w.end.y - w.start.y) / len;
+          const along = pts.map((q) => (q.x - w.start.x) * ux + (q.y - w.start.y) * uy);
+          const away = pts.map((q) => Math.abs((q.x - w.start.x) * uy - (q.y - w.start.y) * ux));
+          const span = derive.openingAlongInterval(o, w);
+          const overlap = Math.min(Math.max(...along), span.to) - Math.max(Math.min(...along), span.from);
+          if (overlap <= 0 || Math.min(...away) > w.thickness / 2 + BACK_TO_WALL_MM) continue;
+          warn(
+            "item.blocks-opening",
+            i.id,
+            `stands across ${Math.round(overlap)} mm of ${o.kind} ${o.id}`,
+            o.kind === "window" ? "leave the window reachable" : "keep the doorway clear",
+            [o.id, w.id],
+          );
+        }
+      }
+      // A bed, a wardrobe, a sofa or a kitchen run has a back, and its back goes against a wall.
+      const kind =
+        i.ref.kind === "recipe"
+          ? i.ref.recipe.kind
+          : ((project.catalogRefs[i.ref.productId] as { category?: string } | undefined)?.category ?? "");
+      if (BACKS_TO_WALL.has(kind) && i.mount.kind === "floor") {
+        const a = (i.rotation * Math.PI) / 180;
+        const backMid = {
+          x: i.position.x - (size.d / 2) * Math.sin(a),
+          y: i.position.y + (size.d / 2) * Math.cos(a),
+        };
+        let nearest = Number.POSITIVE_INFINITY;
+        for (const w of project.walls) {
+          if (w.levelId !== i.levelId) continue;
+          nearest = Math.min(nearest, poly.distancePointSegment(backMid, w.start, w.end) - w.thickness / 2);
+        }
+        if (nearest > BACK_TO_WALL_MM)
+          warn(
+            "item.needs-wall",
+            i.id,
+            `a ${kind} belongs with its back to a wall; the nearest is ${Math.round(nearest)} mm away`,
+            "turn it so its back (local +y) faces the wall, or move it against one",
+          );
+      }
       for (const { wall, fp, pts: wpts } of wallFootprints.values()) {
         if (wall.levelId !== i.levelId || !poly.rectsIntersect(fp, poly.bounds(pts))) continue;
         if (pts.every((p) => poly.containsPoint(wpts, p))) {

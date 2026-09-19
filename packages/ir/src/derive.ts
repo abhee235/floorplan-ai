@@ -145,6 +145,8 @@ export function openingHingeCompass(o: Opening, w: Wall, north: number): Compass
 
 // ---- rooms ----------------------------------------------------------------
 
+const round1 = (n: number) => Math.round(n * 10) / 10;
+
 /** Absolute area with holes subtracted, mm² (R-006). */
 export function roomArea(r: Room): number {
   let a = poly.area(r.polygon);
@@ -158,6 +160,56 @@ export function roomPerimeter(r: Room): number {
 
 export function roomBounds(r: Room): poly.Rect {
   return poly.bounds(r.polygon);
+}
+
+/**
+ * How far inside a wall's face a room's polygon may sit and still be bounded by it.
+ *
+ * A room the editor detected lands exactly on the face. A room a model draws by naming four corners
+ * lands a few millimetres inside it, and a wall it is twenty millimetres short of is not a different
+ * wall. The tolerance is the room-detection gap, for the same reason that one exists.
+ */
+export const WALL_ROOM_GAP_MM = 150;
+/** A wall must run along the room's boundary for at least this far to be one of the room's walls. */
+export const MIN_WALL_SHARE_MM = 300;
+/** Parallel within about two degrees: sin of the angle between the wall and the room's edge. */
+const WALL_PARALLEL = 0.035;
+
+/**
+ * The stretch of a wall's centreline, in mm from its start, that runs along this room's boundary,
+ * or null when it does not.
+ *
+ * This is edge against edge rather than corner against corner, which is what the first version did.
+ * One twelve-metre wall dividing a floor into three rooms has its ends at neither end of any of
+ * them, so by the old rule it bounded none of them: the rooms had no walls, `describe_room` offered
+ * the whole storey as free, and a recipe put the television over the door.
+ */
+export function roomWallRun(w: Wall, r: Room): { fromMm: number; toMm: number } | null {
+  const len = wallLength(w);
+  if (len === 0) return null;
+  const ux = (w.end.x - w.start.x) / len;
+  const uy = (w.end.y - w.start.y) / len;
+  const tol = w.thickness / 2 + WALL_ROOM_GAP_MM;
+  const along = (q: Point) => (q.x - w.start.x) * ux + (q.y - w.start.y) * uy;
+  const across = (q: Point) => Math.abs((q.x - w.start.x) * uy - (q.y - w.start.y) * ux);
+  let lo = Number.POSITIVE_INFINITY;
+  let hi = Number.NEGATIVE_INFINITY;
+  for (let i = 0; i < r.polygon.length; i += 1) {
+    const a = r.polygon[i] as Point;
+    const b = r.polygon[(i + 1) % r.polygon.length] as Point;
+    const ex = b.x - a.x;
+    const ey = b.y - a.y;
+    const elen = Math.hypot(ex, ey);
+    if (elen < 1) continue;
+    if (Math.abs((ex * uy - ey * ux) / elen) > WALL_PARALLEL) continue;
+    if (across(a) > tol || across(b) > tol) continue;
+    const from = Math.max(0, Math.min(along(a), along(b)));
+    const to = Math.min(len, Math.max(along(a), along(b)));
+    if (to - from < 1) continue;
+    lo = Math.min(lo, from);
+    hi = Math.max(hi, to);
+  }
+  return Number.isFinite(lo) && hi - lo >= 1 ? { fromMm: round1(lo), toMm: round1(hi) } : null;
 }
 
 /** Label anchor: pole of inaccessibility plus the stored offset (R-012 reversed). */

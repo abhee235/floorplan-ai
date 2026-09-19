@@ -422,12 +422,32 @@ export function planFurnishing(
     frames.set(c, made);
     return made;
   };
-  const runs = new Map<derive.Compass, { start: number; end: number; touched: boolean }>();
-  const runOn = (c: derive.Compass, f: Frame) => {
-    const known = runs.get(c);
+  /**
+   * The free stretches of a wall, as across-coordinates in that wall's frame.
+   *
+   * `freeSegments` has already taken out the doors, the windows and whatever was standing against
+   * the wall before this recipe ran; what is left here is consumed as the recipe places things, so
+   * the second fixture on a wall does not stand on the first. The first version of this used the
+   * whole span, which is how every wardrobe in the flat ended up across its bedroom door.
+   */
+  const runsByWall = new Map<derive.Compass, { from: number; to: number }[]>();
+  const runsOn = (c: derive.Compass, f: Frame): { from: number; to: number }[] => {
+    const known = runsByWall.get(c);
     if (known) return known;
-    const made = { start: f.pMin, end: f.pMax, touched: false };
-    runs.set(c, made);
+    const made: { from: number; to: number }[] = [];
+    for (const seg of free) {
+      if (seg.compass !== c) continue;
+      const w = walls.find((x) => x.id === seg.wallId);
+      const len = w ? derive.wallLength(w) : 0;
+      if (!w || len === 0) continue;
+      const u = { x: (w.end.x - w.start.x) / len, y: (w.end.y - w.start.y) / len };
+      const at = (t: number) => dot({ x: w.start.x + u.x * t, y: w.start.y + u.y * t }, f.p);
+      const a = at(seg.fromMm);
+      const b = at(seg.toMm);
+      made.push({ from: Math.min(a, b), to: Math.max(a, b) });
+    }
+    made.sort((x, y) => x.from - y.from);
+    runsByWall.set(c, made);
     return made;
   };
   const beside: Record<derive.Compass, [derive.Compass, derive.Compass]> = {
@@ -720,61 +740,79 @@ export function planFurnishing(
         const want = Math.max(1, Math.round(number(step.countExpr, "countExpr", 1)));
         const compass = wallFor(step.wall);
         const f = frameOn(compass);
-        const cursor = runOn(compass, f);
+        const open = runsOn(compass, f);
+        const label = step.label || step.category;
+        if (open.length === 0) {
+          warnings.push(
+            `nothing was placed against the ${compass} side: the room has no wall there, or none with room left on it`,
+          );
+          break;
+        }
+        const widest = Math.max(...open.map((x) => x.to - x.from));
         const fallback: PrimitiveRecipe =
           step.shape === "bed"
             ? { kind: "bed", size: { ...step.sizeMm } }
             : step.shape === "sofa"
               ? { kind: "sofa", size: { ...step.sizeMm } }
-              : { kind: "box", size: { ...step.sizeMm }, label: step.label || step.category };
-        const free = cursor.end - cursor.start;
+              : { kind: "box", size: { ...step.sizeMm }, label };
         const r = resolve(
           step.category,
           fallback,
-          (s) => s.w + 2 * step.spacingMm <= free && s.d + step.clearanceMm <= f.depth,
+          (s) => s.w <= widest && s.d + step.clearanceMm <= f.depth,
           step.where,
         );
         const width = r.size.w;
         const pitch = width + step.spacingMm;
-        const fit = Math.max(0, Math.floor((free - step.spacingMm) / pitch));
-        const n = Math.min(want, fit);
-        if (n === 0) {
+        const holds = (run: { from: number; to: number }) =>
+          Math.max(0, Math.floor((run.to - run.from + step.spacingMm) / pitch));
+        // Which free stretch to use: the one nearest the middle of the wall for "centre", the
+        // first or last for "start" and "end". A door in the middle of a wall therefore pushes a
+        // centred bed to one side of it rather than on top of it.
+        const usable = open.filter((run) => holds(run) > 0);
+        if (usable.length === 0) {
           warnings.push(
-            `no room on the ${compass} wall for the ${step.label || step.category}: ${Math.round(width)} mm wide, ${Math.round(free)} mm free`,
+            `no free run on the ${compass} wall for the ${label}: it is ${Math.round(width)} mm wide and the longest gap between the openings is ${Math.round(widest)} mm`,
           );
           break;
         }
+        const middle = (f.pMin + f.pMax) / 2;
+        const chosen =
+          step.align === "start"
+            ? (usable[0] as { from: number; to: number })
+            : step.align === "end"
+              ? (usable[usable.length - 1] as { from: number; to: number })
+              : ([...usable].sort(
+                  (x, y) => Math.abs((x.from + x.to) / 2 - middle) - Math.abs((y.from + y.to) / 2 - middle),
+                )[0] as { from: number; to: number });
+        const n = Math.min(want, holds(chosen));
         const span2 = n * width + (n - 1) * step.spacingMm;
-        // "start" and "end" eat into opposite ends of the wall, so several steps share one wall in
-        // the order the recipe names them; "centre" takes the middle and leaves both ends free.
-        let first: number;
-        if (step.align === "end") {
-          first = cursor.end - step.spacingMm - span2 + width / 2;
-          cursor.end -= step.spacingMm + span2;
-        } else if (step.align === "centre" && !cursor.touched) {
-          first = (f.pMin + f.pMax) / 2 - span2 / 2 + width / 2;
-          cursor.start = (f.pMin + f.pMax) / 2 + span2 / 2;
-        } else {
-          first = cursor.start + step.spacingMm + width / 2;
-          cursor.start += step.spacingMm + span2;
-        }
-        cursor.touched = true;
+        const gFrom =
+          step.align === "start"
+            ? chosen.from
+            : step.align === "end"
+              ? chosen.to - span2
+              : Math.min(Math.max(middle - span2 / 2, chosen.from), chosen.to - span2);
         for (let i = 0; i < n; i += 1)
           place(
             step.category,
             r,
-            at(f, r.size.d / 2, first + i * pitch),
+            at(f, r.size.d / 2, gFrom + width / 2 + i * pitch),
             // its back (local +y) to the wall, so it faces into the room
             facing(f.a),
             0,
             floor,
           );
+        // what is left of that stretch, so the next fixture on this wall stands beside this one
+        const rest: { from: number; to: number }[] = [];
+        if (gFrom - step.spacingMm - chosen.from >= 1)
+          rest.push({ from: chosen.from, to: gFrom - step.spacingMm });
+        if (chosen.to - (gFrom + span2 + step.spacingMm) >= 1)
+          rest.push({ from: gFrom + span2 + step.spacingMm, to: chosen.to });
+        open.splice(open.indexOf(chosen), 1, ...rest);
         if (n < want)
           warnings.push(`only ${n} of ${want} ${step.category} items fit along the ${compass} wall`);
         if (r.size.d + step.clearanceMm > f.depth)
-          warnings.push(
-            `the ${step.label || step.category} leaves less than ${step.clearanceMm} mm of floor in front of it`,
-          );
+          warnings.push(`the ${label} leaves less than ${step.clearanceMm} mm of floor in front of it`);
         break;
       }
       case "whiteboard": {

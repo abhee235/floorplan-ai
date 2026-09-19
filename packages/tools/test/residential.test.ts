@@ -90,6 +90,37 @@ async function rectRoom(
   return r.result.room.id;
 }
 
+/**
+ * Items whose footprint covers part of an opening, as "item over opening" strings.
+ *
+ * This is the check the flat run would have failed in every bedroom: the wardrobe stood across the
+ * door because the placement code looked at the whole wall instead of what was free of it.
+ */
+function blockedOpenings(p: Project): string[] {
+  const sizes = derive.snapshotSizeSource(p);
+  const out: string[] = [];
+  for (const o of p.openings) {
+    const w = p.walls.find((x) => x.id === o.wallId);
+    if (!w) continue;
+    const len = Math.hypot(w.end.x - w.start.x, w.end.y - w.start.y);
+    if (len === 0) continue;
+    const u = { x: (w.end.x - w.start.x) / len, y: (w.end.y - w.start.y) / len };
+    const mid = o.position * len;
+    for (const it of p.items) {
+      const size = derive.itemSize(it, sizes);
+      if (!size) continue;
+      const fp = derive.itemFootprint(it, size);
+      const along = fp.map((q) => (q.x - w.start.x) * u.x + (q.y - w.start.y) * u.y);
+      const away = fp.map((q) => Math.abs((q.x - w.start.x) * u.y - (q.y - w.start.y) * u.x));
+      const overlaps = Math.min(...along) < mid + o.width / 2 && Math.max(...along) > mid - o.width / 2;
+      // only what stands against this wall counts; something across the room is not in the way
+      if (overlaps && Math.min(...away) <= w.thickness / 2 + 200)
+        out.push(`${(it.ref as { productId?: string }).productId ?? it.ref.kind} over ${o.kind} ${o.id}`);
+    }
+  }
+  return out;
+}
+
 const room = (purpose: string, capacity: number | null, w = 4000, d = 3000) =>
   ({
     purpose,
@@ -224,12 +255,45 @@ describe("furnishing a home's rooms", () => {
     catalog.close();
   });
 
-  it("says so when a room is too small for what the recipe wanted, rather than placing it anyway", async () => {
+  it("nothing a recipe places stands across a door or a window", async () => {
+    const catalog = seeded();
+    const h = harness(undefined, { catalog, rules: CORE_RULES });
+    // a door on the south wall and a wide passage on the north: whichever wall the recipe picks,
+    // the opening in it is not a place to stand a bed
+    const roomId = await rectRoom(h, 3600, 4000, "south", "bedroom", 2);
+    const north = h.ctx.store.project.walls.find((w) => w.start.y === 4050 && w.end.y === 4050) as {
+      id: string;
+    };
+    await h.ok("add_opening", { wallId: north.id, kind: "passage", position: 0.5, width: 1200 });
+    await h.ok("furnish_room", { roomId });
+    expect(blockedOpenings(h.ctx.store.project)).toEqual([]);
+    // and the room really was furnished, so the check above is not passing on an empty room
+    expect(h.ctx.store.project.items.length).toBeGreaterThan(0);
+    catalog.close();
+  });
+
+  it("says so rather than placing over an opening when what is left of the wall is too short", async () => {
+    const catalog = seeded();
+    const h = harness(undefined, { catalog, rules: CORE_RULES });
+    const roomId = await rectRoom(h, 3600, 4000, "south", "bedroom", 2);
+    const north = h.ctx.store.project.walls.find((w) => w.start.y === 4050 && w.end.y === 4050) as {
+      id: string;
+    };
+    await h.ok("add_opening", { wallId: north.id, kind: "passage", position: 0.5, width: 2400 });
+    const r = await h.ok("furnish_room", { roomId });
+    expect(r.warnings.join(" ")).toMatch(
+      /no free run on the (north|south|east|west) wall for the \w+: it is \d+ mm wide and the longest gap between the openings is \d+ mm/,
+    );
+    expect(blockedOpenings(h.ctx.store.project)).toEqual([]);
+    catalog.close();
+  });
+
+  it("says so when the room is too shallow for what the recipe wanted, rather than pretending", async () => {
     const catalog = seeded();
     const h = harness(undefined, { catalog, rules: CORE_RULES });
     const roomId = await rectRoom(h, 1600, 2200, "south", "bedroom", 2);
     const r = await h.ok("furnish_room", { roomId });
-    expect(r.warnings.join(" ")).toMatch(/no room on the .* wall for the|only 0 of 1/);
+    expect(r.warnings.join(" ")).toMatch(/leaves less than 700 mm of floor in front of it/);
     catalog.close();
   });
 });

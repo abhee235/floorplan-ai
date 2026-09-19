@@ -343,17 +343,31 @@ block. Codes, first release:
 | `room.hole-outside` | error | a hole not contained in the polygon |
 | `room.degenerate` | warning | area below 100000 mm² (0.1 m²) |
 | `room.stale` | warning | detected room whose bounding walls changed since detection |
+| `room.unenclosed` | warning | 500 mm or more of a room edge has no wall running along it |
 | `item.size-not-deformable` | error | `size` set but the product is not deformable |
 | `item.parent-cycle` | error | parentId chain loops |
 | `item.parent-level` | error | parent on another level |
 | `item.outside-room` | warning | roomId set but centre not inside the room polygon |
 | `item.in-wall` | warning | footprint fully inside a wall footprint (F-089) |
 | `item.overlap` | warning | footprints of two floor-mounted items on one level overlap by more than 10 percent of the smaller |
+| `item.blocks-opening` | warning | a floor-mounted item within 250 mm of a wall's face covers part of a door or window in it |
+| `item.needs-wall` | warning | a bed, wardrobe, sofa or kitchen run whose back is more than 250 mm from the nearest wall face |
 | `item.mount-target` | error | mount kind wall or item without a resolving targetId |
 | `item.elevation-range` | warning | elevation plus height above the level height plus 1000 mm |
 | `zone.rule-orphan` | warning | generatedItemIds reference items that no longer exist |
 | `catalog.unverified` | warning | an item references a product whose snapshot status is not verified |
 | `catalog.missing-snapshot` | error | an item references a product with no entry in catalogRefs |
+
+The last three are new in phase 3 and are all warnings, deliberately. `apply`
+refuses a command that introduces an error (ADR-004 D4), and a person dragging
+their own sofa across a doorway must not be refused: the editor is theirs. The
+agent's checker reads the same problems and treats them as blocking, so the
+same measurement is advice to a person and a gate to an agent (ADR-022 D3).
+
+`room.unenclosed` compares each room edge against the stretch of every wall
+that runs along it (`derive.roomWallRun`), so one long wall shared by three
+rooms bounds all three. Gaps shorter than 500 mm are ignored: a wall a little
+short of a corner is not a missing wall.
 
 Problems for a whole entity list include `related` ids so the plan view can
 highlight all of them.

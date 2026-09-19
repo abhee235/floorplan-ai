@@ -163,6 +163,16 @@ blocked door, a bed with no wall. Warnings are what the person would call
 poor: a small living room, a long corridor. The builder may not finish with an
 error outstanding; it may finish with warnings if it names them.
 
+**Amended 2026-09-20, as the first of these were built.** The severity above is
+the *checker's*, not `validate`'s. In the IR, `room.unenclosed`,
+`item.blocks-opening` and `item.needs-wall` are warnings, because `apply`
+refuses any command that introduces an error (ADR-004 D4) and a person dragging
+their own sofa across their own doorway must not be refused. The same
+measurement is therefore advice to a person and a gate to an agent, which is
+the right asymmetry: the editor belongs to the person, and the agent is the one
+that has to earn its result. The checker owns the mapping from problem code to
+"you may not finish with this".
+
 The **critic** is one model call per round, at most three rounds, with the
 design, the checker's report and no tools. It answers in JSON: what it would
 change and why, each note tagged with a room key. Its notes are warnings. It

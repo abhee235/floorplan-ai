@@ -179,33 +179,23 @@ export function roomWalls(p: Project, r: Room): Wall[] {
   return p.walls.filter((w) => w.levelId === r.levelId && wallTouchesRoom(w, r));
 }
 
-function distanceToRing(pt: Point, ring: readonly Point[]): number {
-  let best = Number.POSITIVE_INFINITY;
-  for (let i = 0; i < ring.length; i += 1) {
-    const a = ring[i] as Point;
-    const b = ring[(i + 1) % ring.length] as Point;
-    best = Math.min(best, poly.distancePointSegment(pt, a, b));
-  }
-  return best;
-}
-
 function wallTouchesRoom(w: Wall, r: Room): boolean {
-  const tol = w.thickness / 2 + 10;
-  // a corner of the wall centreline sits diagonally off the room corner, half the thickness in both axes
-  const cornerTol = (w.thickness / 2) * Math.SQRT2 + 10;
-  const mid = derive.pointAlongWall(w, 0.5);
-  return (
-    distanceToRing(w.start, r.polygon) <= cornerTol &&
-    distanceToRing(w.end, r.polygon) <= cornerTol &&
-    distanceToRing(mid, r.polygon) <= tol
-  );
+  const run = derive.roomWallRun(w, r);
+  return run !== null && run.toMm - run.fromMm >= derive.MIN_WALL_SHARE_MM;
 }
 
-/** Which side of the wall the room lies on, by probing just off the centreline at the midpoint. */
+/**
+ * Which side of the wall the room lies on, by probing off the centreline in the middle of the
+ * stretch they share -- not the middle of the wall, which for a shared wall can be in another room.
+ */
 export function roomSideOfWall(w: Wall, r: Room): derive.Side {
-  const mid = derive.pointAlongWall(w, 0.5);
+  const len = derive.wallLength(w);
+  const run = derive.roomWallRun(w, r);
+  const t = run && len > 0 ? Math.min(1, Math.max(0, (run.fromMm + run.toMm) / 2 / len)) : 0.5;
+  const mid = derive.pointAlongWall(w, t);
   const n = derive.wallSideNormal(w, "left");
-  const d = w.thickness / 2 + 10;
+  // far enough to clear the wall's face and any gap the room was drawn with
+  const d = w.thickness / 2 + derive.WALL_ROOM_GAP_MM + 10;
   const leftProbe = { x: mid.x + n.x * d, y: mid.y + n.y * d };
   return derive.roomContains(r, leftProbe) ? "left" : "right";
 }
@@ -221,19 +211,8 @@ export function roomWallCompass(p: Project, w: Wall, r: Room): derive.Compass {
 export function roomWallInterval(w: Wall, r: Room): { fromMm: number; toMm: number } {
   const len = derive.wallLength(w);
   if (len === 0) return { fromMm: 0, toMm: 0 };
-  const dx = (w.end.x - w.start.x) / len;
-  const dy = (w.end.y - w.start.y) / len;
-  const tol = w.thickness / 2 + 10;
-  let lo = Number.POSITIVE_INFINITY;
-  let hi = Number.NEGATIVE_INFINITY;
-  for (const v of r.polygon) {
-    if (poly.distancePointSegment(v, w.start, w.end) > tol) continue;
-    const u = (v.x - w.start.x) * dx + (v.y - w.start.y) * dy;
-    lo = Math.min(lo, u);
-    hi = Math.max(hi, u);
-  }
-  if (!Number.isFinite(lo) || hi - lo < 1) return { fromMm: 0, toMm: r1(len) };
-  return { fromMm: r1(Math.max(0, lo)), toMm: r1(Math.min(len, hi)) };
+  const run = derive.roomWallRun(w, r);
+  return run ? { fromMm: r1(run.fromMm), toMm: r1(run.toMm) } : { fromMm: 0, toMm: r1(len) };
 }
 
 export function roomView(p: Project, r: Room, sizes: derive.SizeSource, stale = false): RoomView {

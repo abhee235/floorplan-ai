@@ -111,3 +111,34 @@ because the model drew five interior walls where nine rooms need more, and
 nothing in `validate` says a room's polygon must be fenced in. Room areas by
 purpose, wall enclosure and a reachable route from the entrance are checks a
 program can make, and the architect step is where they belong.
+
+### The same flat, refurnished by the fixed placement code
+
+The run's walls, doors and windows are the model's own; only the furniture was
+stripped and placed again, so this measures the placement code against the
+drawing that exposed it.
+
+| | as the run left it | refurnished |
+|---|---|---|
+| items standing across a door or window | 12 | 1 |
+| beds with no wall behind the head | 1 | 0 |
+| items outside their room | 0 | 0 |
+| item overlaps | 0 | 0 |
+
+Two faults caused the twelve. A recipe read the whole length of a wall as
+somewhere to stand things, so a wardrobe went over the door beside it; it now
+places into the free stretches `describe_room` already computes, which have the
+openings taken out. And a room only counted a wall as its own when both ends of
+the wall touched the room, so the twelve-metre wall dividing this flat into
+three rooms belonged to none of them: those rooms had no walls at all as far as
+the recipes were concerned. Matching is now edge against edge.
+
+Where nothing fits, the recipe says so instead of placing anyway: six rooms
+came back with a line like "no free run on the north wall for the Sofa: it is
+2000 mm wide and the longest gap between the openings is 1430 mm".
+
+The one remaining is a true finding, not a miss. Bedroom 2 has doors in three
+of its four walls and no wall at all on the fourth, so the only free stretch
+long enough for the bed leaves it 140 mm from the east wall, where it crosses
+that door. No per-room rule can place furniture well in a room shaped like
+that. It is a design fault, and the architect phase is where it gets fixed.
