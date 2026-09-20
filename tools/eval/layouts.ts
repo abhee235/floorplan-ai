@@ -56,7 +56,9 @@ export const LAYOUT_BRIEFS: LayoutBrief[] = [
     hard: "twenty identical rooms and almost nothing else",
     programme: {
       brief: "a hotel floor of twenty bedrooms with a linen store and a lift lobby",
-      kind: "mixed",
+      // A commercial building rather than somebody's home: called mixed, the checker asks it for a
+      // kitchen, a bathroom and a living room, which a hotel floor does not have and should not.
+      kind: "workplace",
       rooms: [
         ...many(20, "r", "Guest room", "bedroom", 26),
         room("linen", "Linen store", "storage", 8),

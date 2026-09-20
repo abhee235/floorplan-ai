@@ -262,6 +262,240 @@ function place(f: Frame, u: number, v: number, alongU: number, acrossV: number):
     : { x: f.x + u, y: f.y + v, w: alongU, d: acrossV };
 }
 
+/**
+ * A room this big against the whole floor cannot share a strip with anything (ADR-022 D2, amended).
+ *
+ * The office that started all of this had one room at 73 per cent of the plate. A strip spanning
+ * the building is either deep enough for that room, in which case a 12 m2 meeting room in the
+ * opposite strip is 1.1 m wide, or shallow enough for the meeting room, in which case the big room
+ * has nowhere to go. No arrangement of two strips escapes it.
+ */
+const DOMINANT_SHARE = 0.35;
+
+/** Below this many small rooms, the strips hold them beside the big one and nothing is gained. */
+const MIN_CELLS_FOR_BAYS = 6;
+
+/**
+ * A plate split lengthwise into strips, for a brief with one very large room among small ones.
+ *
+ * Every strip runs the full depth of the building and holds its rooms stacked along it, so a room
+ * has the strip's full width and a share of its length. The big room is a strip by itself. The
+ * cells are dealt into as many more as they need to come out square, because that is the whole
+ * point: at 28 m deep the office's open floor is 35.7 by 28 and its meeting rooms are 5.4 by 4.4,
+ * where the strip layout gave 2.7 by 8.5.
+ *
+ * Strips are paired around a hallway, as they always were, and the hallways are joined by a link
+ * across one end. Without the link the second hallway is a passage with no way into it.
+ */
+function packZoned(
+  programme: Programme,
+  big: ProgrammeRoom[],
+  cells: ProgrammeRoom[],
+  areas: Map<string, number>,
+  wallMm: number,
+  interiorWallMm: number,
+  corridorMm: number,
+): PackResult | null {
+  const notes: string[] = [];
+  const unplaced: { key: string; why: string }[] = [];
+  const bigM2 = big.reduce((n, r) => n + (areas.get(r.key) as number), 0);
+  const cellsM2 = cells.reduce((n, r) => n + (areas.get(r.key) as number), 0);
+  if (cells.length === 0) return null;
+
+  // Depth first, from the big room, because it is the one with no freedom: it is a strip on its
+  // own, so its width is its area over the depth and its proportion follows directly.
+  const minDepth = [...big, ...cells].reduce(
+    (n, r) => Math.max(n, MIN_SIDE[r.purpose] ?? MIN_SIDE_FALLBACK),
+    1800,
+  );
+  const depth = round100(Math.max(minDepth, Math.sqrt((bigM2 * 1e6) / IDEAL_DEPTH_RATIO)));
+
+  // How many bays the cells need to come out square at that depth, and which cell goes in which.
+  //
+  // A bay's width is its share of the cells over the depth; a cell in it is as tall as its area
+  // over that width; the two are equal when the bay is about as wide as a typical cell's side.
+  //
+  // Grouping by size instead of by load was tried, so that a 120 m2 cafeteria and a 12 m2 meeting
+  // room would not share a width. It fixed the office's last four slivers and cost more than it
+  // bought: more bays means more rooms in the core, and the mixed-use floor went from 0.89 to 0.64
+  // on daylight. Capping the bays to keep the daylight then dropped rooms that no longer fitted.
+  // Load balancing measured best across the six briefs and is what is here.
+  const typical = Math.sqrt((cellsM2 / cells.length) * 1e6);
+  const wanted = Math.max(1, Math.round((cellsM2 * 1e6) / (depth * typical)));
+  const stripCount = Math.min(cells.length, Math.max(1, wanted));
+  const strips: ProgrammeRoom[][] = Array.from({ length: stripCount }, () => []);
+  const load = new Array<number>(stripCount).fill(0);
+  for (const r of [...cells].sort((a, b) => (areas.get(b.key) as number) - (areas.get(a.key) as number))) {
+    let at = 0;
+    for (let i = 1; i < stripCount; i += 1) if ((load[i] as number) < (load[at] as number)) at = i;
+    (strips[at] as ProgrammeRoom[]).push(r);
+    load[at] = (load[at] as number) + (areas.get(r.key) as number);
+  }
+
+  // The big room is the first strip; the cells follow. Pairs share a hallway, as before.
+  const all: ProgrammeRoom[][] = [big, ...strips];
+  const corridorCount = Math.ceil(all.length / 2);
+  const widths = all.map((strip) => {
+    const m2 = strip.reduce((n, r) => n + (areas.get(r.key) as number), 0);
+    const byArea = (m2 * 1e6) / depth;
+    const byRoom = strip.reduce((n, r) => Math.max(n, MIN_SIDE[r.purpose] ?? MIN_SIDE_FALLBACK), 0);
+    return round100(Math.max(byArea, byRoom));
+  });
+
+  const linkMm = corridorMm;
+  const shellD = round100(depth + linkMm + interiorWallMm + 2 * wallMm);
+  const shellW = round100(
+    widths.reduce((a, b) => a + b, 0) +
+      corridorCount * corridorMm +
+      (all.length + corridorCount - 1) * interiorWallMm +
+      2 * wallMm,
+  );
+  notes.push(
+    `${big[0]?.name ?? "one room"} is ${Math.round((bigM2 / (bigM2 + cellsM2)) * 100)}% of the floor, so it has a bay of its own and the rest are in ${stripCount} more; the building is ${(shellW / 1000).toFixed(1)} by ${(shellD / 1000).toFixed(1)} m`,
+  );
+
+  const rooms: NonNullable<DesignInput["rooms"]> = [];
+  const linkKey = "link";
+  const corridorKeys = Array.from({ length: corridorCount }, (_, i) => `hallway${i + 1}`);
+
+  /** One strip: rooms stacked down it, each the strip's full width. */
+  const placeStrip = (
+    strip: ProgrammeRoom[],
+    x: number,
+    width: number,
+    corridorKey: string,
+    outermost: boolean,
+  ) => {
+    const ordered = orderStrip(strip);
+    if (ordered.length === 0) return;
+    const total = ordered.reduce((n, r) => n + (areas.get(r.key) as number), 0);
+    const gaps = (ordered.length - 1) * interiorWallMm;
+    const usable = depth - gaps;
+    const minOf = (r: ProgrammeRoom) => MIN_SIDE[r.purpose] ?? MIN_SIDE_FALLBACK;
+    // By share of area, then pushed up to each room's minimum, then the excess taken back from
+    // whatever has slack above its own. Without this the smallest rooms come out under their
+    // minimum and are dropped, which is what happened to three meeting rooms the first time.
+    const raw = ordered.map((r) =>
+      Math.max(usable * ((areas.get(r.key) as number) / Math.max(1, total)), minOf(r)),
+    );
+    for (let pass = 0; pass < 4; pass += 1) {
+      const over = raw.reduce((a, b) => a + b, 0) - usable;
+      if (over <= 1) break;
+      const slack = raw.map((h, i) => Math.max(0, h - minOf(ordered[i] as ProgrammeRoom)));
+      const totalSlack = slack.reduce((a, b) => a + b, 0);
+      if (totalSlack <= 1) break;
+      for (let i = 0; i < raw.length; i += 1)
+        raw[i] = (raw[i] as number) - (over * (slack[i] as number)) / totalSlack;
+    }
+    const heights = raw.map((h) => Math.floor(h / 100) * 100);
+    let spare = Math.round((usable - heights.reduce((a, b) => a + b, 0)) / 100);
+    const byRemainder = raw
+      .map((h, i) => ({ i, rest: h - (heights[i] as number) }))
+      .sort((a, b) => b.rest - a.rest);
+    for (const { i } of byRemainder) {
+      if (spare <= 0) break;
+      heights[i] = (heights[i] as number) + 100;
+      spare -= 1;
+    }
+    let y = wallMm;
+    ordered.forEach((room, i) => {
+      const h = heights[i] as number;
+      const min = MIN_SIDE[room.purpose] ?? MIN_SIDE_FALLBACK;
+      if (h < min || width < min) {
+        unplaced.push({
+          key: room.key,
+          why: `${room.name} needs ${min} mm each way for ${areaOf(room).toFixed(1)} m2; this bay offers ${width} mm by ${Math.max(0, h)} mm`,
+        });
+        return;
+      }
+      rooms.push({
+        key: room.key,
+        name: room.name,
+        purpose: asPurpose(room.purpose),
+        rect: { x, y, w: width, d: h },
+        capacity: room.capacity ?? null,
+        doorsTo: [corridorKey],
+        // Only where there is a wall to put one in. A bay between two hallways touches the outside
+        // at its two ends and nowhere else, so the rooms in the middle of it are internal -- which
+        // is what the core of an office is. Saying otherwise put five windows in the middle of the
+        // plan and the checker was right to refuse them.
+        window: (room.window ?? HABITABLE.has(room.purpose)) && (outermost || i === 0),
+      });
+      y += h + interiorWallMm;
+    });
+  };
+
+  let x = wallMm;
+  const corridorX: number[] = [];
+  for (let k = 0; k < corridorCount; k += 1) {
+    const first = 2 * k;
+    const second = first + 1;
+    if (second >= all.length) {
+      // An odd bay at the end: its hallway goes before it, not after, or the hallway is what sits
+      // against the outside wall and the bay behind it has no window in a building full of them.
+      corridorX.push(x);
+      x += corridorMm + interiorWallMm;
+      placeStrip(all[first] as ProgrammeRoom[], x, widths[first] as number, corridorKeys[k] as string, true);
+      x += (widths[first] as number) + interiorWallMm;
+      continue;
+    }
+    placeStrip(
+      all[first] as ProgrammeRoom[],
+      x,
+      widths[first] as number,
+      corridorKeys[k] as string,
+      first === 0,
+    );
+    x += (widths[first] as number) + interiorWallMm;
+    corridorX.push(x);
+    x += corridorMm + interiorWallMm;
+    placeStrip(
+      all[second] as ProgrammeRoom[],
+      x,
+      widths[second] as number,
+      corridorKeys[k] as string,
+      second === all.length - 1,
+    );
+    x += (widths[second] as number) + interiorWallMm;
+  }
+
+  for (const [k, cx] of corridorX.entries())
+    rooms.push({
+      key: corridorKeys[k] as string,
+      name: `Hallway ${k + 1}`,
+      purpose: "corridor",
+      rect: { x: cx, y: wallMm, w: corridorMm, d: depth },
+      capacity: null,
+      doorsTo: [linkKey],
+      window: false,
+    });
+
+  // The link: one passage across the end touching every hallway and the outside.
+  rooms.push({
+    key: linkKey,
+    name: "Link",
+    purpose: "corridor",
+    rect: { x: wallMm, y: wallMm + depth + interiorWallMm, w: shellW - 2 * wallMm, d: linkMm },
+    capacity: null,
+    doorsTo: ["outside", ...corridorKeys],
+    window: false,
+  });
+
+  return {
+    design: {
+      brief: programme.brief,
+      kind: programme.kind,
+      levelId: null,
+      shell: { x: 0, y: 0, w: shellW, d: shellD, wallMm, interiorWallMm },
+      rooms,
+      circulation: [...corridorKeys, linkKey],
+      assumptions: [...(programme.assumptions ?? []), ...notes],
+    },
+    notes,
+    unplaced,
+  };
+}
+
 export function packProgramme(programme: Programme): PackResult {
   const notes: string[] = [];
   const unplaced: { key: string; why: string }[] = [];
@@ -279,6 +513,20 @@ export function packProgramme(programme: Programme): PackResult {
 
   const areas = new Map(given.map((r) => [r.key, areaOf(r)]));
   const roomsM2 = [...areas.values()].reduce((a, b) => a + b, 0);
+
+  // One room big enough to need a bay of its own gets the zoned layout instead; everything else
+  // keeps the strips, which the six briefs say are right for it.
+  if (!programme.shell) {
+    const big = given.filter((r) => (areas.get(r.key) as number) / roomsM2 >= DOMINANT_SHARE);
+    const cells = given.filter((r) => !big.includes(r));
+    // Enough small rooms to need bays of their own. A flat whose living room is 42 per cent of it
+    // has a dominant room by the arithmetic and does not have this problem: three other rooms fit
+    // beside it perfectly well, and the zoned layout gave it two hallways and no improvement.
+    if (big.length > 0 && cells.length >= MIN_CELLS_FOR_BAYS) {
+      const zoned = packZoned(programme, big, cells, areas, wallMm, interiorWallMm, corridorMm);
+      if (zoned) return zoned;
+    }
+  }
 
   // Which strip each room goes in, decided before the building is sized, because how deep the
   // strips have to be depends on what is in them: a living room needs 3 m across its short side and
