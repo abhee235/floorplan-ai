@@ -194,17 +194,47 @@ this hardware, prefill runs at 301 tokens a second, so re-running a 5,000-token
 conversation costs about eighteen seconds of staring at nothing. A conversation
 that fits is never touched.
 
-**Then go to the floor, not to the line.** Once the prefix is broken the cost is
-already paid, and stopping the moment the prompt fits means paying it again on
-the very next step. This is not a small difference:
+**Then go deep, but no deeper than is needed.** Once the prefix is broken the
+cost is already paid, and stopping the moment the prompt fits means paying it
+again on the very next step. This is not a small difference:
 
 | Policy, on a 32,768 window | Compactions | Cost each |
 |---|---|---|
 | stop as soon as it fits | every step | ~48 s |
 | run down to the floor | one every 17 steps | ~18 s |
 
-So compaction runs every layer it can and stops only at the floor: the fixed
-cost, the shield, and everything D3 pins. It does not aim at a percentage.
+But "as deep as possible" is wrong in the other direction, and the owner caught
+that too. What is dropped is gone, and a model with more of the conversation in
+front of it is working from more. So the target is the largest conversation
+that still guarantees a set number of steps before the next compaction, and the
+layers stop the moment they reach it, oldest results first.
+
+**Thirty steps, and the unit is steps rather than a share of the window.** A
+ratio cannot work, because the fixed cost is an absolute number: on a
+16,384-token window the conversation budget is negative, and on 32,768 a target
+of 40 per cent leaves under four steps of room. Thirty steps means the same
+thing on every model, and it is enough that a forty-step run compacts at most
+once.
+
+What that gives, with the measured 545 tokens a step:
+
+| Window | Kept after compacting | Of the window | Steps until the next |
+|---|---|---|---|
+| 32,768 | about 5,000, the floor | 15% | 18 |
+| 65,536 | 31,483 | 48% | 30 |
+| 131,072 | 97,019 | 74% | 30 |
+| 200,000 | never reached in 334 steps | | |
+
+On a small window the target lands below what the layers can reach and they
+simply do everything they can. On a large one most of the conversation is left
+alone, which is the point.
+
+**Keeping more is not free, and the trade is taken with eyes open.** What
+survives is prefilled again, so a shallower cut costs longer. On this hardware,
+on a 65,536-token window, keeping 31,483 tokens rather than cutting to 5,000
+costs about five minutes more over a hundred steps. That is accepted: spent
+seconds come back and dropped detail does not. It is a setting for anyone who
+disagrees.
 
 **The floor is a number, not a fraction, and this matters.** The fixed cost is
 15,655 tokens whatever the window is, so the deepest possible compaction lands
@@ -316,7 +346,15 @@ which D2a takes to the floor, not from the timing.
 **Aim compaction at a percentage of the window.** Rejected: the fixed cost is
 an absolute number, so the same percentage is easy on one model and impossible
 on another. On a 32,768-token window a target of 50 per cent cannot be reached
-at all.
+at all, and on 16,384 there is no conversation budget to take a percentage of.
+The idea behind it was right and is kept as the headroom target in D2a; only
+the unit changed, from a share of the window to a number of steps.
+
+**Always cut to the floor, whatever the window.** Rejected once the numbers
+were done. It is the cheapest policy in prefill seconds and it throws away
+detail nobody asked it to throw away: on a 131,072-token window it would keep
+4 per cent of the conversation where 74 per cent would have done, and buy
+headroom far past anything a run will use.
 
 **Keep a summary and the detail.** Rejected: it grows the conversation to save
 space in it.

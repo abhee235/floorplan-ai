@@ -5,13 +5,18 @@
 // are about what survives, not about how much was saved.
 import { describe, expect, it } from "vitest";
 import {
+  type AgentEvent,
   type Budget,
   type ChatMessage,
+  type Completion,
+  type CompletionRequest,
   compact,
   conversationBudget,
   conversationTokens,
   needsCompaction,
   outputRoom,
+  type Provider,
+  runAgent,
 } from "../src/index.js";
 
 /**
@@ -227,5 +232,104 @@ describe("going all the way down rather than just far enough", () => {
     expect(out.before).toBeGreaterThan(out.after);
     expect(out.dropped["tool-result"]).toBeGreaterThan(0);
     expect(conversationTokens(out.messages)).toBe(out.after);
+  });
+});
+
+describe("inside a real run", () => {
+  /** A provider with a small window that answers with one fat tool result after another. */
+  function scripted(contextTokens: number) {
+    const requests: CompletionRequest[] = [];
+    let i = 0;
+    const provider: Provider = {
+      id: "fake",
+      model: "fake",
+      profile: {
+        vision: false,
+        toolCalls: true,
+        toolReliability: "medium",
+        contextTokens,
+        jsonMode: false,
+        streaming: false,
+      },
+      async complete(req) {
+        requests.push({ ...req, messages: [...req.messages] });
+        i += 1;
+        const reply: Completion = {
+          text: i > 30 ? "Done." : null,
+          toolCalls:
+            i > 30
+              ? []
+              : [{ id: `c${i}`, name: "describe_room", arguments: JSON.stringify({ roomId: `r${i}` }) }],
+          finishReason: i > 30 ? "stop" : "tool_calls",
+          usage: { promptTokens: 100, completionTokens: 10 },
+          raw: null,
+        };
+        return reply;
+      },
+    };
+    return { provider, requests };
+  }
+
+  const tools = [
+    { name: "describe_room", description: "describe a room", parameters: { type: "object", properties: {} } },
+  ];
+
+  it("compacts when the conversation outgrows the window, and says so", async () => {
+    const { provider, requests } = scripted(12_000);
+    const events: AgentEvent[] = [];
+    const run = await runAgent({
+      provider,
+      tools,
+      system: "you draw floor plans",
+      task: "build a one bedroom flat",
+      maxSteps: 40,
+      callTool: async () => ({ ok: true, result: { note: "x".repeat(2_400) }, warnings: [] }),
+      onEvent: (e) => events.push(e),
+      gates: { idle: false },
+    });
+    expect(run.reason).toBe("done");
+    const compacted = events.filter((e) => e.type === "compacted");
+    expect(compacted.length).toBeGreaterThan(0);
+    for (const e of compacted) if (e.type === "compacted") expect(e.after).toBeLessThan(e.before);
+    // Each one has to buy something. Two in a row would mean the first bought nothing, which is the
+    // failure the owner spotted: a prefill paid for every step. The gap here is small because this
+    // window is deliberately tiny; what matters is that there is one.
+    const at = compacted.map((e) => e.step);
+    const gaps = at.slice(1).map((n, i) => n - (at[i] as number));
+    expect(Math.min(...gaps, Number.POSITIVE_INFINITY)).toBeGreaterThan(1);
+    // The brief survived all of it, which is the whole point.
+    const last = requests.at(-1) as CompletionRequest;
+    expect(String(last.messages[0]?.content)).toContain("build a one bedroom flat");
+  });
+
+  it("never asks for more output than the window has left", async () => {
+    const { provider, requests } = scripted(12_000);
+    await runAgent({
+      provider,
+      tools,
+      system: "you draw floor plans",
+      task: "build a flat",
+      maxSteps: 40,
+      maxTokens: 8_000,
+      callTool: async () => ({ ok: true, result: { note: "x".repeat(2_400) }, warnings: [] }),
+      gates: { idle: false },
+    });
+    for (const r of requests) expect(r.maxTokens ?? 0).toBeLessThanOrEqual(12_000);
+  });
+
+  it("stops with a reason when even the floor will not fit", async () => {
+    // A window smaller than the prompt's fixed cost: no amount of dropping helps, so it says so.
+    const { provider } = scripted(300);
+    const run = await runAgent({
+      provider,
+      tools,
+      system: "you draw floor plans, and here are a great many instructions. ".repeat(40),
+      task: "build a flat",
+      maxSteps: 40,
+      callTool: async () => ({ ok: true, result: { note: "x".repeat(2_400) }, warnings: [] }),
+      gates: { idle: false },
+    });
+    expect(run.reason).toBe("context-full");
+    expect(run.error).toContain("start a new chat");
   });
 });

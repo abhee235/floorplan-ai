@@ -230,7 +230,14 @@ export interface AgentPlanItem {
 }
 
 /** Why a run stopped. */
-export type AgentStopReason = "done" | "step-budget" | "provider-error" | "stalled" | "aborted";
+export type AgentStopReason =
+  | "done"
+  | "step-budget"
+  | "provider-error"
+  | "stalled"
+  | "aborted"
+  /** The conversation will not fit even with everything droppable dropped (ADR-025). */
+  | "context-full";
 
 /**
  * Something a tab can draw that the model never sees.

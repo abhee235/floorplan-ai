@@ -2,6 +2,15 @@
 // in-process by the caller. A step is one model turn. Tool calls run in order; a malformed call becomes an error
 // result the model can correct, never an exception. Every request, reply, retry and tool call is emitted as an
 // event, so the host can write a transcript and a viewer can follow along.
+import {
+  type Budget,
+  type CompactionOptions,
+  compact,
+  conversationTokens,
+  estimateTokens,
+  needsCompaction,
+  outputRoom,
+} from "./compact.js";
 import { afterGate, afterLoopTool, afterTool, type GateState, gateFor, newGateState } from "./gates.js";
 import { extractJson, stripThinking } from "./json.js";
 import {
@@ -31,7 +40,7 @@ import {
   type Usage,
 } from "./provider.js";
 
-export type StopReason = "done" | "step-budget" | "provider-error" | "stalled" | "aborted";
+export type StopReason = "done" | "step-budget" | "provider-error" | "stalled" | "aborted" | "context-full";
 
 export type AgentEvent =
   | { type: "step.started"; step: number; at: string; messages: number; tools: number }
@@ -74,6 +83,15 @@ export type AgentEvent =
   | { type: "question.answered"; step: number; at: string; id: string; answers: Record<string, string> }
   /** A gate spoke: the model was told why the run is not over. Never shown as the model's own words. */
   | { type: "reminder"; step: number; at: string; gate: "plan" | "verify" | "idle"; text: string }
+  /** The conversation was made smaller to fit; the chat says so rather than letting it shift silently. */
+  | {
+      type: "compacted";
+      step: number;
+      at: string;
+      before: number;
+      after: number;
+      dropped: Record<string, number>;
+    }
   | {
       type: "done";
       at: string;
@@ -121,6 +139,13 @@ export interface AgentOptions {
     /** Resolves when the person answers; rejects when the run is abandoned. */
     ask?(request: AskRequest): Promise<Record<string, string>>;
   };
+  /**
+   * How the conversation is kept inside the window (ADR-025).
+   *
+   * On by default. A caller that wants the old behaviour -- send everything and let the server cut
+   * the front off -- has to ask for it, because that behaviour loses the system prompt first.
+   */
+  compaction?: CompactionOptions & { enabled?: boolean; reserve?: number };
   /** Which gates may speak; all three do unless a caller says otherwise. */
   gates?: { plan?: boolean; verify?: boolean; idle?: boolean };
   /**
@@ -340,6 +365,22 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
   const verifying = options.verifyingTools ?? new Set<string>();
   const liftRenders = options.images?.liftRenders !== false && options.provider.profile.vision;
   const maxImages = options.images?.maxPerTurn ?? 4;
+  // What every prompt costs before a word of conversation: the system prompt and the tool schemas,
+  // re-sent on every step. Measured at 48% of a 32,768-token window, which is why the floor
+  // compaction can reach is an absolute number and not a share (ADR-025).
+  const budget: Budget = {
+    contextTokens: options.provider.profile.contextTokens,
+    fixedTokens:
+      estimateTokens(options.system) +
+      estimateTokens(JSON.stringify(tools)) +
+      estimateTokens(planForPrompt(plan)),
+    ...(options.compaction?.reserve !== undefined ? { reserve: options.compaction.reserve } : {}),
+  };
+  const compaction = options.compaction?.enabled === false ? null : (options.compaction ?? {});
+  // What one more step is likely to add, so the question is about the prompt about to be sent
+  // rather than the one that already was. Seeded from the measured median and then learnt.
+  let growth = 545;
+  let lastConversation = 0;
   let steps = 0;
   let toolCalls = 0;
   let failedCalls = 0;
@@ -384,6 +425,32 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
   while (steps < maxSteps) {
     if (options.signal?.aborted) return finish("aborted");
     steps += 1;
+    // As late as is safe and no earlier: a conversation that fits is never touched, because
+    // rewriting it breaks the server's cached prefix and everything after the first changed message
+    // is prefilled again (ADR-025 D2a).
+    if (compaction && needsCompaction(messages, budget, growth)) {
+      const result = compact(messages, budget, { ...compaction, growthPerStep: growth });
+      // Only when something actually moved. The trigger above asks about the step that has not
+      // happened yet, so it fires a little before the conversation is over the line and there is
+      // genuinely nothing to remove; saying "compacted" then would be a lie in the chat.
+      if (result.compacted) {
+        messages.splice(0, messages.length, ...result.messages);
+        emit({
+          type: "compacted",
+          step: steps,
+          at: now(),
+          before: result.before,
+          after: result.after,
+          dropped: result.dropped,
+        });
+      }
+      if (result.overflows)
+        return finish(
+          "context-full",
+          null,
+          `the conversation will not fit in ${budget.contextTokens} tokens even with everything droppable dropped; start a new chat, or give the model a larger context`,
+        );
+    }
     emit({ type: "step.started", step: steps, at: now(), messages: messages.length, tools: tools.length });
     const started = Date.now();
     let completion: Completion | null = null;
@@ -397,7 +464,16 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
         messages,
         tools,
         temperature: 0,
-        ...(options.maxTokens ? { maxTokens: options.maxTokens } : {}),
+        // A configured cap is a ceiling, never a promise of room: a model allowed eight thousand
+        // tokens cannot have them in a window with three thousand left.
+        ...(() => {
+          const room = outputRoom(
+            budget,
+            budget.fixedTokens + conversationTokens(messages),
+            options.maxTokens,
+          );
+          return room > 0 ? { maxTokens: room } : {};
+        })(),
         ...(options.signal ? { signal: options.signal } : {}),
       };
       try {
@@ -428,6 +504,10 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
       });
     }
     lastPromptTokens = promptTokens;
+    // What a step actually costs here, rather than what it cost on the machine this was measured on.
+    const nowConversation = conversationTokens(messages);
+    if (lastConversation > 0) growth = Math.max(growth, nowConversation - lastConversation);
+    lastConversation = nowConversation;
     usage.promptTokens += completion.usage.promptTokens;
     usage.completionTokens += completion.usage.completionTokens;
 

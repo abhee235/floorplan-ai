@@ -107,6 +107,45 @@ export interface CompactionResult {
 export interface CompactionOptions {
   /** Results kept in full, newest first (default DEFAULT_SHIELD). */
   shield?: number;
+  /**
+   * Steps of room to leave behind, which is what decides how deep to cut.
+   *
+   * Never deeper than this buys. What is dropped is gone, and a model with more of the conversation
+   * in front of it is working from more, so the rule is to keep as much as possible while still
+   * putting the next compaction a long way off.
+   *
+   * In steps rather than a share of the window, because the fixed cost is an absolute number: on a
+   * 16,384-token window there is no conversation budget at all, and on 32,768 a target of 40 per
+   * cent leaves under four steps. Steps mean the same thing on every model.
+   *
+   * Keeping more is not free. What survives is prefilled again, so a shallower cut costs longer.
+   * Measured on one local machine: on a 65,536-token window, keeping 31,000 tokens rather than
+   * cutting to 5,000 costs about five minutes more over a hundred steps and keeps six times as
+   * much. That trade is taken on purpose, because spent seconds come back and dropped detail does
+   * not.
+   */
+  headroomSteps?: number;
+  /** What a step is expected to add; the caller passes what it has measured. */
+  growthPerStep?: number;
+}
+
+/** Enough that a forty-step run compacts at most once. */
+export const DEFAULT_HEADROOM_STEPS = 30;
+
+/** The measured median growth of a conversation, per step, on a real run. */
+export const DEFAULT_GROWTH_PER_STEP = 545;
+
+/**
+ * How small the conversation should be made, once it has been decided that it must be.
+ *
+ * Not as small as possible: as large as it can be while still buying `headroomSteps` before the
+ * next one. On a small window this lands below what the layers can reach and they simply do
+ * everything they can; on a large one it leaves most of the conversation alone.
+ */
+export function compactionTarget(budget: Budget, options: CompactionOptions = {}): number {
+  const steps = options.headroomSteps ?? DEFAULT_HEADROOM_STEPS;
+  const growth = options.growthPerStep ?? DEFAULT_GROWTH_PER_STEP;
+  return Math.max(0, conversationBudget(budget) - steps * growth);
 }
 
 const isToolResult = (m: ChatMessage) => m.role === "tool";
@@ -224,22 +263,14 @@ export function compact(
   const calls = askedBy(messages);
   const out = messages.map((m) => ({ ...m }));
   const shield = options.shield ?? DEFAULT_SHIELD;
+  const target = compactionTarget(budget, options);
 
   // Which results are inside the shield: the newest `shield` results, counted from the end.
   const resultAt = out.map((m, i) => (isToolResult(m) ? i : -1)).filter((i) => i >= 0);
   const shielded = new Set(resultAt.slice(-shield));
 
-  // Layer 1: everything outside the shield becomes a receipt, failures excepted.
-  for (const i of resultAt) {
-    const m = out[i] as ChatMessage;
-    if (shielded.has(i) || isFailure(m)) continue;
-    const line = receipt(m, calls.get(i)?.name);
-    if (!shorter(m, line)) continue;
-    m.content = line;
-    dropped["tool-result"] += 1;
-  }
-
-  // Layer 2: a newer read of the same thing makes an older one worthless, shield or not.
+  // Layer 1 goes first and runs to completion, because it is the only free one: a newer answer to
+  // the same question means the older one is not information, it is a stale copy.
   // Keyed on the arguments as well as the name, and that is not a detail: describing the bedroom
   // says nothing about the kitchen, so two describe_room calls only supersede each other when they
   // are about the same room.
@@ -258,9 +289,22 @@ export function compact(
     } else seen.add(key);
   }
 
-  // Layer 3: the receipts themselves go, oldest first, and only as far as is needed. Unlike the
-  // layers above this one loses the fact that a call was answered at all, so it is not run to the
-  // floor for its own sake.
+  // Layer 2: results become receipts, oldest first, stopping the moment the target is reached.
+  // Oldest first because the oldest is the most likely to be stale; stopping at the target because
+  // everything dropped past it is detail given up for nothing.
+  for (const i of resultAt) {
+    if (conversationTokens(out) <= target) break;
+    const m = out[i] as ChatMessage;
+    if (shielded.has(i) || isFailure(m)) continue;
+    const line = receipt(m, calls.get(i)?.name);
+    if (!shorter(m, line)) continue;
+    m.content = line;
+    dropped["tool-result"] += 1;
+  }
+
+  // Layer 3: the receipts themselves go, oldest first, and only as far as is needed to fit at all.
+  // Unlike the layers above, this one loses the fact that a call was answered, so it works to the
+  // limit rather than to the target.
   if (conversationTokens(out) > limit) {
     for (const i of resultAt) {
       if (conversationTokens(out) <= limit) break;
