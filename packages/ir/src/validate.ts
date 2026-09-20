@@ -434,7 +434,11 @@ export function validate(project: Project, options: ValidateOptions = {}): Probl
       footprints.set(i.id, { item: i, pts, rect: poly.bounds(pts), size });
       // Standing in a doorway, or across a window. The recipe that placed a wardrobe over every
       // bedroom door looked only at the wall's length, never at what was already in it.
-      if (i.mount.kind === "floor" && !i.parentId) {
+      // Wall-mounted too, and that is the point of the rule rather than an extension of it. A
+      // hundred-person office came back with eight seventy-five-inch displays hung squarely across
+      // the windows of eight different rooms, and the checker said nothing, because it only ever
+      // looked at things standing on the floor.
+      if ((i.mount.kind === "floor" || i.mount.kind === "wall") && !i.parentId) {
         for (const o of project.openings) {
           const w = walls.get(o.wallId);
           if (!w || w.levelId !== i.levelId || derive.wallLength(w) === 0) continue;
@@ -443,18 +447,28 @@ export function validate(project: Project, options: ValidateOptions = {}): Probl
           const uy = (w.end.y - w.start.y) / len;
           const along = pts.map((q) => (q.x - w.start.x) * ux + (q.y - w.start.y) * uy);
           const away = pts.map((q) => Math.abs((q.x - w.start.x) * uy - (q.y - w.start.y) * ux));
-          // A window is only blocked by something taller than its sill. A bed, a sofa and a kitchen
-          // run all belong under one, and the furnishing code puts them there on purpose; a checker
-          // that called that a fault would be disagreeing with the thing it is meant to be checking.
-          if (o.kind === "window" && size.h <= o.sill) continue;
+          // Heights have to overlap, not just plans. One rule covers both kinds of thing, which is
+          // why it replaced two. A bed under a window is fine and the furnishing code puts it there
+          // on purpose, because its top is below the sill. A display hung at 916 mm with 969 mm of
+          // screen covers a window whose glass starts at 900. A ceiling speaker above the head of
+          // the opening covers nothing. Before this, the first was the only case considered.
+          const top = i.elevation + size.h;
+          const head = o.sill + o.height;
+          if (top <= o.sill || i.elevation >= head) continue;
           const span = derive.openingAlongInterval(o, w);
           const overlap = Math.min(Math.max(...along), span.to) - Math.max(Math.min(...along), span.from);
           if (overlap <= 0 || Math.min(...away) > w.thickness / 2 + BACK_TO_WALL_MM) continue;
           warn(
             "item.blocks-opening",
             i.id,
-            `stands across ${Math.round(overlap)} mm of ${o.kind} ${o.id}`,
-            o.kind === "window" ? "leave the window reachable" : "keep the doorway clear",
+            i.mount.kind === "wall"
+              ? `hangs across ${Math.round(overlap)} mm of ${o.kind} ${o.id}`
+              : `stands across ${Math.round(overlap)} mm of ${o.kind} ${o.id}`,
+            o.kind !== "window"
+              ? "keep the doorway clear"
+              : i.mount.kind === "wall"
+                ? "hang it on a wall without a window in it, or above the head of this one"
+                : "leave the window reachable",
             [o.id, w.id],
           );
         }

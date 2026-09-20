@@ -202,6 +202,54 @@ describe("nothing stands in a doorway", () => {
     expect(find(p, "item.blocks-opening")?.hint).toBe("leave the window reachable");
   });
 
+  it("reports a display hung across a window, which no floor rule would catch", () => {
+    // A hundred-person office came back with eight seventy-five-inch displays hung squarely across
+    // the windows of eight rooms, and the checker said nothing: it only looked at things standing
+    // on the floor. The screen starts at 916 mm and the glass starts at 900.
+    const p = withDoor();
+    const north = p.walls[2] as Wall;
+    p.openings = [
+      defaultOpening(id("opening"), LEVEL, north.id, "window", { position: 0.5, width: 1200, sill: 900 }),
+    ];
+    p.items = [
+      {
+        ...defaultItem(
+          id("item"),
+          LEVEL,
+          { kind: "recipe", recipe: { kind: "display", size: { w: 1690, d: 90, h: 969 } } },
+          { x: 2000, y: 2900 },
+        ),
+        elevation: 916,
+        mount: { kind: "wall", targetId: north.id, height: null },
+      },
+    ];
+    const found = find(p, "item.blocks-opening");
+    expect(found?.message).toContain("hangs across");
+    expect(found?.hint).toContain("above the head");
+  });
+
+  it("says nothing about a speaker above the head of the window", () => {
+    // The same rule has to let the ceiling alone, or it would flag every speaker in the building.
+    const p = withDoor();
+    const north = p.walls[2] as Wall;
+    p.openings = [
+      defaultOpening(id("opening"), LEVEL, north.id, "window", { position: 0.5, width: 1200, sill: 900 }),
+    ];
+    p.items = [
+      {
+        ...defaultItem(
+          id("item"),
+          LEVEL,
+          { kind: "recipe", recipe: { kind: "box", size: { w: 250, d: 250, h: 190 }, label: "Speaker" } },
+          { x: 2000, y: 2900 },
+        ),
+        elevation: 2400,
+        mount: { kind: "wall", targetId: north.id, height: null },
+      },
+    ];
+    expect(find(p, "item.blocks-opening")).toBeUndefined();
+  });
+
   it("leaves a bath under a window alone, which is where baths are", () => {
     const p = withDoor();
     const north = p.walls[2] as Wall;
