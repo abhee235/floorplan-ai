@@ -197,22 +197,30 @@ describe("a conversation that carries on", () => {
         });
       });
 
+    // What a run opened with, rather than what it ended on. A run that answers a brief without
+    // calling anything is nudged once by the idle gate, and that nudge is a message the model reads
+    // inside its own run; it is not something the person said, and it has no business in an
+    // assertion about what the conversation carried in.
+    const opening = () => provider.requests.length;
+
     agent.start(held, { text: "draw a meeting room" });
     await finished();
+    const secondAt = opening();
     agent.start(held, { text: "now add a table" });
     await finished();
 
     // the second request carries the first exchange
-    const second = provider.requests.at(-1) as CompletionRequest;
+    const second = provider.requests[secondAt] as CompletionRequest;
     const said = second.messages.filter((m) => m.role === "user").map((m) => String(m.content));
     expect(said[0]).toContain("draw a meeting room");
     expect(said.at(-1)).toContain("now add a table");
 
     // and clearing it starts from nothing again
     agent.clear(held.id);
+    const thirdAt = opening();
     agent.start(held, { text: "start over" });
     await finished();
-    const third = provider.requests.at(-1) as CompletionRequest;
+    const third = provider.requests[thirdAt] as CompletionRequest;
     expect(third.messages.filter((m) => m.role === "user")).toHaveLength(1);
   });
 });

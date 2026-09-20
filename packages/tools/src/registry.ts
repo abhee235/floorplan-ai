@@ -70,7 +70,24 @@ export interface ToolDef<I extends AnyObjectSchema = AnyObjectSchema, O = unknow
   run(args: z.infer<I>, call: ToolCall): O | Promise<O>;
 }
 
-export const TIMEOUTS = { read: 5_000, command: 10_000, render: 30_000, slow: 120_000 } as const;
+/**
+ * How long a tool may take before the loop gives up on it.
+ *
+ * `subrun` is the odd one out and deliberately enormous. A tool that runs a nested agent is not a
+ * computation that can hang; it is many model turns, each of which the host already allows five
+ * minutes because a tool-calling turn on a local model takes them. It bounds itself three ways
+ * already -- a step budget, a round budget and the abort signal a person's Cancel raises -- so this
+ * is a backstop against a wedged process, not a limit on the work. At 120 seconds it was neither:
+ * a local model could not finish an architect sub-run inside it, and every design failed on the
+ * clock rather than on its merits.
+ */
+export const TIMEOUTS = {
+  read: 5_000,
+  command: 10_000,
+  render: 30_000,
+  slow: 120_000,
+  subrun: 1_800_000,
+} as const;
 
 /** Define a tool with defaults filled in; keeps each tool file short. */
 export function defineTool<I extends AnyObjectSchema, O>(

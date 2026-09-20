@@ -346,7 +346,9 @@ export const designLayoutTool = defineTool({
     "Work the whole plan out before drawing any of it. Hands the brief to an architect that has the inspect tools and check_design and nothing that draws, and gets back a design that passed the checker, ready for build_design. Use it for anything that builds a building or rearranges its rooms; for adding one table to a room that exists, do not.",
   tier: "both",
   mutating: false,
-  timeoutMs: TIMEOUTS.slow,
+  // A whole agent run, not a calculation: it stops itself on its step budget, its round budget or a
+  // Cancel, and this only catches a wedge.
+  timeoutMs: TIMEOUTS.subrun,
   input: z.object({
     brief: z
       .string()

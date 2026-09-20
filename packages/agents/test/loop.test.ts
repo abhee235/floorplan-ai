@@ -8,6 +8,7 @@ import {
   type AgentEvent,
   type AskRequest,
   afterGate,
+  afterLoopTool,
   afterTool,
   applyPlan,
   type ChatMessage,
@@ -125,7 +126,9 @@ describe("the gates", () => {
   const sets = { mutating: new Set(["create_walls"]), verifying: new Set(["validate"]) };
 
   it("will not let a model stop with its own plan unfinished, but only so many times", () => {
-    let state = newGateState();
+    // Starting from a plan having been made, because that is the only way a plan exists: plan_work
+    // is a tool call, so a run with an open plan is never a run where nothing has happened.
+    let state = afterLoopTool(newGateState());
     const first = gateFor(state, open);
     expect(first?.gate).toBe("plan");
     expect(first?.text).toContain("tint the windows");
@@ -137,7 +140,7 @@ describe("the gates", () => {
   });
 
   it("re-arms when the model does something, so a nudge is per stall and not per run", () => {
-    let state = afterGate(newGateState(), "plan");
+    let state = afterGate(afterLoopTool(newGateState()), "plan");
     state = afterTool(state, "create_walls", true, sets);
     expect(gateFor(state, open)?.gate).toBe("plan");
   });
@@ -158,6 +161,41 @@ describe("the gates", () => {
   it("says nothing about a change that was refused", () => {
     const state = afterTool(newGateState(), "create_walls", false, sets);
     expect(gateFor(state, [])).toBeNull();
+  });
+
+  it("will not let a run end on a model that only said what it was going to do", () => {
+    // A local model answered a one-bedroom brief with "I will design a one-bedroom flat with an
+    // open kitchen and a bathroom" and called nothing. An answer with no tool calls ends a run, so
+    // the whole card failed on step one with an empty project and no idea why.
+    let state = newGateState();
+    const gate = gateFor(state, []);
+    expect(gate?.gate).toBe("idle");
+    expect(gate?.text).toContain("without calling a single tool");
+    // Once. Twice is nagging a model that has made itself clear, and each turn costs a call.
+    state = afterGate(state, "idle");
+    expect(gateFor(state, [])).toBeNull();
+  });
+
+  it("counts a tool that failed as having done something", () => {
+    const state = afterTool(newGateState(), "create_walls", false, sets);
+    expect(gateFor(state, [])?.gate).not.toBe("idle");
+    expect(gateFor(state, [])).toBeNull();
+  });
+
+  it("counts making a plan as doing something, and names the unfinished item instead", () => {
+    // plan_work is a tool the model called, so "you called no tool" would be a lie. The plan gate is
+    // the better thing to say anyway, because it can name what is left.
+    const planned = afterLoopTool(newGateState());
+    expect(gateFor(planned, open)?.gate).toBe("plan");
+    expect(gateFor(planned, [])).toBeNull();
+  });
+
+  it("prefers the plan's own words to the general complaint", () => {
+    expect(gateFor(afterLoopTool(newGateState()), open)?.gate).toBe("plan");
+  });
+
+  it("can be turned off, for a caller that expects an answer without tools", () => {
+    expect(gateFor(newGateState(), [], { idle: false })).toBeNull();
   });
 });
 

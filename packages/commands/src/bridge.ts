@@ -305,7 +305,7 @@ export type AgentWireEvent =
       ids: string[];
     }
   | { type: "question.answered"; id: string; answers: Record<string, string>; by: "person" | "review" }
-  | { type: "reminder"; step: number; gate: "plan" | "verify"; text: string }
+  | { type: "reminder"; step: number; gate: "plan" | "verify" | "idle"; text: string }
   | { type: "context"; step: number; promptTokens: number; contextTokens: number }
   | { type: "retry"; step: number; error: string; waitMs: number }
   | { type: "warning"; step: number; message: string }

@@ -163,6 +163,8 @@ export async function runArchitect(
     ...(options.onEvent ? { onEvent: options.onEvent } : {}),
     ...(options.now ? { now: options.now } : {}),
     // No plan gate: the architect's plan is the design, and check_design is what holds it to it.
+    // The idle gate stays on, and this is where it earns its keep: a model that answers a brief with
+    // "I will design a one-bedroom flat" has designed nothing, and without the nudge the run is over.
     gates: { plan: false, verify: false },
   });
 

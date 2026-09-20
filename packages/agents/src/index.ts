@@ -2,10 +2,12 @@
 export const PACKAGE = "agents" as const;
 export {
   afterGate,
+  afterLoopTool,
   afterTool,
   type Gate,
   type GateState,
   gateFor,
+  IDLE_GATE_FIRINGS,
   newGateState,
   PLAN_GATE_FIRINGS,
   VERIFY_GATE_FIRINGS,

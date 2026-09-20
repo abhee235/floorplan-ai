@@ -2,7 +2,7 @@
 // in-process by the caller. A step is one model turn. Tool calls run in order; a malformed call becomes an error
 // result the model can correct, never an exception. Every request, reply, retry and tool call is emitted as an
 // event, so the host can write a transcript and a viewer can follow along.
-import { afterGate, afterTool, type GateState, gateFor, newGateState } from "./gates.js";
+import { afterGate, afterLoopTool, afterTool, type GateState, gateFor, newGateState } from "./gates.js";
 import { extractJson, stripThinking } from "./json.js";
 import {
   ASK_USER,
@@ -73,7 +73,7 @@ export type AgentEvent =
   | { type: "question"; step: number; at: string; request: AskRequest }
   | { type: "question.answered"; step: number; at: string; id: string; answers: Record<string, string> }
   /** A gate spoke: the model was told why the run is not over. Never shown as the model's own words. */
-  | { type: "reminder"; step: number; at: string; gate: "plan" | "verify"; text: string }
+  | { type: "reminder"; step: number; at: string; gate: "plan" | "verify" | "idle"; text: string }
   | {
       type: "done";
       at: string;
@@ -121,8 +121,8 @@ export interface AgentOptions {
     /** Resolves when the person answers; rejects when the run is abandoned. */
     ask?(request: AskRequest): Promise<Record<string, string>>;
   };
-  /** Which gates may speak; both do unless a caller says otherwise. */
-  gates?: { plan?: boolean; verify?: boolean };
+  /** Which gates may speak; all three do unless a caller says otherwise. */
+  gates?: { plan?: boolean; verify?: boolean; idle?: boolean };
   /**
    * Entities this run may change from the start, whoever made them: what the person had selected
    * when they asked. Selecting a thing and saying "turn this round" is consent (ADR-023 D3).
@@ -553,7 +553,9 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
       }
       const ok = isOk(result);
       if (!ok) failedCalls += 1;
-      if (!LOOP_TOOL_NAMES.has(call.name)) gates = afterTool(gates, call.name, ok, { mutating, verifying });
+      gates = LOOP_TOOL_NAMES.has(call.name)
+        ? afterLoopTool(gates)
+        : afterTool(gates, call.name, ok, { mutating, verifying });
       emit({
         type: "tool.finished",
         step: steps,

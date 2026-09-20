@@ -366,6 +366,30 @@ would have found them.
 The verify gate stays, because a gate that rarely fires is cheap and the run
 that needs it is the one that matters.
 
+**Amended 2026-09-20: a third gate, for the run where nothing happened.** A
+local model was given the one-bedroom-flat brief and answered, on the first
+step, "I will design a one-bedroom flat with an open kitchen and a bathroom."
+It called no tool. An answer with no tool calls is how a run ends, so the run
+ended: one step, no design, no rooms, and a failure report that said the rooms
+were missing without saying why.
+
+Neither existing gate covers it. The plan gate needs a plan and the verify gate
+needs a change, and this run had neither. So there is an idle gate: the model
+answered, no tool has been called in the whole run, and it is told that saying
+what it intends to do is not doing it. It fires once, because a model that
+answers in prose twice running means it and each turn costs a call, and a
+caller that genuinely expects an answer without tools can turn it off.
+
+It is the least specific of the three, so it speaks last: a model with an
+unfinished plan hears about the unfinished item instead, which is the more
+useful sentence. Making a plan counts as having done something, so a model that
+called `plan_work` is never told it called nothing.
+
+This gate is only reachable by a model weak enough to need it, which is the
+argument for it rather than against: the frontier model has never once
+triggered it, and the local models this project is meant to run on trigger it
+on the first step of the first card.
+
 ### D5. The rules that keep trust
 
 These are the rules, and each is enforced by code somewhere named, not by the

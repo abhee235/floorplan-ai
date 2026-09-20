@@ -171,6 +171,9 @@ describe("agent runner (ADR-007 D3)", () => {
       system: "s",
       task: "t",
       callTool: async () => ({ ok: true }),
+      // This is about backoff, not about gates; the idle gate would ask the script for a turn it
+      // does not have.
+      gates: { idle: false },
       retryDelayMs: 100,
       sleep: async (ms) => {
         waits.push(ms);
@@ -184,6 +187,7 @@ describe("agent runner (ADR-007 D3)", () => {
       system: "s",
       task: "t",
       callTool: async () => ({ ok: true }),
+      gates: { idle: false },
       sleep: noSleep,
     });
     expect(broken).toMatchObject({ reason: "provider-error", error: "fake: bad request" });
