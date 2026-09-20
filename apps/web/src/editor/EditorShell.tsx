@@ -1097,6 +1097,7 @@ export function EditorShell(): JSX.Element {
         <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} commands={commands.all()} />
         <AgentWindow
           open={agentOpen}
+          onOpen={() => setAgentOpen(true)}
           onClose={() => setAgentOpen(false)}
           title="Agent"
           subtitle={agent.available ? agent.model : "unavailable"}
