@@ -318,20 +318,43 @@ describe("inside a real run", () => {
     for (const r of requests) expect(r.maxTokens ?? 0).toBeLessThanOrEqual(12_000);
   });
 
-  it("stops with a reason when even the floor will not fit", async () => {
-    // A window smaller than the prompt's fixed cost: no amount of dropping helps, so it says so.
-    const { provider } = scripted(300);
+  it("refuses before sending anything when the window cannot hold the prompt (S6)", async () => {
+    // Not a compaction problem: none of what overflows a window this small is conversation, so
+    // there is nothing to remove. The honest thing is to say so with the numbers.
+    const { provider, requests } = scripted(4_000);
     const run = await runAgent({
       provider,
       tools,
-      system: "you draw floor plans, and here are a great many instructions. ".repeat(40),
+      // Instructions alone larger than the window leaves room for them.
+      system: "you draw floor plans, and here are a great many instructions. ".repeat(150),
+      task: "build a flat",
+      callTool: async () => ({ ok: true }),
+    });
+    expect(run.reason).toBe("context-full");
+    expect(run.error).toContain("4000-token context");
+    expect(run.error).toContain("larger context");
+    // And it cost nothing: no request was ever made.
+    expect(requests).toHaveLength(0);
+  });
+
+  it("stops with a reason when the conversation will not fit however much is dropped", async () => {
+    // Room for the prompt but not for the shield: the run starts, works, and then runs out. The
+    // caller has to stop rather than hope, and the message is the one about starting again.
+    const { provider } = scripted(4_000);
+    const run = await runAgent({
+      provider,
+      tools,
+      system: "you draw floor plans",
       task: "build a flat",
       maxSteps: 40,
+      compaction: { reserve: 100 },
       callTool: async () => ({ ok: true, result: { note: "x".repeat(2_400) }, warnings: [] }),
       gates: { idle: false },
     });
     expect(run.reason).toBe("context-full");
     expect(run.error).toContain("start a new chat");
+    // It got somewhere first, rather than refusing from a standing start.
+    expect(run.steps).toBeGreaterThan(1);
   });
 });
 

@@ -6,6 +6,7 @@ import {
   type Budget,
   type CompactionOptions,
   compact,
+  conversationBudget,
   conversationTokens,
   estimateTokens,
   needsCompaction,
@@ -424,6 +425,15 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
 
   while (steps < maxSteps) {
     if (options.signal?.aborted) return finish("aborted");
+    // A window that cannot hold the prompt is not a compaction problem: none of what overflows it
+    // is conversation, so there is nothing to remove and no amount of cleverness helps. Said once,
+    // before anything is sent, with the numbers (ADR-025 D8).
+    if (steps === 0 && conversationBudget(budget) <= 0)
+      return finish(
+        "context-full",
+        null,
+        `${options.provider.model} has a ${budget.contextTokens}-token context, and the instructions and tool schemas alone are about ${budget.fixedTokens}. Give it a larger context, or use a model with one.`,
+      );
     steps += 1;
     // As late as is safe and no earlier: a conversation that fits is never touched, because
     // rewriting it breaks the server's cached prefix and everything after the first changed message
