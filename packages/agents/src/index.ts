@@ -41,6 +41,14 @@ export {
   planIsOpen,
 } from "./loop-tools.js";
 export {
+  ARCH_CONTEXT_CAP,
+  looksLikeOllama,
+  type ModelLimits,
+  ollamaNative,
+  ollamaRoot,
+  probeModel,
+} from "./ollama.js";
+export {
   type ChatMessage,
   type Completion,
   type CompletionRequest,
@@ -98,3 +106,4 @@ export {
   toolResultText,
 } from "./runner.js";
 export { DONE, decodeChunk, type StreamEvent, sseData, sseReader } from "./sse.js";
+export { providerFor } from "./wire.js";

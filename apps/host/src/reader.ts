@@ -3,7 +3,7 @@
 // FPV_READER_EXTRA_BODY as JSON, FPV_READER_TIMEOUT_MS). Remote or local HTTP only; never a sidecar.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { openAICompatible, type PlanReaderRole, type ProviderConfig, planReader } from "@fpv/agents";
+import { type PlanReaderRole, type ProviderConfig, planReader, providerFor } from "@fpv/agents";
 import { HostConfigFile } from "./verifier.js";
 
 /** Local vision models take minutes on a laptop CPU; the default leaves room for that. */
@@ -71,7 +71,7 @@ export function createReader(model: ProviderConfig | null): {
 } {
   if (!model) return { reader: null, describe: "no reader model (image plans are refused; DXF plans work)" };
   return {
-    reader: planReader(openAICompatible(model)),
+    reader: planReader(providerFor(model)),
     describe: `${model.model} at ${model.baseUrl}${model.profile?.vision === false ? " (not marked as vision)" : ""}`,
   };
 }

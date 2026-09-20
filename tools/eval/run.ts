@@ -12,7 +12,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { openAICompatible, type ProviderConfig, runArchitect } from "@fpv/agents";
+import { type ProviderConfig, providerFor, runArchitect } from "@fpv/agents";
 import type { ToolReliability } from "@fpv/tools";
 import { AGENT_TIMEOUT_MS, describeEvent, runAgentTask } from "../../apps/host/src/agent.js";
 import { loadDotEnv } from "../../apps/host/src/env.js";
@@ -46,7 +46,7 @@ const list = (v: string | undefined) =>
  */
 const timeoutMs = Number(process.env.FPV_AGENT_TIMEOUT_MS) || AGENT_TIMEOUT_MS;
 
-function providerFor(spec: string, think: boolean, reliability: ToolReliability | undefined): ProviderConfig {
+function configFor(spec: string, think: boolean, reliability: ToolReliability | undefined): ProviderConfig {
   const colon = spec.indexOf(":");
   const kind = colon < 0 ? "" : spec.slice(0, colon);
   const name = spec.slice(colon + 1);
@@ -139,13 +139,13 @@ async function main() {
   const cards = loadCards(list(argValue("--cards")));
   mkdirSync(join(EVAL, "transcripts"), { recursive: true });
   for (const spec of models) {
-    const config = providerFor(spec, think, reliability);
+    const config = configFor(spec, think, reliability);
     const down = await unreachable(config);
     if (down) {
       console.log(`\nskipped ${spec}: ${config.baseUrl} does not answer (${down}); nothing recorded`);
       continue;
     }
-    const provider = openAICompatible(config);
+    const provider = providerFor(config);
     for (const card of cards) {
       const { session, close } = evalSession();
       const at = new Date().toISOString();

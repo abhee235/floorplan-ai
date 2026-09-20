@@ -3,7 +3,7 @@
 // the one process the product deploys as: no sidecar, no separate service (ADR-005).
 
 import { join } from "node:path";
-import { openAICompatible } from "@fpv/agents";
+import { providerFor } from "@fpv/agents";
 import { CORE_RULES, ensureSeed } from "@fpv/catalog";
 import { CatalogStore } from "@fpv/catalog/store";
 import { PROTOCOL_VERSION } from "@fpv/commands";
@@ -274,7 +274,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
 `);
     const agent = new AgentRuns(workspace, {
       dataDir: catalog.dir,
-      provider: agentConfig.model ? openAICompatible(agentConfig.model) : null,
+      provider: agentConfig.model ? providerFor(agentConfig.model) : null,
       note: agentConfig.model
         ? `${agentConfig.model.id}:${agentConfig.model.model}`
         : "no agent model (set FPV_AGENT_MODEL, or a designer role in the host's config)",
@@ -312,7 +312,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
       );
       process.exitCode = 2;
     } else {
-      const provider = openAICompatible(agentConfig.model);
+      const provider = providerFor(agentConfig.model);
       process.stderr.write(`floorplan-ai agent: ${provider.model} at ${agentConfig.model.baseUrl}\n`);
       const { run, transcriptPath } = await runAgentTask(session, provider, args.agent, {
         transcriptDir: join(catalog.dir, "transcripts"),
