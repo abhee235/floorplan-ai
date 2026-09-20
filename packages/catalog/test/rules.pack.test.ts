@@ -238,6 +238,27 @@ describe("a workplace is not a house with different labels", () => {
       expect(Math.min(r.rect.w, r.rect.d)).toBeGreaterThanOrEqual(2700);
   });
 
+  it("shapes the building around the rooms, not the rooms around the building", () => {
+    // A hotel floor of twenty 26 m2 bedrooms used to come out 29.4 by 21.0 m with guest rooms
+    // 2.6 m wide and 9.3 m deep: the right area, and twenty filing cabinets. A guest room is about
+    // 4 m by 6.5 because that is a bed, a bathroom and a window, ten a side is a 40 m frontage, and
+    // two either side of a corridor is 14.5 m across. The building follows from the rooms.
+    const HOTEL: Programme = {
+      brief: "a hotel floor of twenty bedrooms",
+      kind: "mixed",
+      rooms: [
+        ...Array.from({ length: 20 }, (_, i) => room(`r${i}`, `Guest room ${i + 1}`, "bedroom", 26)),
+        room("lobby", "Lift lobby", "foyer", 20),
+      ],
+    };
+    const { design } = packProgramme(HOTEL);
+    const guest = design.rooms.filter((r) => r.purpose === "bedroom");
+    for (const r of guest)
+      expect(Math.max(r.rect.w, r.rect.d) / Math.min(r.rect.w, r.rect.d)).toBeLessThan(2.5);
+    // Long and shallow, like every hotel floor there has ever been.
+    expect(design.shell.w / design.shell.d).toBeGreaterThan(2);
+  });
+
   it("makes a workplace corridor wide enough to be a way out", () => {
     // 1,118 mm is the floor for fifty or more occupants, and this one had 1,150 for every building
     // in the world including a hundred-person office.

@@ -179,6 +179,14 @@ export function corridorFor(kind: string | undefined): number {
 const DOOR_WALL_MM = 1000;
 /** Walls take about this much of a building's floor, so the shell is bigger than the rooms. */
 const WALL_SHARE = 1.06;
+/**
+ * How much deeper than it is wide a room would like to be.
+ *
+ * A hotel bedroom is 4 m by 6.5, a classroom 7 by 9, a bedroom at home 3 by 3.6: rooms are a
+ * little deeper than they are wide, and almost never square or long. This is the number the shell
+ * is derived from, and every room in the building is shaped by it.
+ */
+const IDEAL_DEPTH_RATIO = 1.4;
 
 const round100 = (n: number) => Math.round(n / 100) * 100;
 const clamp = (n: number, lo: number, hi: number) => Math.min(Math.max(n, lo), hi);
@@ -281,11 +289,57 @@ export function packProgramme(programme: Programme): PackResult {
         `the plot is ${shellD} mm deep and these rooms need ${minShellD} mm across the building; some may not fit`,
       );
   } else {
-    const floorM2 = roomsM2 * WALL_SHARE + (corridorMm / 1000) * Math.sqrt(roomsM2 * 1.4);
-    shellD = Math.max(round100(Math.sqrt((floorM2 * 1e6) / 1.4)), minShellD);
-    shellW = round100((floorM2 * 1e6) / shellD);
+    // The building follows from the rooms, not the other way round.
+    //
+    // This used to take the total area, apply a fixed proportion to one side, and divide whatever
+    // frontage fell out by the number of rooms. Whatever shape the arithmetic produced was the
+    // shape the rooms got. On a hotel floor of twenty bedrooms that gave a 29.4 by 21.0 m building
+    // with guest rooms 2.6 m wide and 9.3 m deep: the right area, and twenty filing cabinets.
+    //
+    // A guest room is about 4 m by 6.5 m because that is a bed, a bathroom and a window. Ten of
+    // them a side is a 40 m frontage; two of them either side of a corridor is 14.5 m across. The
+    // building is 40 by 14.5 because the rooms are what they are. So: every room says how deep it
+    // would like to be, a strip takes the depth its rooms want, and the frontage is what holds
+    // them. The typology was never wrong -- a corridor with rooms either side is exactly what a
+    // hotel floor is -- the dimensions were being taken from the wrong end.
+    const frontageWanted = (strip: ProgrammeRoom[], minD: number) => {
+      const m2 = strip.reduce((n, r) => n + (areas.get(r.key) as number), 0);
+      if (m2 <= 0) return 0;
+      // Area-weighted, so a big room has its say without a cupboard outvoting it.
+      const depth = Math.max(
+        minD,
+        strip.reduce((n, r) => {
+          const a = areas.get(r.key) as number;
+          return n + a * Math.sqrt(a * 1e6 * IDEAL_DEPTH_RATIO);
+        }, 0) / m2,
+      );
+      return (m2 * 1e6) / depth;
+    };
+    const wantS = frontageWanted(south, southMinD);
+    const wantN = frontageWanted(north, northMinD);
+    // One frontage has to serve both strips, and it is the wider of the two that decides.
+    //
+    // Sharing it by floor area was the first answer and it lets one enormous room set the shape of
+    // the whole building: an open office of a thousand square metres wants a deep plate, the strip
+    // of meeting rooms opposite wants a shallow one, and the average of the two is a building that
+    // suits neither. The wider frontage suits both -- the small rooms get the shallow strip they
+    // need, and the big room simply becomes a long open floor, which is what an open floor is.
+    const share = Math.max(wantS, wantN);
+    // A strip's rooms stand side by side, so the frontage has to hold all of them added up, not
+    // the widest one. Taking the widest was how a shell came out too narrow for its own rooms and
+    // started dropping them.
+    const sideBySide = (strip: ProgrammeRoom[]) =>
+      strip.reduce((n, r) => n + (MIN_SIDE[r.purpose] ?? MIN_SIDE_FALLBACK), 0) +
+      Math.max(0, strip.length - 1) * interiorWallMm;
+    const minFrontage = Math.max(sideBySide(south), sideBySide(north));
+    shellW = round100(Math.max(share, minFrontage) + 2 * wallMm);
+    const across = shellW - 2 * wallMm;
+    shellD =
+      acrossTheBuilding +
+      round100(Math.max(southMinD, (southM2 * 1e6) / across)) +
+      round100(Math.max(northMinD, (northM2 * 1e6) / across));
     notes.push(
-      `no plot was given, so the building is ${(shellW / 1000).toFixed(1)} by ${(shellD / 1000).toFixed(1)} m, which holds ${Math.round(roomsM2)} m² of rooms plus walls and a hallway`,
+      `no plot was given, so the building is ${(shellW / 1000).toFixed(1)} by ${(shellD / 1000).toFixed(1)} m, a shape that suits the rooms, holding ${Math.round(roomsM2)} m² of them plus walls and a hallway`,
     );
   }
 
