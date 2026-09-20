@@ -265,6 +265,65 @@ on an outside wall, by construction. Where the programme cannot fit, the solver
 says which room it could not place, and the architect changes the programme
 rather than the coordinates.
 
+**Amended 2026-09-20: the solver may not invent the arrangement.** The owner
+asked for an office for a hundred people and got the same plan every time:
+fifteen rooms in one comb along the top of the plate, every one 11.2 m deep,
+several of them barely a metre wide, ordered by area. That is not a layout. It
+is what the paragraph above describes, drawn: one circulation band, two strips,
+largest room first.
+
+Two things were conflated here and only one of them belongs to a solver.
+
+**A minimum is a fact and stays in code.** A four-person meeting room cannot be
+1.1 m wide, because a 900 mm table with 900 mm to get past it on either side is
+2,700 mm. That is arithmetic about tables and bodies. A solver that produced it
+was not exercising judgement, it was getting a sum wrong, and the checker
+should refuse it.
+
+**An arrangement is judgement and does not.** Which rooms belong together,
+what faces the entrance, which side takes the daylight, whether the meeting
+rooms line the facade or sit in the core, whether the open office is one field
+or several: none of that is constructible and all of it was being decided by a
+sort on area.
+
+The conclusion drawn from the six failed rounds was too wide. The architect
+could not place rectangles, and the right answer to that was never "the
+architect decides nothing about where anything goes". It was that it should not
+be handling coordinates. The evidence for how wide the over-correction was is
+in the programme itself: it has carried a `nextTo` list since the day it was
+written, and the solver does one pass of nudging a room along a strip it had no
+say in being in.
+
+So the line moves again, and this time it is drawn between topology and
+geometry rather than between judgement and arithmetic:
+
+- **The architect supplies intent**: the rooms as before, and now which of them
+  group together, where each group sits, and what must be adjacent. A
+  programme without any of that still packs exactly as it does today.
+- **The solver resolves coordinates** subject to that intent, and may never
+  return a room below its minimum. Where the intent cannot be satisfied it says
+  which part it could not honour, the way it already says which room it could
+  not place.
+- **The checker still decides**, unchanged and unpersuaded.
+
+**One constraint shapes the algorithm and is the reason the comb exists.**
+Every room must touch circulation, or it has nowhere to put its door. A single
+band with rooms either side guarantees that for nothing, which is why it was
+chosen and why the first thing that looks more like a building tends to leave
+rooms stranded in the middle of the plate. Any replacement has to keep the
+guarantee, not hope for it.
+
+The replacement that keeps it: **as many bands as the rooms need to stay in
+proportion, rather than always one.** Fifteen small rooms across one 48 m
+frontage is a slice each; across three bands it is five each, and the same
+floor produces rooms roughly square instead of roughly corridors. Bands are
+chosen from how far a room's proportions would be pushed, not from a constant,
+and the model's groups decide which rooms share a band.
+
+What is deliberately left for later, so a reader knows it was considered:
+orientation and daylight, a core of stacked services, and an open field broken
+up by anything other than walls.
+
 ### D3. The checker is code; the critic is a bounded model pass
 
 The checker runs as a tool, `check_design`, and again inside `validate` once
