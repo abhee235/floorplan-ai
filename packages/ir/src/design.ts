@@ -143,6 +143,14 @@ export const DesignRoom = z.object({
   doorsTo: z.array(z.string()).default([]),
   /** This room wants a window, so it needs a wall on the outside of the building. */
   window: z.boolean().default(false),
+  /**
+   * Its walls onto the rest of the building are glass rather than plaster.
+   *
+   * A meeting room in a modern office is a glass box: it needs to be quiet, not hidden, and a
+   * floor of sealed plaster cells is what an office looked like in 1985. The model may say so per
+   * room; left unsaid, the packer decides from what the room is for.
+   */
+  glazed: z.boolean().default(false),
 });
 
 export const Design = z.object({

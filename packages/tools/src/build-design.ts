@@ -31,7 +31,7 @@ interface Run {
   from: number;
   to: number;
   thickness: number;
-  kind: "exterior" | "interior";
+  kind: "exterior" | "interior" | "glass";
 }
 
 export interface BuildPlan {
@@ -56,6 +56,17 @@ function centreOf(edge: number, facing: number | null, shellFace: number | null,
  * shell wall; an edge facing another room becomes an interior wall on the line between them, which
  * is the same line the other room computes, so the two agree and the wall is drawn once.
  */
+/**
+ * What a wall of this room is made of.
+ *
+ * Outside walls are never glass here, whatever the room asked for: a glazed facade is a decision
+ * about a building and this is a decision about a meeting room. Everything else a glazed room is
+ * bounded by faces the rest of the floor, which is exactly what it is meant to be seen through.
+ */
+function kindOf(room: Design["rooms"][number], onShell: boolean): Run["kind"] {
+  return onShell ? "exterior" : room.glazed ? "glass" : "interior";
+}
+
 export function wallRuns(design: Design): Run[] {
   const { shell } = design;
   const half = shell.wallMm / 2;
@@ -108,14 +119,7 @@ export function wallRuns(design: Design): Run[] {
         onShell ? (side === "west" ? shellLine.west : shellLine.east) : null,
         shell.wallMm,
       );
-      push(
-        "v",
-        at,
-        y,
-        y + d,
-        onShell ? shell.wallMm : shell.interiorWallMm,
-        onShell ? "exterior" : "interior",
-      );
+      push("v", at, y, y + d, onShell ? shell.wallMm : shell.interiorWallMm, kindOf(r, onShell));
     }
     for (const side of ["south", "north"] as const) {
       const edge = side === "south" ? y : y + d;
@@ -126,14 +130,7 @@ export function wallRuns(design: Design): Run[] {
         onShell ? (side === "south" ? shellLine.south : shellLine.north) : null,
         shell.wallMm,
       );
-      push(
-        "h",
-        at,
-        x,
-        x + w,
-        onShell ? shell.wallMm : shell.interiorWallMm,
-        onShell ? "exterior" : "interior",
-      );
+      push("h", at, x, x + w, onShell ? shell.wallMm : shell.interiorWallMm, kindOf(r, onShell));
     }
   }
 

@@ -161,6 +161,16 @@ const HABITABLE = new Set([
   "open-office",
 ]);
 /** Wet rooms, kept together so their drainage is. */
+/**
+ * Rooms whose walls onto the rest of the floor are glass.
+ *
+ * Every one of these needs to be quiet and none of them needs to be hidden, which is the whole
+ * argument for glazing them, and it is what every office built in the last twenty years does. A
+ * lavatory, a store and a server room are not on the list for reasons that do not need writing
+ * down.
+ */
+const GLAZED = new Set(["meeting", "boardroom", "huddle", "focus", "training", "reception"]);
+
 const WET = new Set(["bathroom", "toilet", "kitchen", "laundry"]);
 
 /**
@@ -420,6 +430,7 @@ function packZoned(
         // is what the core of an office is. Saying otherwise put five windows in the middle of the
         // plan and the checker was right to refuse them.
         window: (room.window ?? HABITABLE.has(room.purpose)) && (outermost || i === 0),
+        glazed: GLAZED.has(room.purpose),
       });
       y += h + interiorWallMm;
     });
@@ -504,6 +515,8 @@ export function packProgramme(programme: Programme): PackResult {
   // A hallway at home and a corridor at work are not the same thing, and one number for both gave a
   // hundred-person office a 1.1 m escape route.
   const corridorMm = corridorFor(programme.kind);
+  // Glass belongs in an office, not between a bedroom and a landing.
+  const isWorkplace = programme.kind !== "dwelling";
 
   // Circulation is ours to place, so a corridor in the programme is read as a request for one and
   // otherwise dropped. A foyer is kept and placed like any other room, because the thing it has to
@@ -721,6 +734,7 @@ export function packProgramme(programme: Programme): PackResult {
         capacity: room.capacity ?? null,
         doorsTo: room.purpose === "foyer" ? ["outside", corridorKey] : [corridorKey],
         window: room.window ?? HABITABLE.has(room.purpose),
+        glazed: isWorkplace && GLAZED.has(room.purpose),
       });
       u += w + interiorWallMm;
     });

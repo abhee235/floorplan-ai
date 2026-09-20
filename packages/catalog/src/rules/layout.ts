@@ -55,6 +55,29 @@ const SENSIBLE_MAX: Readonly<Record<string, { m2: number; share: number }>> = {
  * An eleven-metre hallway 1150 wide is 12.7 m², and it is eleven metres long because the flat is.
  * The first version capped its area, and so refused every correct plan of a long building.
  */
+/**
+ * The floor one person needs in a room of this purpose, in m2, before it stops working.
+ *
+ * Not the comfortable figure -- the floor below which the room is a lie. An open office at 8 m2 a
+ * person is dense and real; at 6 it is a call centre and at 1.3 it is a drawing. A model asked for
+ * an office for a hundred people and wrote a 131 m2 open workspace, which is thirteen desks, and
+ * nothing refused it because nothing had ever compared a room with the number of people in it.
+ */
+const M2_PER_PERSON: Readonly<Record<string, number>> = {
+  "open-office": 8,
+  focus: 4,
+  meeting: 1.8,
+  boardroom: 2.5,
+  huddle: 1.8,
+  training: 1.8,
+  cafeteria: 1.3,
+  reception: 1.5,
+  // Deliberately no bedroom, living room or dining room. A bedroom's size is set by a bed, a
+  // wardrobe and the room to walk round them, not by a rate per head: a double at 11.4 m2 is
+  // ordinary and a rule of thumb per person calls it too small. Where furniture decides the size,
+  // the furnishing rules already check it.
+};
+
 const CORRIDOR_MAX_WIDE_MM = 2000;
 /** Room edges within this of each other are the same wall. */
 const TOUCH_MM = 400;
@@ -195,6 +218,24 @@ export function checkLayout(design: Design, pack: RulesPack | null = null): Layo
         "put the space in a room, add a corridor for it, or make the shell smaller",
       ),
     );
+  // A room against the number of people it says it holds. The capacity is the model's own claim,
+  // so this is not second-guessing it: it is holding it to what it said.
+  for (const r of rooms) {
+    const per = M2_PER_PERSON[r.purpose];
+    if (!per || !r.capacity || r.capacity <= 0) continue;
+    const needs = per * r.capacity;
+    const has = designRoomArea(r);
+    if (has + 0.05 < needs)
+      out.push(
+        problem(
+          "too-small-for-capacity",
+          "error",
+          r.key,
+          `${r.name} is ${m2(has * 1e6)} m² and says it holds ${r.capacity}, which needs at least ${Math.round(needs)} m² at ${per} m² a person`,
+          `make it ${Math.round(needs)} m² or more, or say it holds ${Math.floor(has / per)}`,
+        ),
+      );
+  }
   if (roomsM2 > shellM2 + 1)
     out.push(
       problem(

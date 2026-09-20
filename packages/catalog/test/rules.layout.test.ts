@@ -372,3 +372,60 @@ describe("the score (ADR-024 D4)", () => {
     expect(checkLayout(hopeless, CORE_RULES).score).toBe(0);
   });
 });
+
+describe("a room against the number of people it says it holds", () => {
+  // The drawing that prompted this: an office for a hundred people whose open workspace was
+  // 131.2 m2, which is thirteen desks. The prompt had been saying 10 m2 a person all along and
+  // nothing compared the two, so nothing refused it.
+  const office = (m2PerRoom: number, capacity: number) =>
+    DesignSchema.parse({
+      brief: "an office",
+      kind: "workplace",
+      levelId: null,
+      shell: { x: 0, y: 0, w: 40000, d: 20000, wallMm: 230, interiorWallMm: 115 },
+      rooms: [
+        {
+          key: "open",
+          name: "Open workspace",
+          purpose: "open-office",
+          rect: { x: 230, y: 230, w: Math.round((m2PerRoom * 1e6) / 10000), d: 10000 },
+          doorsTo: ["hall"],
+          window: true,
+          capacity,
+        },
+        {
+          key: "hall",
+          name: "Hallway",
+          purpose: "corridor",
+          rect: { x: 230, y: 10500, w: 39540, d: 1500 },
+          doorsTo: ["outside"],
+        },
+      ],
+      circulation: ["hall"],
+      assumptions: [],
+    });
+
+  const codes = (d: Design) =>
+    checkLayout(d, null)
+      .problems.filter((p) => p.severity === "error")
+      .map((p) => p.code);
+
+  it("refuses a hundred desks in a hundred and thirty square metres", () => {
+    expect(codes(office(131.2, 100))).toContain("design.too-small-for-capacity");
+  });
+
+  it("accepts the same hundred people in a thousand", () => {
+    expect(codes(office(1000, 100))).not.toContain("design.too-small-for-capacity");
+  });
+
+  it("says nothing when the room never claimed a number", () => {
+    expect(codes(office(131.2, 0))).not.toContain("design.too-small-for-capacity");
+  });
+
+  it("offers the number it would believe, so the model can fix it either way", () => {
+    const hint = checkLayout(office(131.2, 100), null).problems.find(
+      (p) => p.code === "design.too-small-for-capacity",
+    )?.hint;
+    expect(hint).toContain("16");
+  });
+});
