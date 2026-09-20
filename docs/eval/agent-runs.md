@@ -32,6 +32,7 @@ and profile.
 | import-office | qwen3.6:35b | medium | pass | 5 of 20 | 4 (0) | 50667 / 708 | 20 | 0 | none | - | 2026-09-16 |
 | one-bed-flat | gpt-5.6-luna | high | pass | 10 of 26 | 13 (0) | 140040 / 859 | 31 | 0 | none | 67% of 9 | 2026-09-20 |
 | one-bed-flat | gpt-oss:20b | medium | fail (provider-error) | 2 of 26 | 1 (0) | 8363 / 413 | 703 | 0 | room bedroom 9-20 m2; room living 12-30 m2; room kitchen 5-16 m2; room bathroom 3-9 m2; bed; sanitary; 1 bed (found 0) | - | 2026-09-20 |
+| one-bed-flat | hf.co/unsloth/Qwen3.6-35B-A3B-GGUF:UD-IQ4_XS | medium | fail (step-budget) | 26 of 26 | 26 (4) | 605544 / 2199 | 192 | 0 | none | 70% of 10 | 2026-09-20 |
 | one-bed-flat | qwen3.6-35b-max-speed:latest | medium | fail (done) | 2 of 26 | 0 (0) | 25932 / 38 | 447 | 0 | room bedroom 9-20 m2; room living 12-30 m2; room kitchen 5-16 m2; room bathroom 3-9 m2; bed; sanitary; 1 bed (found 0) | - | 2026-09-20 |
 | three-bed-flat | gpt-5.6-luna | high | pass | 13 of 30 | 19 (0) | 202889 / 1272 | 41 | 0 | none | 65% of 17 | 2026-09-20 |
 <!-- runs:end -->

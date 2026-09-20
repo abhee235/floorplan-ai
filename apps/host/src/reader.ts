@@ -30,7 +30,12 @@ export function loadReaderConfig(options: { dataDir: string; env?: NodeJS.Proces
         baseUrl: env.FPV_READER_BASE_URL,
         model: env.FPV_READER_MODEL,
         apiKey: env.FPV_READER_API_KEY ?? null,
-        profile: { vision: true },
+        profile: {
+          vision: true,
+          ...(Number(env.FPV_READER_CONTEXT_TOKENS) > 0
+            ? { contextTokens: Number(env.FPV_READER_CONTEXT_TOKENS) }
+            : {}),
+        },
         timeoutMs: Number(env.FPV_READER_TIMEOUT_MS) || READER_TIMEOUT_MS,
         ...(extraBody ? { extraBody } : {}),
       },

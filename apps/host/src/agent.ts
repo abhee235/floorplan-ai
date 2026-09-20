@@ -1,6 +1,7 @@
 // The in-app agent (ADR-007 D3, PRD P1-7): the provider named by roles.designer in <data>/config.json, or
 // FPV_AGENT_BASE_URL and FPV_AGENT_MODEL (with FPV_AGENT_API_KEY, FPV_AGENT_EXTRA_BODY as JSON,
-// FPV_AGENT_RELIABILITY high|medium|low, FPV_AGENT_TIMEOUT_MS, FPV_AGENT_MAX_TOKENS). The runner calls the
+// FPV_AGENT_RELIABILITY high|medium|low, FPV_AGENT_TIMEOUT_MS, FPV_AGENT_MAX_TOKENS,
+// FPV_AGENT_CONTEXT_TOKENS). The runner calls the
 // session's registry
 // in-process; every event is appended to a JSONL transcript as it happens, so a crashed run keeps its record.
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -49,7 +50,17 @@ export function loadAgentConfig(options: { dataDir: string; env?: NodeJS.Process
         baseUrl: env.FPV_AGENT_BASE_URL,
         model: env.FPV_AGENT_MODEL,
         apiKey: env.FPV_AGENT_API_KEY ?? null,
-        profile: { toolCalls: true, toolReliability: reliability ?? "medium" },
+        profile: {
+          toolCalls: true,
+          toolReliability: reliability ?? "medium",
+          // Named here, nothing is probed and nothing is capped: a number a person typed is a
+          // decision, and the app's business is to send it, not to argue. On Ollama it becomes the
+          // context the model is loaded with, which is the one setting that decides whether a model
+          // loads at all; on every other server there is no way to ask, and it is only a budget.
+          ...(Number(env.FPV_AGENT_CONTEXT_TOKENS) > 0
+            ? { contextTokens: Number(env.FPV_AGENT_CONTEXT_TOKENS) }
+            : {}),
+        },
         timeoutMs: Number(env.FPV_AGENT_TIMEOUT_MS) || AGENT_TIMEOUT_MS,
         ...(Number(env.FPV_AGENT_MAX_TOKENS) > 0 ? { maxTokens: Number(env.FPV_AGENT_MAX_TOKENS) } : {}),
         ...(extraBody ? { extraBody } : {}),
