@@ -216,7 +216,7 @@ describe("nothing stands in a doorway", () => {
         ...defaultItem(
           id("item"),
           LEVEL,
-          { kind: "recipe", recipe: { kind: "display", size: { w: 1690, d: 90, h: 969 } } },
+          { kind: "recipe", recipe: { kind: "box", size: { w: 1690, d: 90, h: 969 }, label: "Display" } },
           { x: 2000, y: 2900 },
         ),
         elevation: 916,
