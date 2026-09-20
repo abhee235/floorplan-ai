@@ -172,3 +172,64 @@ describe("the window itself", () => {
     expect(screen.getByRole("button", { name: "Dock the chat to the right" })).not.toBeNull();
   });
 });
+
+describe("the two faults a real browser found", () => {
+  const storage = (): Storage => {
+    const held = new Map<string, string>();
+    return {
+      getItem: (k) => held.get(k) ?? null,
+      setItem: (k, v) => void held.set(k, v),
+      removeItem: (k) => void held.delete(k),
+      clear: () => held.clear(),
+      key: () => null,
+      length: 0,
+    } as Storage;
+  };
+
+  it("does not start a drag from a press on one of the title bar's buttons", async () => {
+    // What went wrong: the header took the pointer for every press inside it, buttons included,
+    // and preventDefault on pointerdown cancels the click that would have followed. jsdom fires
+    // click directly, so every earlier test passed while nothing worked.
+    render(
+      <AgentWindow open onClose={() => {}} title="Agent">
+        <p>the chat</p>
+      </AgentWindow>,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Minimise the chat" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("button", { name: "Agent" })).not.toBeNull();
+  });
+
+  it("gives back the window, not a pill, when somebody asks for the chat again", () => {
+    // Left minimised between sessions, the shortcut used to toggle `open` under a pill in the far
+    // corner, so the agent looked broken. Asking for it now clears the minimised state.
+    const store = storage();
+    writePlacement({ ...DEFAULT_PLACEMENT, minimised: true }, store);
+    const view = render(
+      <AgentWindow open={false} onClose={() => {}} title="Agent">
+        <p>the chat</p>
+      </AgentWindow>,
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
+    view.rerender(
+      <AgentWindow open onClose={() => {}} title="Agent">
+        <p>the chat</p>
+      </AgentWindow>,
+    );
+    expect(screen.getByRole("dialog", { name: "Agent" })).not.toBeNull();
+  });
+
+  it("still minimises, and minimising does not immediately undo itself", async () => {
+    render(
+      <AgentWindow open onClose={() => {}} title="Agent">
+        <p>the chat</p>
+      </AgentWindow>,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Minimise the chat" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Agent" }));
+    expect(screen.getByRole("dialog", { name: "Agent" })).not.toBeNull();
+  });
+});

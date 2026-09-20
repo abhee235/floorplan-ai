@@ -55,6 +55,20 @@ export function AgentWindow({
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
+  // Asking for the chat gives you the chat. Minimised is remembered between sessions, and without
+  // this a person who left it minimised presses the shortcut, gets a pill in the far corner, and
+  // reasonably concludes the agent is broken. Minimising does not change `open`, so this only fires
+  // when somebody has actually asked for the window back.
+  useEffect(() => {
+    if (!open) return;
+    setPlacement((current) => {
+      if (!current.minimised) return current;
+      const next = { ...current, minimised: false };
+      writePlacement(next);
+      return next;
+    });
+  }, [open]);
+
   const change = useCallback((next: Placement) => {
     setPlacement(next);
     writePlacement(next);
@@ -62,6 +76,12 @@ export function AgentWindow({
 
   const onPointerDown = (kind: "move" | "resize") => (e: React.PointerEvent) => {
     if (e.button !== 0) return;
+    // The title bar is the drag handle and it also carries three buttons, so a press that lands on
+    // one of them is not a drag. Taking the pointer here swallowed their clicks: preventDefault on
+    // pointerdown cancels the compatibility mouse events, and capture sends the pointerup to the
+    // header rather than to the button, so Minimise, Dock and Close did nothing at all. The resize
+    // handle is itself a button, which is why only the move handler asks.
+    if (kind === "move" && (e.target as HTMLElement).closest("button")) return;
     e.preventDefault();
     // Optional, because not every environment that renders this implements pointer capture; without
     // it a drag simply stops tracking outside the handle rather than throwing.
