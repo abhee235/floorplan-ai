@@ -501,6 +501,18 @@ export class AgentRuns {
         return { type: "plan.updated", step: event.step, items: event.items };
       case "reminder":
         return { type: "reminder", step: event.step, gate: event.gate, text: event.text };
+      case "compacted": {
+        // In words rather than in counts. "Shortened 31 older results" is something a person can
+        // decide to worry about; "before 29410, after 8122" is a number they have to interpret.
+        const n = Object.values(event.dropped).reduce((a, b) => a + b, 0);
+        return {
+          type: "compacted",
+          step: event.step,
+          before: event.before,
+          after: event.after,
+          text: `The chat was getting long, so ${n} older tool ${n === 1 ? "result was" : "results were"} shortened. Nothing you said was changed, and the agent can read the project again whenever it needs to.`,
+        };
+      }
       case "retry":
         return { type: "retry", step: event.step, error: event.error, waitMs: event.waitMs };
       case "warning":

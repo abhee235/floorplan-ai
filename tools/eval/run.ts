@@ -50,7 +50,14 @@ function configFor(spec: string, think: boolean, reliability: ToolReliability | 
   const colon = spec.indexOf(":");
   const kind = colon < 0 ? "" : spec.slice(0, colon);
   const name = spec.slice(colon + 1);
-  const profile = { toolCalls: true, toolReliability: reliability ?? ("medium" as ToolReliability) };
+  const profile = {
+    toolCalls: true,
+    toolReliability: reliability ?? ("medium" as ToolReliability),
+    // Read here as well as in the host, so a card measures the same thing the product runs.
+    ...(Number(process.env.FPV_AGENT_CONTEXT_TOKENS) > 0
+      ? { contextTokens: Number(process.env.FPV_AGENT_CONTEXT_TOKENS) }
+      : {}),
+  };
   switch (kind) {
     case "ollama":
       return {

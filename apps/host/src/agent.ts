@@ -183,6 +183,8 @@ export function describeEvent(event: AgentEvent): string | null {
       return `  plan: ${event.items.filter((i) => i.status === "done").length} of ${event.items.length} done`;
     case "question":
       return `  asking: ${event.request.question}`;
+    case "compacted":
+      return `compacted: ${event.before} -> ${event.after} tokens`;
     case "reminder":
       return `  ${event.gate} gate: ${event.text.slice(0, 80)}`;
     case "warning":

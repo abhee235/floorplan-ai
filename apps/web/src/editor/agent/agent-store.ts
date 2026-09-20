@@ -43,7 +43,12 @@ export type AgentItem =
       ids: string[];
       answered: string | null;
     }
-  | { kind: "note"; id: string; tone: "warning" | "reminder" | "retry" | "error" | "done"; text: string };
+  | {
+      kind: "note";
+      id: string;
+      tone: "warning" | "reminder" | "retry" | "error" | "done" | "compacted";
+      text: string;
+    };
 
 export interface AgentState {
   available: boolean;
@@ -279,6 +284,14 @@ export function reduce(state: AgentState, msg: AgentEventMsg | AgentStateMsg): A
       return {
         ...next,
         items: [...next.items, { kind: "note", id: nextId("n"), tone: "reminder", text: event.text }],
+      };
+
+    // Said out loud, because the alternative is a conversation that quietly gets shorter behind
+    // somebody's back and an agent that seems to have forgotten things for no reason (ADR-025 D1).
+    case "compacted":
+      return {
+        ...next,
+        items: [...next.items, { kind: "note", id: nextId("n"), tone: "compacted", text: event.text }],
       };
 
     case "warning":
