@@ -91,6 +91,8 @@ export function menus(view: string): MenuDefinition[] {
         { separator: true },
         "view.fit",
         { separator: true },
+        "level.add",
+        { separator: true },
         // Where a desktop application puts "switch windows", because that is where people look.
         { title: "Switch project", dynamic: "open" },
         { separator: true },

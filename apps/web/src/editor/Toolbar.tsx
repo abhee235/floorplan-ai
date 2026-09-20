@@ -10,7 +10,7 @@
 // the chrome's scale at once, because the registry's own `md:text-sm` cannot be overridden from a call
 // site. Only what genuinely differs from that scale is stated below.
 
-import { Box, Columns2, type LucideIcon, Map as MapIcon, Redo2, Undo2 } from "lucide-react";
+import { Box, Columns2, type LucideIcon, Map as MapIcon, Plus, Redo2, Undo2 } from "lucide-react";
 import type { JSX } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -66,6 +66,17 @@ export function Toolbar({ replica, level, onLevel }: ToolbarProps): JSX.Element 
           ))}
         </SelectContent>
       </Select>
+      {/* Beside the switcher, because that is the only place a person thinks about storeys, and the
+          switcher on its own answers "which floor" while offering no way to have another one. */}
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        aria-label="Add a storey"
+        title="Add a storey above the top one"
+        onClick={() => run("level.add")}
+      >
+        <Plus aria-hidden />
+      </Button>
 
       <div className="flex gap-0.5" role="group" aria-label="History">
         {(

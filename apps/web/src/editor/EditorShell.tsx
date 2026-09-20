@@ -704,6 +704,36 @@ export function EditorShell(): JSX.Element {
         },
       })),
       {
+        id: "level.add",
+        title: "Add a storey",
+        group: "View",
+        detail: "a new floor above the top one, empty",
+        run: async () => {
+          // The same tool the agent has always had. A person could ask the chat for a second floor
+          // and could not make one themselves, which is a strange way round.
+          const reply = await client.tool("add_level", {});
+          if (!reply.ok) {
+            announcer.alert(`No storey was added: ${reply.error?.message ?? "the host refused it"}`);
+            return;
+          }
+          // Two envelopes deep: the bridge's reply wraps the registry's, which wraps the tool's own
+          // output. Reading one layer too few adds the storey and then quietly stays on the old one,
+          // which is exactly how this first behaved.
+          const out = (reply.result as { result?: { levels?: { id: string; name: string }[] } } | undefined)
+            ?.result;
+          const top = out?.levels?.at(-1);
+          if (!top) {
+            announcer.alert("The storey was added but could not be opened.");
+            return;
+          }
+          // Straight onto it, because adding a floor and staying on the old one is a click that
+          // looks like it did nothing.
+          app?.plan.setLevel(top.id);
+          setLevel(top.id);
+          announcer.say(`Added ${top.name}.`);
+        },
+      },
+      {
         id: "agent.toggle",
         title: "Agent",
         group: "Agent",
