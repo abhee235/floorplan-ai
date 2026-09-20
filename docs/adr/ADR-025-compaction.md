@@ -164,7 +164,7 @@ the prompt size it actually used on every reply, and the wire we now speak to
 Ollama reports it separately from generation. The estimate is only used for the
 turn that has not happened yet, and it is corrected by what comes back.
 
-### D2. Four layers, cheapest first, and stop as soon as it fits
+### D2. Four layers, cheapest first, run all the way down
 
 1. **Receipts for old tool results** (strategy D). Everything outside the
    recency shield becomes one line.
@@ -180,6 +180,61 @@ Layer 4 is reachable only when the shield plus the fixed cost exceeds the
 window, which on a 32,768-token window means a shield of more than about
 17,000 tokens. It is there so the failure has a sentence rather than a silence.
 
+The first version of this decision said "stop as soon as it fits". That was
+wrong, and D2a is why.
+
+### D2a. Compact late, and then compact all the way
+
+Two rules, and they pull in the same direction.
+
+**Trigger as late as is safe.** Compaction is not free: it rewrites the middle
+of the message array, so the server's cached prefix survives only as far as the
+first changed message. Everything after that is prefilled again. Measured on
+this hardware, prefill runs at 301 tokens a second, so re-running a 5,000-token
+conversation costs about eighteen seconds of staring at nothing. A conversation
+that fits is never touched.
+
+**Then go to the floor, not to the line.** Once the prefix is broken the cost is
+already paid, and stopping the moment the prompt fits means paying it again on
+the very next step. This is not a small difference:
+
+| Policy, on a 32,768 window | Compactions | Cost each |
+|---|---|---|
+| stop as soon as it fits | every step | ~48 s |
+| run down to the floor | one every 17 steps | ~18 s |
+
+So compaction runs every layer it can and stops only at the floor: the fixed
+cost, the shield, and everything D3 pins. It does not aim at a percentage.
+
+**The floor is a number, not a fraction, and this matters.** The fixed cost is
+15,655 tokens whatever the window is, so the deepest possible compaction lands
+at a different fraction on every model:
+
+| Window | Compacts at | Down to | Of the window | Steps until the next one |
+|---|---|---|---|---|
+| 32,768 | step 27 | 21,034 | 64% | 17 |
+| 65,536 | step 87 | 26,205 | 40% | 67 |
+| 131,072 | never in a 40-step run | | | |
+
+On a 32,768-token window 64% is not a choice. It is the floor, because 48% of
+it cannot be removed. Anyone asking why compaction will not go to 50% on a
+small model is really asking why the tool schemas are 12,641 tokens, and the
+answer to that is ADR-022 D8, not this decision.
+
+### D2b. The reply is part of the window, so it is reserved and clamped
+
+The window holds the prompt and what the model generates, so a trigger that
+looks only at the prompt is wrong twice over.
+
+**Reserved:** the budget for the prompt is the window minus a reply reserve of
+2,048 tokens. Measured, our replies ran between 40 and 219 tokens a step, and
+the architect's longest was 766, so 2,048 is generous without being wasteful.
+
+**Clamped:** the output cap sent with each request is lowered to what is
+actually left, so a model allowed 8,000 tokens by configuration cannot generate
+past the end of a window with 3,000 free. A configured cap is a ceiling, never
+a promise of room.
+
 ### D3. What is never dropped, at any layer
 
 - The system prompt and the tool schemas, which we could not drop anyway.
@@ -192,7 +247,7 @@ window, which on a 32,768-token window means a shield of more than about
   the one kind of result that is not restating a world we can re-read.
 - The last render, which the existing rule already handles.
 
-### D4. The shield is eight results, from the measurement
+### D4. The shield is eight results, from the measurement, and it sets the floor
 
 Eight results at the measured 386-token average is about 3,100 tokens. A
 forty-step run then costs roughly 3,100 for the shield and 1,000 for thirty-two
@@ -252,6 +307,16 @@ and a provider shim to get a worse fit.
 **Compact on a schedule, or every N steps.** Rejected by S8 and by taste: a
 conversation that fits should not be touched, and the only honest trigger is a
 measurement of the thing being managed.
+
+**Compact early, at 70 or 80 per cent, to leave a margin.** Rejected on the
+prefill numbers. An early trigger does not buy a margin, it buys more
+compactions, and each one costs a re-prefill. The margin comes from the depth,
+which D2a takes to the floor, not from the timing.
+
+**Aim compaction at a percentage of the window.** Rejected: the fixed cost is
+an absolute number, so the same percentage is easy on one model and impossible
+on another. On a 32,768-token window a target of 50 per cent cannot be reached
+at all.
 
 **Keep a summary and the detail.** Rejected: it grows the conversation to save
 space in it.

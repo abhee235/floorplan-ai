@@ -37,6 +37,26 @@ Configuration is a JSON file or environment: `{ baseUrl, apiKey, model,
 profile overrides }`. Multiple named providers can be configured; the app
 picks one per role (reader, designer, verifier).
 
+**Amended 2026-09-20: one file a person edits, and it is `.env`.** Two places
+to configure a model is one too many, and the owner went looking in the wrong
+one. The rule, which the code already followed and now says out loud:
+
+- **`.env` is the file people edit, and it wins.** Every setting a model needs
+  is expressible there: which provider, which model, the address, the key, the
+  reliability profile, the per-call timeout, the output cap and the context.
+  When a role is configured there, the JSON file is not consulted for it at
+  all. It is also where the keys already live, so there is one file to protect.
+- **`<data>/config.json` is for what `.env` cannot say**, which is several
+  named providers with per-role profiles, and it is where a settings screen
+  would write if one is ever built. A person editing by hand should never need
+  it.
+- The precedence is one direction and never negotiated, so a setting that looks
+  ignored has exactly one explanation.
+
+This is why there is no model-management screen: the thing a screen would have
+been for is one file with comments in it, and a screen that wrote a different
+file would have made the confusion worse rather than better.
+
 **Amended 2026-09-20: one interface, two wires, and the second one is not
 optional.** The interface above is unchanged. What changes is the claim that
 one wire format reaches every server worth reaching, because on the server this
