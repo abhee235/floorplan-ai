@@ -85,7 +85,32 @@ const MIN_M2: Readonly<Record<string, number>> = {
   dining: 7,
   bathroom: 3,
   toilet: 1.3,
+  // A seat in a meeting wants 1.8 to 2.3 m2, and more in a boardroom, where the table is wider and
+  // people are expected to be waited on.
+  meeting: 8,
+  boardroom: 20,
+  huddle: 4.5,
+  training: 20,
+  "open-office": 20,
+  focus: 3.5,
+  reception: 6,
+  cafeteria: 12,
+  restroom: 2,
+  utility: 1.5,
 };
+/**
+ * The narrowest a room of each purpose may be, in mm, clear inside the walls.
+ *
+ * Shape, not area, and the difference is the whole point of this table. An office for a hundred
+ * people came back with four-person meeting rooms 1.1 m wide and 11.2 m deep. Their area was
+ * reasonable; you could not get a table into one. The cause was that this table had six rows, all
+ * of them residential, so every workplace room fell through to the width of a door wall.
+ *
+ * The workplace numbers are what space planning actually requires: a meeting room is a 900 table
+ * with 900 clear on both sides, which is 2,700 and not a millimetre less; an open office is two
+ * back-to-back desk clusters, about 2,400 edge to edge, plus an aisle; a training room is rows of
+ * tables with a gangway.
+ */
 const MIN_SIDE: Readonly<Record<string, number>> = {
   bedroom: 2400,
   living: 3000,
@@ -93,7 +118,26 @@ const MIN_SIDE: Readonly<Record<string, number>> = {
   dining: 2400,
   bathroom: 1500,
   toilet: 900,
+  study: 2100,
+  laundry: 1500,
+  meeting: 2700,
+  boardroom: 3600,
+  huddle: 2100,
+  training: 4800,
+  "open-office": 4800,
+  focus: 1800,
+  reception: 2400,
+  cafeteria: 3600,
+  restroom: 1500,
+  utility: 1200,
 };
+/**
+ * What a room with no row of its own gets.
+ *
+ * A door wall, 1,000 mm, was the old answer and it is the wrong shape of answer: it is the width a
+ * door needs, not the width a room needs. Anything somebody stands up in wants more.
+ */
+const MIN_SIDE_FALLBACK = 1800;
 /** Above this a room of that purpose is a mistake rather than a luxury. */
 const MAX_M2: Readonly<Record<string, number>> = { toilet: 3.6, bathroom: 8, foyer: 9 };
 
@@ -113,8 +157,25 @@ const HABITABLE = new Set([
 /** Wet rooms, kept together so their drainage is. */
 const WET = new Set(["bathroom", "toilet", "kitchen", "laundry"]);
 
-/** The corridor is this wide, and a door needs this much of a room's wall. */
-const CORRIDOR_MM = 1150;
+/**
+ * The corridor is this wide, and it depends on what the building is.
+ *
+ * A home's hallway at 1,050 is normal and a workplace's at 1,050 is illegal: a corridor serving
+ * fifty or more occupants has a floor of 1,118 mm, and where it is also the way out it wants 1,500
+ * to 2,000. The single 1,150 that used to be here gave a hundred-person office a 1.1 m hallway,
+ * while the prompt the model reads was telling it 1,500 all along.
+ */
+const CORRIDOR_MM: Readonly<Record<string, number>> = {
+  dwelling: 1050,
+  workplace: 1500,
+  mixed: 1500,
+};
+const CORRIDOR_FALLBACK = 1200;
+
+/** How wide this building's circulation is, from what kind of building it is. */
+export function corridorFor(kind: string | undefined): number {
+  return CORRIDOR_MM[kind ?? ""] ?? CORRIDOR_FALLBACK;
+}
 const DOOR_WALL_MM = 1000;
 /** Walls take about this much of a building's floor, so the shell is bigger than the rooms. */
 const WALL_SHARE = 1.06;
@@ -166,6 +227,9 @@ export function packProgramme(programme: Programme): PackResult {
   const unplaced: { key: string; why: string }[] = [];
   const wallMm = programme.wallMm ?? 230;
   const interiorWallMm = programme.interiorWallMm ?? 115;
+  // A hallway at home and a corridor at work are not the same thing, and one number for both gave a
+  // hundred-person office a 1.1 m escape route.
+  const corridorMm = corridorFor(programme.kind);
 
   // Circulation is ours to place, so a corridor in the programme is read as a request for one and
   // otherwise dropped. A foyer is kept and placed like any other room, because the thing it has to
@@ -198,10 +262,10 @@ export function packProgramme(programme: Programme): PackResult {
     }
   }
   const deepEnough = (strip: ProgrammeRoom[]) =>
-    strip.reduce((n, r) => Math.max(n, MIN_SIDE[r.purpose] ?? 1500), 1800);
+    strip.reduce((n, r) => Math.max(n, MIN_SIDE[r.purpose] ?? MIN_SIDE_FALLBACK), 1800);
   const southMinD = deepEnough(south);
   const northMinD = deepEnough(north);
-  const acrossTheBuilding = 2 * wallMm + 2 * interiorWallMm + CORRIDOR_MM;
+  const acrossTheBuilding = 2 * wallMm + 2 * interiorWallMm + corridorMm;
   const minShellD = southMinD + northMinD + acrossTheBuilding;
 
   // The shell: what was asked for, or one that holds the rooms and the walls and is deep enough for
@@ -217,7 +281,7 @@ export function packProgramme(programme: Programme): PackResult {
         `the plot is ${shellD} mm deep and these rooms need ${minShellD} mm across the building; some may not fit`,
       );
   } else {
-    const floorM2 = roomsM2 * WALL_SHARE + (CORRIDOR_MM / 1000) * Math.sqrt(roomsM2 * 1.4);
+    const floorM2 = roomsM2 * WALL_SHARE + (corridorMm / 1000) * Math.sqrt(roomsM2 * 1.4);
     shellD = Math.max(round100(Math.sqrt((floorM2 * 1e6) / 1.4)), minShellD);
     shellW = round100((floorM2 * 1e6) / shellD);
     notes.push(
@@ -237,7 +301,7 @@ export function packProgramme(programme: Programme): PackResult {
   const northD = usableD - southD;
   const southY = wallMm;
   const corridorY = southY + southD + interiorWallMm;
-  const northY = corridorY + CORRIDOR_MM + interiorWallMm;
+  const northY = corridorY + corridorMm + interiorWallMm;
 
   const rooms: NonNullable<DesignInput["rooms"]> = [];
   const corridorKey = "hallway";
@@ -256,7 +320,11 @@ export function packProgramme(programme: Programme): PackResult {
     // and is what left a 2700 mm bedroom at 8.9 m² in a 3300 mm strip, a hundredth short of legal.
     const minOf = (room: ProgrammeRoom) => {
       const byArea = MIN_M2[room.purpose] ? ((MIN_M2[room.purpose] as number) * 1e6) / depth : 0;
-      return Math.max(MIN_SIDE[room.purpose] ?? DOOR_WALL_MM, DOOR_WALL_MM, Math.ceil(byArea / 100) * 100);
+      return Math.max(
+        MIN_SIDE[room.purpose] ?? MIN_SIDE_FALLBACK,
+        DOOR_WALL_MM,
+        Math.ceil(byArea / 100) * 100,
+      );
     };
     const gaps = (ordered.length - 1) * interiorWallMm;
     const usableW = shellW - 2 * wallMm - gaps;
@@ -296,7 +364,7 @@ export function packProgramme(programme: Programme): PackResult {
       const min = minOf(room);
       // width against width, depth against the room's own minimum side; comparing a width with a
       // depth is how a 6.7 m living room was dropped from a 2.2 m strip for being "too narrow"
-      const minSide = MIN_SIDE[room.purpose] ?? DOOR_WALL_MM;
+      const minSide = MIN_SIDE[room.purpose] ?? MIN_SIDE_FALLBACK;
       if (w < min || depth < minSide) {
         unplaced.push({
           key: room.key,
@@ -324,7 +392,7 @@ export function packProgramme(programme: Programme): PackResult {
     key: corridorKey,
     name: "Hallway",
     purpose: "corridor",
-    rect: { x: wallMm, y: corridorY, w: shellW - 2 * wallMm, d: CORRIDOR_MM },
+    rect: { x: wallMm, y: corridorY, w: shellW - 2 * wallMm, d: corridorMm },
     capacity: null,
     doorsTo: foyer ? [] : ["outside"],
     window: false,
@@ -379,4 +447,4 @@ export function missingFromProgramme(programme: Programme): string[] {
 export const isResidential = (purpose: string): boolean => RESIDENTIAL_PURPOSES.has(purpose as never);
 
 export type { Design };
-export { CIRCULATION, CORRIDOR_MM, DEFAULT_M2 };
+export { CIRCULATION, CORRIDOR_MM, DEFAULT_M2, MIN_SIDE };

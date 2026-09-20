@@ -7,7 +7,7 @@
 
 import { Design } from "@fpv/ir";
 import { describe, expect, it } from "vitest";
-import { CORE_RULES, checkLayout, type Programme, packProgramme } from "../src/index.js";
+import { CORE_RULES, checkLayout, MIN_SIDE, type Programme, packProgramme } from "../src/index.js";
 
 const errorsIn = (programme: Programme) => {
   const { design } = packProgramme(programme);
@@ -191,5 +191,72 @@ describe("programmes of other shapes", () => {
     });
     expect(unplaced.length).toBeGreaterThan(0);
     expect(unplaced[0]?.why).toMatch(/needs \d+ mm along the hallway and \d+ mm deep for \d+\.\d m²/);
+  });
+});
+
+describe("a workplace is not a house with different labels", () => {
+  /** The brief that produced the office nobody could have worked in. */
+  const OFFICE: Programme = {
+    brief: "an office for a hundred IT people with meeting rooms, a cafeteria and pantries",
+    kind: "workplace",
+    rooms: [
+      room("open", "Open office", "open-office", 1000),
+      room("caf", "Cafeteria", "cafeteria", 120),
+      room("train", "Training room", "training", 80),
+      room("board", "Boardroom", "boardroom", 40),
+      room("rec", "Reception", "reception", 30),
+      room("m8a", "Meeting room 8 seat A", "meeting", 23),
+      room("m8b", "Meeting room 8 seat B", "meeting", 23),
+      room("m6a", "Meeting room 6 seat A", "meeting", 18),
+      room("m4a", "Meeting room 4 seat A", "meeting", 12),
+      room("m4b", "Meeting room 4 seat B", "meeting", 12),
+      room("wc", "Toilets", "restroom", 20),
+    ],
+  };
+
+  it("gives every room at least the width its own purpose needs", () => {
+    // The failure this pins: four-person meeting rooms 1.1 m wide and 11.2 m deep. The area was
+    // reasonable and you could not get a table into one, because the table of minimum widths had
+    // six rows and every one of them was residential, so every workplace room fell through to the
+    // width of a door wall.
+    const { design } = packProgramme(OFFICE);
+    const narrow = design.rooms
+      .filter((r) => r.purpose !== "corridor")
+      .map((r) => ({
+        name: r.name,
+        w: Math.min(r.rect.w, r.rect.d),
+        wants: MIN_SIDE[r.purpose] ?? 1800,
+      }))
+      .filter((r) => r.w < r.wants);
+    expect(narrow).toEqual([]);
+  });
+
+  it("gives a meeting room room for a table and a chair either side of it", () => {
+    const { design } = packProgramme(OFFICE);
+    // 900 of table and 900 clear on both sides, which is what space planning asks for.
+    for (const r of design.rooms.filter((x) => x.purpose === "meeting"))
+      expect(Math.min(r.rect.w, r.rect.d)).toBeGreaterThanOrEqual(2700);
+  });
+
+  it("makes a workplace corridor wide enough to be a way out", () => {
+    // 1,118 mm is the floor for fifty or more occupants, and this one had 1,150 for every building
+    // in the world including a hundred-person office.
+    const { design } = packProgramme(OFFICE);
+    const corridor = design.rooms.find((r) => r.purpose === "corridor");
+    expect(Math.min(corridor?.rect.w ?? 0, corridor?.rect.d ?? 0)).toBeGreaterThanOrEqual(1500);
+  });
+
+  it("still lets a house have a house's hallway", () => {
+    // The fix must not make every home corridor an office corridor: 1.5 m of hallway in a flat is
+    // floor area taken from the rooms that needed it.
+    const { design } = packProgramme(THREE_BED);
+    const corridor = design.rooms.find((r) => r.purpose === "corridor");
+    const width = Math.min(corridor?.rect.w ?? 0, corridor?.rect.d ?? 0);
+    expect(width).toBeGreaterThanOrEqual(1000);
+    expect(width).toBeLessThan(1200);
+  });
+
+  it("comes out of the checker clean, like the house does", () => {
+    expect(errorsIn(OFFICE)).toEqual([]);
   });
 });

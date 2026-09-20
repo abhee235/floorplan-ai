@@ -61,7 +61,9 @@ export {
 export { CORE_RULES, HOME_CORE, HOME_CORE_INPUT } from "./rules/home-core.js";
 export { checkLayout, HOME_PURPOSES, type LayoutReport, layoutIsBuildable } from "./rules/layout.js";
 export {
+  corridorFor,
   isResidential,
+  MIN_SIDE,
   missingFromProgramme,
   type PackResult,
   type Programme,
