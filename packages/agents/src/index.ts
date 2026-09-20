@@ -1,6 +1,20 @@
 // @fpv/agents: Provider interface, agent runner, roles, prompts (ADR-007)
 export const PACKAGE = "agents" as const;
 export {
+  type Budget,
+  type CompactionOptions,
+  type CompactionResult,
+  compact,
+  conversationBudget,
+  conversationTokens,
+  DEFAULT_SHIELD,
+  estimateTokens,
+  messageTokens,
+  needsCompaction,
+  outputRoom,
+  REPLY_RESERVE,
+} from "./compact.js";
+export {
   afterGate,
   afterLoopTool,
   afterTool,
