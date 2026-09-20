@@ -182,7 +182,20 @@ export interface AgentRun {
   plan: PlanItem[];
 }
 
-export const DEFAULT_MAX_STEPS = 40;
+/**
+ * Model turns a run may take before it is stopped, whatever it is doing.
+ *
+ * Raised from forty to two hundred once compaction existed. Forty was the number that kept a run
+ * inside a context window rather than the number a job needs: a fifty-room building is fifty
+ * rooms' worth of calls, and a run that stopped at forty had not gone wrong, it had run out of
+ * something it should not have been rationed on.
+ *
+ * This is the backstop, not the working limit. What actually ends a run is finishing, the gates
+ * agreeing it has finished, three identical failures, or eight calls that repeat the same two --
+ * all of which fire long before this does. Two hundred turns is about half an hour on a fast local
+ * model, so a run that reaches it is one somebody should look at.
+ */
+export const DEFAULT_MAX_STEPS = 200;
 export const DEFAULT_MAX_RESULT_CHARS = 16_000;
 /** The same failing call this many times in a row ends the run. */
 const STALL_REPEATS = 3;

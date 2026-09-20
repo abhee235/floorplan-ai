@@ -415,7 +415,7 @@ not.
    before touching a person's work.** A plot size nobody gave, a word that
    means two rooms, a scale: one question, then build. An entity a person made
    or changed: ask first (ADR-023, enforced by the registry).
-6. **It is bounded.** Forty steps a run, three checker rounds, and a churn
+6. **It is bounded.** Two hundred steps a run, three checker rounds, and a churn
    breaker: a run that creates and deletes the same kind of thing a third time
    is reminded once and stopped the fourth.
 7. **It is visible.** Every event streams to every tab of the project as it

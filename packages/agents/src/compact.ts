@@ -137,7 +137,7 @@ export interface CompactionOptions {
   growthPerStep?: number;
 }
 
-/** Enough that a forty-step run compacts at most once. */
+/** Enough that an ordinary run on a 65,536-token window never compacts at all. */
 export const DEFAULT_HEADROOM_STEPS = 30;
 
 /** The measured median growth of a conversation, per step, on a real run. */

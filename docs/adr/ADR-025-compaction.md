@@ -75,9 +75,17 @@ blind them.
 Each was worked through against every candidate. The point of listing them is
 that three of the eight rule out strategies that otherwise look fine.
 
-**S1. One long build run.** Forty steps on one brief. Measured: 15,655 fixed
-plus 545 a step. Crosses a 32,768 window at about step 31 and fits easily in
-65,536. This is the case everyone designs for and it is not the hard one.
+**S1. One long build run.** Measured: 15,655 fixed plus 545 a step. Crosses a
+32,768 window at about step 31 and fits easily in 65,536. This is the case
+everyone designs for and it is not the hard one.
+
+Amended 2026-09-20: the step budget is two hundred rather than forty, raised
+once this decision was built. Forty was the number that kept a run inside a
+window, not the number a job needs, and rationing steps to work around a
+context problem was solving the wrong thing. It changes nothing above except to
+make S1 a case that happens rather than a case that is imagined: at 32,768 a
+long run now compacts roughly every seventeen steps instead of ending before it
+compacts at all.
 
 **S2. A chat that keeps going.** "Build a flat", then "now add a table", then
 "make the bedroom bigger". The host stores the whole message array after a run
@@ -222,8 +230,8 @@ layers stop the moment they reach it, oldest results first.
 ratio cannot work, because the fixed cost is an absolute number: on a
 16,384-token window the conversation budget is negative, and on 32,768 a target
 of 40 per cent leaves under four steps of room. Thirty steps means the same
-thing on every model, and it is enough that a forty-step run compacts at most
-once.
+thing on every model, and on a 65,536-token window it is enough that an
+ordinary run never compacts at all.
 
 What that gives, with the measured 545 tokens a step:
 
@@ -289,8 +297,8 @@ a promise of room.
 ### D4. The shield is eight results, from the measurement, and it sets the floor
 
 Eight results at the measured 386-token average is about 3,100 tokens. A
-forty-step run then costs roughly 3,100 for the shield and 1,000 for thirty-two
-receipts, against 15,400 uncompacted — so a run that would have crossed a
+forty-step stretch then costs roughly 3,100 for the shield and 1,000 for
+thirty-two receipts, against 15,400 uncompacted — so a run that would have crossed a
 32,768 window at step 31 instead finishes at about 21,000 tokens with room to
 spare.
 
