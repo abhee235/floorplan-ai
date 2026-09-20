@@ -174,8 +174,8 @@ describe("a whole reply on the native wire", () => {
     });
     expect(out.text).toBeNull();
     expect(out.toolCalls).toEqual([
-      { id: "call_0", name: "get_scene", arguments: '{"detail":"summary"}' },
-      { id: "call_1", name: "validate", arguments: "{}" },
+      { id: "call_1", name: "get_scene", arguments: '{"detail":"summary"}' },
+      { id: "call_2", name: "validate", arguments: "{}" },
     ]);
   });
 
@@ -231,6 +231,28 @@ describe("a whole reply on the native wire", () => {
       messages: [{ role: "user", content: "hi" }],
     });
     expect((quiet.seen[0]?.body as { think?: boolean }).think).toBeUndefined();
+  });
+
+  it("gives every call in a conversation its own id, not every message", async () => {
+    // One real run made 79 calls using 8 ids, call_0 thirty-eight times. Nothing refused it, because
+    // this wire matches results to calls by order; everything that keys on the id broke quietly.
+    const answer = json({
+      message: {
+        role: "assistant",
+        content: "",
+        tool_calls: [{ function: { name: "get_scene", arguments: {} } }],
+      },
+      done: true,
+      done_reason: "tool_calls",
+    });
+    const { fetch } = fakeFetch({ "/api/chat": answer });
+    const provider = ollamaNative(config, fetch as never);
+    const ids: string[] = [];
+    for (let i = 0; i < 4; i += 1) {
+      const out = await provider.complete({ messages: [{ role: "user", content: "again" }] });
+      ids.push(out.toolCalls[0]?.id as string);
+    }
+    expect(new Set(ids).size).toBe(4);
   });
 
   it("turns a refusal into a provider error rather than an empty answer", async () => {
@@ -295,7 +317,7 @@ describe("a streamed reply", () => {
     expect(events[0]).toEqual({
       type: "tool_call",
       index: 0,
-      id: "call_0",
+      id: "call_1",
       name: "get_scene",
       argumentsDelta: '{"detail":"summary"}',
     });

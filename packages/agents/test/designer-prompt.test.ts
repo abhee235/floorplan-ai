@@ -84,6 +84,10 @@ describe("what the prompt tells the model", () => {
     expect(DESIGNER_SYSTEM).toBe(full);
     const words = full.split(/\s+/).length;
     expect(words).toBeGreaterThan(700);
-    expect(words).toBeLessThan(2200);
+    // Raised from 2,200 when the prompt learnt to ask for a plan. The ceiling is here because the
+    // prompt is re-sent on every step -- measured at 2,997 tokens, 9 per cent of a 32,768-token
+    // window -- so it is a real cost and not a style rule. Anything that pushes past this should
+    // come with a measurement of what it bought.
+    expect(words).toBeLessThan(2400);
   });
 });

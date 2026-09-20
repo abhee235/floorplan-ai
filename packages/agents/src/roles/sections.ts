@@ -84,6 +84,23 @@ export function order(o: WorldOptions): Section {
   ]);
 }
 
+/**
+ * Planning out loud.
+ *
+ * plan_work, the plan card in the chat and the gate that will not let a run end with the plan
+ * unfinished have all existed since the loop did. Nothing ever used them, because nothing ever
+ * asked: a real run for a hundred-person office made 54 tool calls over 27 steps and never wrote
+ * down a single item, so the person watching had 54 cards and no idea what was left.
+ */
+export function planning(): Section {
+  return section("# Say what you are going to do, before you do it", [
+    "For anything over two or three tool calls, call plan_work first with the jobs in order. Somebody is watching a long run and needs to know what is left.",
+    "Items are jobs, not tool calls: 'design the layout', 'build the shell', 'furnish the workspaces', 'check and fix'. Five to ten for a building, never one per room.",
+    "One item is in_progress at a time. Mark it done and the next in_progress in a single call, keeping the ids you were given: it is one list being updated, not a new list each time.",
+    "Mark an item skipped, and say why, when it turns out to be unnecessary. One table in one room needs no plan at all.",
+  ]);
+}
+
 export function designing(): Section {
   return section("# Designing, before you draw", [
     "A plan is not a list of rooms. Before the first wall exists you must know the outside size, every room's size and position, and how somebody walks from the front door to each of them.",

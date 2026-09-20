@@ -165,16 +165,30 @@ function safeParse(text: string): unknown {
   }
 }
 
-/** Ollama answers with argument objects and no ids; the loop wants strings and ids. */
-function fromNativeCalls(calls: { function?: { name?: string; arguments?: unknown } }[] = []): ToolCall[] {
-  return calls.map((c, i) => ({
-    id: `call_${i}`,
-    name: c.function?.name ?? "",
-    arguments:
-      typeof c.function?.arguments === "string"
-        ? c.function.arguments
-        : JSON.stringify(c.function?.arguments ?? {}),
-  }));
+/**
+ * Ollama answers with argument objects and no ids; the loop wants strings and ids.
+ *
+ * The id has to be unique for the whole run, not for the message it arrived in. Numbering from zero
+ * each time looked right and was not: one real run made 79 calls using 8 ids, `call_0` thirty-eight
+ * times. Nothing refused it -- this wire matches results to calls by order -- but everything that
+ * keys on the id quietly broke. Cards in the chat that were still running when the next `call_0`
+ * arrived never stopped running, and compaction, which reads the id to learn which tool a result
+ * came from, could name the wrong one.
+ */
+function callIds(): (calls?: { function?: { name?: string; arguments?: unknown } }[]) => ToolCall[] {
+  let next = 0;
+  return (calls = []) =>
+    calls.map((c) => {
+      next += 1;
+      return {
+        id: `call_${next}`,
+        name: c.function?.name ?? "",
+        arguments:
+          typeof c.function?.arguments === "string"
+            ? c.function.arguments
+            : JSON.stringify(c.function?.arguments ?? {}),
+      };
+    });
 }
 
 interface NativeReply {
@@ -193,6 +207,8 @@ export function ollamaNative(
 ): Provider {
   const profile = { ...DEFAULT_PROFILE, ...config.profile };
   const url = `${ollamaRoot(config.baseUrl)}/api/chat`;
+  // Per provider, so ids stay unique for as long as the conversation does.
+  const fromNativeCalls = callIds();
 
   const body = (req: CompletionRequest, streaming: boolean): Record<string, unknown> => {
     const messages: NativeMessage[] = [];
