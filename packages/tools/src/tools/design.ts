@@ -22,6 +22,8 @@ import {
   purposeFromWord,
   type Room,
   RoomPurpose,
+  roomKey,
+  roomKeys,
   type Wall,
 } from "@fpv/ir";
 import { z } from "zod";
@@ -277,14 +279,14 @@ export const planRoomsTool = defineTool({
   run(args, call) {
     const { alternatives, ...first } = args;
     const tries: { note: string; programme: Programme }[] = [
-      { note: "as asked for", programme: first as Programme },
+      { note: "as asked for", programme: tidyKeys(first as Programme) },
       ...(alternatives ?? []).map((a) => ({
         note: a.note,
-        programme: {
+        programme: tidyKeys({
           ...(first as Programme),
           ...(a.shell ? { shell: a.shell } : {}),
           rooms: a.rooms as Programme["rooms"],
-        },
+        }),
       })),
     ];
     const missing = missingFromProgramme(first as Programme);
@@ -339,6 +341,30 @@ export const planRoomsTool = defineTool({
     };
   },
 });
+
+/**
+ * The programme with its keys made into keys.
+ *
+ * A design refers to its own rooms by key, and the key has to be a slug. A model given a field
+ * called "key" writes "Open Workspace" about as often as it writes "ws1", and refusing that ended a
+ * real run three steps later with a page of raw schema errors that said "Invalid" and nothing else.
+ * Whatever it called the room is unambiguous, so it is turned into a key rather than rejected, and
+ * every reference to it -- what each room should be beside -- is turned the same way.
+ */
+function tidyKeys(programme: Programme): Programme {
+  const keys = roomKeys(programme.rooms.map((r) => r.key || r.name));
+  const renamed = new Map(programme.rooms.map((r, i) => [r.key, keys[i] as string]));
+  return {
+    ...programme,
+    rooms: programme.rooms.map((r, i) => ({
+      ...r,
+      key: keys[i] as string,
+      ...(r.nextTo
+        ? { nextTo: r.nextTo.map((k) => renamed.get(k) ?? roomKey(k)).filter((k) => keys.includes(k)) }
+        : {}),
+    })),
+  };
+}
 
 export const designLayoutTool = defineTool({
   name: "design_layout",

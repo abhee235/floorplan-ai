@@ -279,6 +279,44 @@ describe("best of several (ADR-024 D5)", () => {
     rejected: { note: string; score: number; errors: number }[];
   }
 
+  it("takes whatever the model called a room and makes a key of it", async () => {
+    // What a real run did, and what it cost: a model asked to design an office wrote "Open
+    // Workspace" in a field called key, the design's own schema wanted a slug, and the run died
+    // three steps later on a page of raw schema errors that said "Invalid" and nothing else. The
+    // name it meant was never in doubt.
+    const h = harness(undefined, { rules: CORE_RULES });
+    const r = await h.ok<PlanResult & { rooms: { key: string; name: string }[] }>("plan_rooms", {
+      ...programme([
+        { key: "Open Workspace", name: "Open workspace", purpose: "office", targetM2: 60 },
+        { key: "Meeting-Room 1", name: "Meeting room", purpose: "meeting", targetM2: 20 },
+        { key: "99 Kitchen!", name: "Tea point", purpose: "kitchen", targetM2: 10 },
+      ]),
+      kind: "workplace",
+    });
+    expect(r.result.buildable).toBe(true);
+    // The packer decides the order and adds its own circulation, so what matters is that every key
+    // the model gave came back as a usable one.
+    const keys = r.result.rooms.map((x) => x.key);
+    expect(keys).toContain("open_workspace");
+    expect(keys).toContain("meeting_room_1");
+    expect(keys).toContain("kitchen");
+    for (const k of keys) expect(k).toMatch(/^[a-z][a-z0-9_]{0,23}$/);
+  });
+
+  it("keeps two rooms apart when their names slug to the same thing", async () => {
+    const h = harness(undefined, { rules: CORE_RULES });
+    const r = await h.ok<PlanResult & { rooms: { key: string }[] }>("plan_rooms", {
+      ...programme([
+        { key: "Meeting Room!", name: "Meeting room A", purpose: "meeting", targetM2: 18 },
+        { key: "Meeting Room?", name: "Meeting room B", purpose: "meeting", targetM2: 18 },
+        { key: "kitchen", name: "Tea point", purpose: "kitchen", targetM2: 10 },
+      ]),
+      kind: "workplace",
+    });
+    const keys = r.result.rooms.map((x) => x.key);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
   it("packs one programme when only one is given, and says so", async () => {
     const h = harness(undefined, { rules: CORE_RULES });
     const r = await h.ok<PlanResult>("plan_rooms", programme(BASE));

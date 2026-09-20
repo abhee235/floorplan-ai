@@ -78,6 +78,15 @@ export interface Provider {
   readonly profile: ProviderProfile;
   /** Request changes the provider learned from the server's refusals, e.g. "max_tokens is sent as max_completion_tokens". */
   readonly adaptations?: readonly string[];
+  /**
+   * Settle anything that has to be asked of the server before the profile can be trusted.
+   *
+   * Only `providerFor` has one: it decides which wire an address speaks, and on Ollama it asks the
+   * model what context it was built with, so until that has happened `profile.contextTokens` is
+   * still the default. A caller that budgets against the profile has to wait for this, and one that
+   * does not can ignore it.
+   */
+  ready?(): Promise<void>;
   complete(req: CompletionRequest): Promise<Completion>;
   /**
    * The same request, answered in pieces as the model produces them (ADR-022).

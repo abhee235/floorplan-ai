@@ -60,6 +60,9 @@ export function providerFor(
     get adaptations(): readonly string[] {
       return (settled ?? compatible).adaptations ?? [];
     },
+    async ready() {
+      await pick();
+    },
     async complete(req) {
       return (await pick()).complete(req);
     },

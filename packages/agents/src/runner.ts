@@ -379,6 +379,12 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
   const verifying = options.verifyingTools ?? new Set<string>();
   const liftRenders = options.images?.liftRenders !== false && options.provider.profile.vision;
   const maxImages = options.images?.maxPerTurn ?? 4;
+  // Before anything is measured against the model's window, find out what the window is. A provider
+  // that has to ask the server settles here: until it has, its profile still holds the default, and
+  // a budget computed from that default is a budget for a different model. Found in a real run that
+  // stopped saying the conversation would not fit in 32,000 tokens -- the built-in default -- while
+  // the model it was talking to had been asked for 32,768 and could have had far more.
+  await options.provider.ready?.();
   // What every prompt costs before a word of conversation: the system prompt and the tool schemas,
   // re-sent on every step. Measured at 48% of a 32,768-token window, which is why the floor
   // compaction can reach is an absolute number and not a share (ADR-025).

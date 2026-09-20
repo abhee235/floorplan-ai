@@ -15,6 +15,38 @@ import { Mm, MmNonNegative, MmPositive, RoomPurpose } from "./schema.js";
 /** A name the model gives a room and keeps: "bed1", "hall". Stable across rounds of correction. */
 export const RoomKey = z.string().regex(/^[a-z][a-z0-9_]{0,23}$/);
 
+/**
+ * A room key from whatever a model called the room.
+ *
+ * The key is an identifier the design refers to itself by, and a model given a field called "key"
+ * writes "Open Workspace" or "ws-1" about as often as it writes "ws1". Refusing those is defensible
+ * and useless: the name it meant is unambiguous, and the alternative is a run that dies three steps
+ * later on a schema it was never shown. So it is normalised, and only a word with no letters and no
+ * digits in it at all has nothing left to normalise.
+ */
+export function roomKey(word: string, fallback = "room"): string {
+  const slug = word
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^[^a-z]+/, "")
+    .replace(/_+$/, "")
+    .slice(0, 24);
+  return slug || fallback;
+}
+
+/** The same, over a list, keeping every key different from the others. */
+export function roomKeys(words: readonly string[]): string[] {
+  const seen = new Map<string, number>();
+  return words.map((w, i) => {
+    const base = roomKey(w, `room${i + 1}`);
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    if (n === 0) return base;
+    // Room "1" and room "2" both slugged to "room": the second gets a number rather than the first.
+    return `${base.slice(0, 22)}_${n + 1}`;
+  });
+}
+
 /** The world outside the building, as somewhere a door can lead. */
 export const OUTSIDE = "outside" as const;
 
