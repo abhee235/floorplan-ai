@@ -1,6 +1,7 @@
 // The in-app agent (ADR-007 D3, PRD P1-7): the provider named by roles.designer in <data>/config.json, or
 // FPV_AGENT_BASE_URL and FPV_AGENT_MODEL (with FPV_AGENT_API_KEY, FPV_AGENT_EXTRA_BODY as JSON,
-// FPV_AGENT_RELIABILITY high|medium|low, FPV_AGENT_TIMEOUT_MS). The runner calls the session's registry
+// FPV_AGENT_RELIABILITY high|medium|low, FPV_AGENT_TIMEOUT_MS, FPV_AGENT_MAX_TOKENS). The runner calls the
+// session's registry
 // in-process; every event is appended to a JSONL transcript as it happens, so a crashed run keeps its record.
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -50,6 +51,7 @@ export function loadAgentConfig(options: { dataDir: string; env?: NodeJS.Process
         apiKey: env.FPV_AGENT_API_KEY ?? null,
         profile: { toolCalls: true, toolReliability: reliability ?? "medium" },
         timeoutMs: Number(env.FPV_AGENT_TIMEOUT_MS) || AGENT_TIMEOUT_MS,
+        ...(Number(env.FPV_AGENT_MAX_TOKENS) > 0 ? { maxTokens: Number(env.FPV_AGENT_MAX_TOKENS) } : {}),
         ...(extraBody ? { extraBody } : {}),
       },
       notes,
@@ -74,6 +76,7 @@ export function loadAgentConfig(options: { dataDir: string; env?: NodeJS.Process
       apiKey: apiKey ?? null,
       ...(entry.profile ? { profile: entry.profile as NonNullable<ProviderConfig["profile"]> } : {}),
       timeoutMs: entry.timeoutMs ?? AGENT_TIMEOUT_MS,
+      ...(entry.maxTokens ? { maxTokens: entry.maxTokens } : {}),
       ...(entry.extraBody ? { extraBody: entry.extraBody } : {}),
     },
     notes,

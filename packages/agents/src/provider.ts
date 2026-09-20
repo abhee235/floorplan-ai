@@ -119,6 +119,15 @@ export interface ProviderConfig {
   model: string;
   profile?: Partial<ProviderProfile>;
   timeoutMs?: number;
+  /**
+   * A cap on what one reply may generate, when the caller has not named one.
+   *
+   * The reason is the clock, not the bill. A reasoning model left to itself will think for as long
+   * as it likes, and on local hardware one turn can outlast the request timeout, which ends the run
+   * with nothing to show. A cap turns that into a short reply the loop can carry on from. It is sent
+   * as the wire's own field, so the quirk that renames it is honoured.
+   */
+  maxTokens?: number;
   /** Extra top-level request fields a server understands (for example a reasoning switch). */
   extraBody?: Record<string, unknown>;
   headers?: Record<string, string>;
@@ -186,8 +195,8 @@ export function openAICompatible(
       ...(streaming && !quirks.noStreamOptions ? { stream_options: { include_usage: true } } : {}),
       ...config.extraBody,
     };
-    if (req.maxTokens)
-      body[quirks.maxCompletionTokens ? "max_completion_tokens" : "max_tokens"] = req.maxTokens;
+    const cap = req.maxTokens ?? config.maxTokens;
+    if (cap) body[quirks.maxCompletionTokens ? "max_completion_tokens" : "max_tokens"] = cap;
     if (req.tools?.length) {
       body.tools = req.tools.map((t) => ({
         type: "function",

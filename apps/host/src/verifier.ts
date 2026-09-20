@@ -36,6 +36,8 @@ const ProviderEntry = z.object({
     .partial()
     .optional(),
   timeoutMs: z.number().int().positive().optional(),
+  /** A cap on one reply's length, so a model that thinks forever does not outlast the timeout. */
+  maxTokens: z.number().int().positive().optional(),
   extraBody: z.record(z.unknown()).optional(),
 });
 

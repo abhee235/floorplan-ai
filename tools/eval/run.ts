@@ -37,6 +37,15 @@ const list = (v: string | undefined) =>
         .filter(Boolean)
     : [];
 
+/**
+ * How long one model call may take, from FPV_AGENT_TIMEOUT_MS or five minutes.
+ *
+ * The host has read this since the agent existed and the cards did not, which is how a local model
+ * came to fail a card on a wall the host would not have hit: one turn of a reasoning model on a big
+ * prompt takes longer than five minutes on consumer hardware, and the card had no way to say so.
+ */
+const timeoutMs = Number(process.env.FPV_AGENT_TIMEOUT_MS) || AGENT_TIMEOUT_MS;
+
 function providerFor(spec: string, think: boolean, reliability: ToolReliability | undefined): ProviderConfig {
   const colon = spec.indexOf(":");
   const kind = colon < 0 ? "" : spec.slice(0, colon);
@@ -49,7 +58,7 @@ function providerFor(spec: string, think: boolean, reliability: ToolReliability 
         baseUrl: process.env.OLLAMA_BASE_URL ?? "http://127.0.0.1:11434/v1",
         model: name,
         profile,
-        timeoutMs: AGENT_TIMEOUT_MS,
+        timeoutMs,
         ...(think ? {} : { extraBody: { reasoning_effort: "none" } }),
       };
     case "openai":
@@ -63,7 +72,7 @@ function providerFor(spec: string, think: boolean, reliability: ToolReliability 
         model: name,
         apiKey,
         profile: { ...profile, toolReliability: reliability ?? "high" },
-        timeoutMs: AGENT_TIMEOUT_MS,
+        timeoutMs,
       };
     }
     case "config": {
@@ -83,7 +92,7 @@ function providerFor(spec: string, think: boolean, reliability: ToolReliability 
           ) as Partial<NonNullable<ProviderConfig["profile"]>>),
           ...(reliability ? { toolReliability: reliability } : {}),
         },
-        timeoutMs: entry.timeoutMs ?? AGENT_TIMEOUT_MS,
+        timeoutMs: entry.timeoutMs ?? timeoutMs,
         ...(entry.extraBody ? { extraBody: entry.extraBody } : {}),
       };
     }
