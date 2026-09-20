@@ -71,6 +71,13 @@ export {
   packProgramme,
 } from "./rules/pack.js";
 export {
+  type LayoutQuality,
+  layoutQuality,
+  MAX_ASPECT,
+  type QualityContext,
+  type Sliver,
+} from "./rules/quality.js";
+export {
   BomRule,
   DependencyRule,
   DesignRule,
