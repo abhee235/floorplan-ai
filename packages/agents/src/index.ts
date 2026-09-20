@@ -13,6 +13,7 @@ export {
   DEFAULT_SHIELD,
   estimateTokens,
   forNextRun,
+  MIN_SHIELD,
   messageTokens,
   needsCompaction,
   outputRoom,

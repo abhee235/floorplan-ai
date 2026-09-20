@@ -14,6 +14,7 @@ import {
   conversationBudget,
   conversationTokens,
   forNextRun,
+  MIN_SHIELD,
   needsCompaction,
   outputRoom,
   type Provider,
@@ -337,10 +338,25 @@ describe("inside a real run", () => {
     expect(requests).toHaveLength(0);
   });
 
+  it("gives up the shield before it gives up the run", async () => {
+    // Found live, on a 24,576-token window: the fixed cost was 16,436 and eight results of the size
+    // that run produced were about 6,000, which was the whole conversation budget. A run that was
+    // going perfectly well stopped at step 21 holding a shield it could not afford.
+    const tight: Budget = { contextTokens: 24_576, fixedTokens: 16_436, reserve: 2_048 };
+    const out = compact(conversation(20), tight);
+    expect(out.overflows).toBe(false);
+    expect(out.dropped.shield).toBeGreaterThan(0);
+    // But never all of it: the newest results are what the model is working from.
+    const kept = out.messages.filter((m) => m.role === "tool" && String(m.content).length > 500);
+    expect(kept.length).toBeGreaterThanOrEqual(MIN_SHIELD);
+  });
+
   it("stops with a reason when the conversation will not fit however much is dropped", async () => {
     // Room for the prompt but not for the shield: the run starts, works, and then runs out. The
     // caller has to stop rather than hope, and the message is the one about starting again.
-    const { provider } = scripted(4_000);
+    // Room to start and not to continue: even two results and the tool calls that can never be
+    // dropped outgrow this window eventually.
+    const { provider } = scripted(2_000);
     const run = await runAgent({
       provider,
       tools,

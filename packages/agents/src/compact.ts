@@ -90,7 +90,15 @@ export function outputRoom(budget: Budget, promptTokens: number, cap: number | u
   return cap ? Math.min(cap, left) : left;
 }
 
-export type Reason = "tool-result" | "superseded" | "receipt";
+export type Reason = "tool-result" | "superseded" | "receipt" | "shield";
+
+/**
+ * Results kept whatever happens, even when there is no room for them.
+ *
+ * Two, because the last result is what the model is working from and the one before it is usually
+ * the call that set it up. Below two the model is answering from nothing.
+ */
+export const MIN_SHIELD = 2;
 
 export interface CompactionResult {
   messages: ChatMessage[];
@@ -256,7 +264,7 @@ export function compact(
 ): CompactionResult {
   const before = conversationTokens(messages);
   const limit = conversationBudget(budget);
-  const dropped: Record<Reason, number> = { "tool-result": 0, superseded: 0, receipt: 0 };
+  const dropped: Record<Reason, number> = { "tool-result": 0, superseded: 0, receipt: 0, shield: 0 };
   if (before <= limit)
     return { messages: [...messages], compacted: false, before, after: before, dropped, overflows: false };
 
@@ -316,8 +324,26 @@ export function compact(
     }
   }
 
+  // Layer 4: give up the shield itself, oldest first, down to the last MIN_SHIELD.
+  //
+  // Found by running a card against a 24,576-token window. The fixed cost was 16,436 and the
+  // reserve 2,048, leaving 6,092 for the conversation -- and eight results of the size that run
+  // produced are about 6,000. So the floor was the whole budget, the third layer had nothing left
+  // to reach, and a run that was going perfectly well stopped at step 21 with a shield it could not
+  // afford. A shield is a good idea, not an entitlement: when there is no room for eight recent
+  // results there is room for two, and two is far better than stopping.
+  if (conversationTokens(out) > limit) {
+    for (const i of resultAt.slice(0, Math.max(0, resultAt.length - MIN_SHIELD))) {
+      if (conversationTokens(out) <= limit) break;
+      const m = out[i] as ChatMessage;
+      if (!shorter(m, DISCARDED)) continue;
+      m.content = DISCARDED;
+      dropped.shield += 1;
+    }
+  }
+
   const after = conversationTokens(out);
-  // Layer 4 is the caller's: there is nothing left to remove that would not remove the task.
+  // Layer 5 is the caller's: there is nothing left to remove that would not remove the task.
   return { messages: out, compacted: true, before, after, dropped, overflows: after > limit };
 }
 

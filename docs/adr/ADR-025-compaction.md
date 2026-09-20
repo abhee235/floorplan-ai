@@ -173,12 +173,21 @@ turn that has not happened yet, and it is corrected by what comes back.
    `validate`. Only the newest of each survives, even inside the shield.
 3. **Drop the receipts themselves**, oldest first, once every result outside
    the shield is already a receipt.
-4. **Refuse** (strategy B), with the reason and the suggestion to start a new
+4. **Give up the shield itself**, oldest first, down to the last two.
+5. **Refuse** (strategy B), with the reason and the suggestion to start a new
    chat, when a single step still will not fit.
 
-Layer 4 is reachable only when the shield plus the fixed cost exceeds the
-window, which on a 32,768-token window means a shield of more than about
-17,000 tokens. It is there so the failure has a sentence rather than a silence.
+Layer 4 was added after the first live run. On a 24,576-token window the fixed
+cost was 16,436 and the reserve 2,048, leaving 6,092 for the conversation --
+and eight results of the size that run produced are about 6,000. The shield was
+the entire budget, layer 3 had nothing left to reach, and a run that was going
+perfectly well stopped at step 21 holding a shield it could not afford. A
+shield is a good idea, not an entitlement: where there is no room for eight
+recent results there is room for two, and two is far better than stopping.
+
+Layer 5 is reachable only when two results, every word the person said and the
+tool calls that are never dropped still exceed the window. It is there so the
+failure has a sentence rather than a silence.
 
 The first version of this decision said "stop as soon as it fits". That was
 wrong, and D2a is why.
