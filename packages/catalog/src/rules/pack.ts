@@ -11,7 +11,13 @@
 // for nothing: every room touching the corridor along its whole width (so every door has a wall),
 // every room reachable from the front door, and every room with the outside wall behind it (so every
 // habitable room can have a window).
-import { type Design, type DesignInput, purposeFromWord, RESIDENTIAL_PURPOSES } from "@fpv/ir";
+import {
+  type Design,
+  type DesignInput,
+  type DesignRect,
+  purposeFromWord,
+  RESIDENTIAL_PURPOSES,
+} from "@fpv/ir";
 
 /** A room's purpose as the schema has it, whatever the programme called it. */
 type Purpose = NonNullable<DesignInput["rooms"]>[number]["purpose"];
@@ -230,6 +236,32 @@ function orderStrip(rooms: ProgrammeRoom[]): ProgrammeRoom[] {
  * along its whole width and the outside wall along the other side. What varies is how the rooms are
  * shared between the strips and how wide each one is.
  */
+/**
+ * A rectangle of floor a layout is written into, and which way round it runs.
+ *
+ * Everything below works in two local measurements: `u` runs along the hallway and `v` across it.
+ * A frame turns those into real coordinates, and `turned` swaps the axes. Today nothing turns one,
+ * and the mapping is the identity plus an offset. It exists because a zone of small rooms beside a
+ * very large one is a tall narrow plate, and a hallway across a tall narrow plate is the wrong way
+ * round: the same layout, turned, is the right one.
+ */
+interface Frame {
+  x: number;
+  y: number;
+  /** Along the hallway. */
+  length: number;
+  /** Across it, hallway included. */
+  depth: number;
+  turned: boolean;
+}
+
+/** Local (u along, v across) into a real rectangle. */
+function place(f: Frame, u: number, v: number, alongU: number, acrossV: number): DesignRect {
+  return f.turned
+    ? { x: f.x + v, y: f.y + u, w: acrossV, d: alongU }
+    : { x: f.x + u, y: f.y + v, w: alongU, d: acrossV };
+}
+
 export function packProgramme(programme: Programme): PackResult {
   const notes: string[] = [];
   const unplaced: { key: string; why: string }[] = [];
@@ -353,9 +385,16 @@ export function packProgramme(programme: Programme): PackResult {
     ),
   );
   const northD = usableD - southD;
-  const southY = wallMm;
-  const corridorY = southY + southD + interiorWallMm;
-  const northY = corridorY + corridorMm + interiorWallMm;
+  const frame: Frame = {
+    x: wallMm,
+    y: wallMm,
+    length: shellW - 2 * wallMm,
+    depth: shellD - 2 * wallMm,
+    turned: false,
+  };
+  const southV = 0;
+  const corridorV = southV + southD + interiorWallMm;
+  const northV = corridorV + corridorMm + interiorWallMm;
 
   const rooms: NonNullable<DesignInput["rooms"]> = [];
   const corridorKey = "hallway";
@@ -366,7 +405,7 @@ export function packProgramme(programme: Programme): PackResult {
    * Full depth is the whole trick. It puts one long side of every room against the hallway, so the
    * door has a wall, and the other against the outside of the building, so the window has one too.
    */
-  const placeStrip = (strip: ProgrammeRoom[], y: number, depth: number) => {
+  const placeStrip = (strip: ProgrammeRoom[], v: number, depth: number) => {
     const ordered = orderStrip(strip);
     if (ordered.length === 0) return;
     // The narrowest this room may be in a strip of this depth: its own minimum side, a door's worth
@@ -381,7 +420,7 @@ export function packProgramme(programme: Programme): PackResult {
       );
     };
     const gaps = (ordered.length - 1) * interiorWallMm;
-    const usableW = shellW - 2 * wallMm - gaps;
+    const usableW = frame.length - gaps;
 
     // Widths by share of area, then pushed up to each room's minimum, then the excess taken back
     // from whatever has slack above its own minimum. An earlier version rounded before it did this
@@ -412,7 +451,7 @@ export function packProgramme(programme: Programme): PackResult {
       spare -= 1;
     }
 
-    let x = wallMm;
+    let u = 0;
     ordered.forEach((room, i) => {
       const w = floored[i] as number;
       const min = minOf(room);
@@ -430,23 +469,23 @@ export function packProgramme(programme: Programme): PackResult {
         key: room.key,
         name: room.name,
         purpose: asPurpose(room.purpose),
-        rect: { x, y, w, d: depth },
+        rect: place(frame, u, v, w, depth),
         capacity: room.capacity ?? null,
         doorsTo: room.purpose === "foyer" ? ["outside", corridorKey] : [corridorKey],
         window: room.window ?? HABITABLE.has(room.purpose),
       });
-      x += w + interiorWallMm;
+      u += w + interiorWallMm;
     });
   };
 
-  placeStrip(south, southY, southD);
-  placeStrip(north, northY, northD);
+  placeStrip(south, southV, southD);
+  placeStrip(north, northV, northD);
 
   rooms.push({
     key: corridorKey,
     name: "Hallway",
     purpose: "corridor",
-    rect: { x: wallMm, y: corridorY, w: shellW - 2 * wallMm, d: corridorMm },
+    rect: place(frame, 0, corridorV, frame.length, corridorMm),
     capacity: null,
     doorsTo: foyer ? [] : ["outside"],
     window: false,
