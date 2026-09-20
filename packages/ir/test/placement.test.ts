@@ -168,7 +168,41 @@ describe("nothing stands in a doorway", () => {
     expect(codes(p, "item.blocks-opening")).toEqual([]);
   });
 
-  it("reports a bath tub across a window as well", () => {
+  it("says nothing about a bed under a window, which is where a bed goes", () => {
+    const p = withDoor();
+    const north = p.walls[2] as Wall;
+    p.openings = [
+      defaultOpening(id("opening"), LEVEL, north.id, "window", { position: 0.5, width: 1200, sill: 900 }),
+    ];
+    p.items = [
+      defaultItem(
+        id("item"),
+        LEVEL,
+        { kind: "recipe", recipe: { kind: "bed", size: { w: 1350, d: 2000, h: 900 } } },
+        { x: 2000, y: 2000 },
+      ),
+    ];
+    expect(codes(p, "item.blocks-opening")).toEqual([]);
+  });
+
+  it("reports a wardrobe across a window, which is taller than the sill", () => {
+    const p = withDoor();
+    const north = p.walls[2] as Wall;
+    p.openings = [
+      defaultOpening(id("opening"), LEVEL, north.id, "window", { position: 0.5, width: 1200, sill: 900 }),
+    ];
+    p.items = [
+      defaultItem(
+        id("item"),
+        LEVEL,
+        { kind: "recipe", recipe: { kind: "box", size: { w: 1800, d: 600, h: 2100 }, label: "Wardrobe" } },
+        { x: 2000, y: 2650 },
+      ),
+    ];
+    expect(find(p, "item.blocks-opening")?.hint).toBe("leave the window reachable");
+  });
+
+  it("leaves a bath under a window alone, which is where baths are", () => {
     const p = withDoor();
     const north = p.walls[2] as Wall;
     p.openings = [
@@ -182,7 +216,7 @@ describe("nothing stands in a doorway", () => {
         { x: 2000, y: 2650 },
       ),
     ];
-    expect(find(p, "item.blocks-opening")?.hint).toBe("leave the window reachable");
+    expect(codes(p, "item.blocks-opening")).toEqual([]);
   });
 });
 

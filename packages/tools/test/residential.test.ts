@@ -320,3 +320,55 @@ describe("residential design rules", () => {
     expect(await withRoom(800, 1000, "toilet")).toEqual(["design.toilet-size"]);
   });
 });
+
+describe("what may stand under a window", () => {
+  /** A bedroom whose only long wall carries the window, which is where a bed has to go. */
+  const bedroomWithWindow = async () => {
+    const catalog = seeded();
+    const h = harness(undefined, { catalog, rules: CORE_RULES });
+    const roomId = await rectRoom(h, 2800, 3300, "south", "bedroom", 2);
+    const north = h.ctx.store.project.walls.find((w) => w.start.y === 3350 && w.end.y === 3350) as {
+      id: string;
+    };
+    await h.ok("add_opening", {
+      wallId: north.id,
+      kind: "window",
+      position: 0.5,
+      width: 1200,
+      sill: 900,
+    });
+    return { h, catalog };
+  };
+
+  it("puts the bed under the window rather than leaving the room without one", async () => {
+    const { h, catalog } = await bedroomWithWindow();
+    const room = h.ctx.store.project.rooms[0] as { id: string };
+    const r = await h.ok<{ counts: Record<string, number> }>("furnish_room", { roomId: room.id });
+    // the fault this test exists for: two of three bedrooms came back with a wardrobe and no bed,
+    // because the window sat in the only wall long enough to take one
+    expect(r.result.counts.bed).toBe(1);
+    const bed = h.ctx.store.project.items.find((i) =>
+      (i.ref as { productId?: string }).productId?.includes("bed"),
+    ) as { position: { y: number } };
+    expect(bed.position.y).toBeGreaterThan(1500);
+    catalog.close();
+  });
+
+  it("still keeps a wardrobe off the window, because it is taller than the sill", async () => {
+    const { h, catalog } = await bedroomWithWindow();
+    const room = h.ctx.store.project.rooms[0] as { id: string };
+    await h.ok("furnish_room", { roomId: room.id });
+    expect(blockedOpenings(h.ctx.store.project).filter((s) => s.includes("wardrobe"))).toEqual([]);
+    catalog.close();
+  });
+
+  it("still keeps everything off the door", async () => {
+    const { h, catalog } = await bedroomWithWindow();
+    const room = h.ctx.store.project.rooms[0] as { id: string };
+    await h.ok("furnish_room", { roomId: room.id });
+    const doors = h.ctx.store.project.openings.filter((o) => o.kind === "door").map((o) => o.id);
+    const over = blockedOpenings(h.ctx.store.project).filter((s) => doors.some((d) => s.includes(d)));
+    expect(over).toEqual([]);
+    catalog.close();
+  });
+});

@@ -25,12 +25,13 @@ and profile.
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | boardroom | gpt-5.6-luna | medium | pass | 8 of 40 | 7 (1) | 89786 / 366 | 14 | 0 | none | 0% of 14 | 2026-09-15 |
 | boardroom | qwen3.6:35b | medium | pass | 17 of 40 | 16 (2) | 304651 / 1413 | 125 | 0 | none | 0% of 14 | 2026-09-16 |
+| four-bed-house | gpt-5.6-luna | high | pass | 12 of 36 | 19 (0) | 208497 / 1188 | 42 | 0 | none | 59% of 22 | 2026-09-20 |
 | import-messy-dxf | gpt-5.6-luna | medium | pass | 5 of 25 | 4 (0) | 51270 / 307 | 10 | 0 | none | - | 2026-09-16 |
 | import-messy-dxf | qwen3.6:35b | medium | pass | 10 of 25 | 9 (1) | 251778 / 1295 | 68 | 0 | none | - | 2026-09-16 |
 | import-office | gpt-5.6-luna | medium | pass | 5 of 20 | 4 (0) | 34360 / 184 | 8 | 0 | none | - | 2026-09-15 |
 | import-office | qwen3.6:35b | medium | pass | 5 of 20 | 4 (0) | 50667 / 708 | 20 | 0 | none | - | 2026-09-16 |
-| one-bed-flat | gpt-5.6-luna | high | pass | 14 of 26 | 15 (1) | 203370 / 1631 | 31 | 0 | none | 67% of 9 | 2026-09-20 |
-| three-bed-flat | gpt-5.6-luna | high | fail (done) | 11 of 30 | 16 (0) | 162660 / 981 | 35 | 0 | 3 bed (found 1) | 71% of 14 | 2026-09-20 |
+| one-bed-flat | gpt-5.6-luna | high | pass | 10 of 26 | 13 (0) | 140040 / 859 | 31 | 0 | none | 67% of 9 | 2026-09-20 |
+| three-bed-flat | gpt-5.6-luna | high | pass | 13 of 30 | 19 (0) | 202889 / 1272 | 41 | 0 | none | 65% of 17 | 2026-09-20 |
 <!-- runs:end -->
 
 ## Findings (2026-09-16)
@@ -206,3 +207,31 @@ What is still wrong: one basin in the bathroom stands across the door, because
 `furnish_room` places fixtures along a wall without knowing the door is in it
 when the run of free wall is longer than the fixture. Five windows for six
 habitable rooms; one room's window was not placed and nothing said why.
+
+### The first design cards (2026-09-20)
+
+Three briefs run through the architect and the packer against gpt-5.6-luna,
+with the card harness holding the drawing to the placement checks as well as to
+validation.
+
+| card | rooms | items | steps | prompt tokens | unenclosed | beds adrift | across an opening |
+|---|---|---|---|---|---|---|---|
+| one-bed-flat | 6 | 7 | 10 | 140,040 | 0 | 0 | 0 |
+| three-bed-flat | 9 | 17 | 13 | 202,889 | 0 | 0 | 1 |
+| four-bed-house | 12 | 24 | 12 | 208,497 | 0 | 0 | 1 |
+
+The architect sub-run costs about 21,000 tokens of the total in each, takes
+five steps and calls `plan_rooms` once.
+
+Both faults the suite found on its first run were real, and neither was the
+model's. Two of three bedrooms came back with a wardrobe and no bed: the bed
+wants the wall opposite the door, which in a strip layout is the outside wall,
+which is where the window goes, and a 1200 window in a 2800 wall leaves two
+800 mm runs that no bed fits. Furnishing now lets anything lower than a sill
+stand under a window and keeps only doors, and things taller than the sill,
+clear.
+
+Fixing that exposed the second: `validate` still called a bed under a window a
+blocked opening, so the checker and the thing it checks disagreed. The checker
+now applies the same rule, which took the four-bedroom house from four blocked
+openings to one.

@@ -348,7 +348,24 @@ export function itemView(
 }
 
 /** Intervals along a room wall not blocked by openings or by items standing against it (spec 04 describe_room). */
-export function freeSegments(p: Project, r: Room, sizes: derive.SizeSource, minMm = 300): FreeSegment[] {
+/**
+ * What a free run of wall is free of.
+ *
+ * By default every opening takes its span out, which is what `describe_room` should say: a wall
+ * with a window in it is not free for a bookcase. A caller placing something lower than the sill
+ * passes `blocks` to say otherwise, because a bed under a window is where a bed goes.
+ */
+export interface FreeSegmentOptions {
+  blocks?(opening: Opening): boolean;
+}
+
+export function freeSegments(
+  p: Project,
+  r: Room,
+  sizes: derive.SizeSource,
+  minMm = 300,
+  options: FreeSegmentOptions = {},
+): FreeSegment[] {
   const out: FreeSegment[] = [];
   const items = p.items.filter(
     (i) => i.levelId === r.levelId && (i.roomId === r.id || derive.roomContains(r, i.position)),
@@ -363,6 +380,7 @@ export function freeSegments(p: Project, r: Room, sizes: derive.SizeSource, minM
     const blocked: { a: number; b: number }[] = [];
     for (const o of p.openings) {
       if (o.wallId !== w.id) continue;
+      if (options.blocks && !options.blocks(o)) continue;
       const iv = derive.openingAlongInterval(o, w);
       blocked.push({ a: iv.from, b: iv.to });
     }

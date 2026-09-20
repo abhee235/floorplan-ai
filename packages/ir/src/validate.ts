@@ -443,6 +443,10 @@ export function validate(project: Project, options: ValidateOptions = {}): Probl
           const uy = (w.end.y - w.start.y) / len;
           const along = pts.map((q) => (q.x - w.start.x) * ux + (q.y - w.start.y) * uy);
           const away = pts.map((q) => Math.abs((q.x - w.start.x) * uy - (q.y - w.start.y) * ux));
+          // A window is only blocked by something taller than its sill. A bed, a sofa and a kitchen
+          // run all belong under one, and the furnishing code puts them there on purpose; a checker
+          // that called that a fault would be disagreeing with the thing it is meant to be checking.
+          if (o.kind === "window" && size.h <= o.sill) continue;
           const span = derive.openingAlongInterval(o, w);
           const overlap = Math.min(Math.max(...along), span.to) - Math.max(Math.min(...along), span.from);
           if (overlap <= 0 || Math.min(...away) > w.thickness / 2 + BACK_TO_WALL_MM) continue;

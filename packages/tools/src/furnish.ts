@@ -191,6 +191,23 @@ function categoryOfItem(item: Item, p: Project, catalog: CatalogSearch): string 
   return snap?.category ?? catalog.product(item.ref.productId)?.category ?? "other";
 }
 
+/** The runs that remain when the given spans are taken out of them. */
+function splitAround(
+  runs: readonly { from: number; to: number }[],
+  spans: readonly { from: number; to: number }[],
+): { from: number; to: number }[] {
+  let out = [...runs];
+  for (const span of spans)
+    out = out.flatMap((run) => {
+      if (span.to <= run.from || span.from >= run.to) return [run];
+      const pieces: { from: number; to: number }[] = [];
+      if (span.from - run.from >= 1) pieces.push({ from: run.from, to: span.from });
+      if (run.to - span.to >= 1) pieces.push({ from: span.to, to: run.to });
+      return pieces;
+    });
+  return out.sort((a, b) => a.from - b.from);
+}
+
 export function planFurnishing(
   p: Project,
   room: Room,
@@ -237,11 +254,8 @@ export function planFurnishing(
 
   // the display wall decides the frame, so it is chosen before any step runs
   const displayStep = recipe.steps.find((s): s is Extract<Step, { op: "display" }> => s.op === "display");
-  const free = freeSegments(
-    options.replace ? { ...p, items: p.items.filter((i) => !inRoom.includes(i)) } : p,
-    room,
-    sizes,
-  );
+  const asPlaced = options.replace ? { ...p, items: p.items.filter((i) => !inRoom.includes(i)) } : p;
+  const free = freeSegments(asPlaced, room, sizes);
   const side: derive.Compass =
     displayStep && displayStep.wall !== "auto"
       ? displayStep.wall
@@ -431,25 +445,49 @@ export function planFurnishing(
    * whole span, which is how every wardrobe in the flat ended up across its bedroom door.
    */
   const runsByWall = new Map<derive.Compass, { from: number; to: number }[]>();
-  const runsOn = (c: derive.Compass, f: Frame): { from: number; to: number }[] => {
+  const windowsByWall = new Map<derive.Compass, { from: number; to: number; sill: number }[]>();
+  /** A run list per wall, and where the windows in it are, both as across-coordinates. */
+  const runsOn = (c: derive.Compass, f: Frame) => {
     const known = runsByWall.get(c);
-    if (known) return known;
+    if (known) return { runs: known, windows: windowsByWall.get(c) ?? [] };
+    const across = (w: Wall, t: number) => {
+      const len = derive.wallLength(w);
+      const u = { x: (w.end.x - w.start.x) / len, y: (w.end.y - w.start.y) / len };
+      return dot({ x: w.start.x + u.x * t, y: w.start.y + u.y * t }, f.p);
+    };
+    // Windows do not take a run out of the wall here: a bed, a sofa and a kitchen run all belong
+    // under one, and the first version of this skipped the bed in two of three bedrooms because the
+    // window sat in the only wall long enough for it. What may not stand under a window is anything
+    // taller than its sill, and that is decided per item below rather than per wall here.
+    const permissive = freeSegments(asPlaced, room, sizes, 300, {
+      blocks: (o) => o.kind !== "window",
+    });
     const made: { from: number; to: number }[] = [];
-    for (const seg of free) {
+    for (const seg of permissive) {
       if (seg.compass !== c) continue;
       const w = walls.find((x) => x.id === seg.wallId);
-      const len = w ? derive.wallLength(w) : 0;
-      if (!w || len === 0) continue;
-      const u = { x: (w.end.x - w.start.x) / len, y: (w.end.y - w.start.y) / len };
-      const at = (t: number) => dot({ x: w.start.x + u.x * t, y: w.start.y + u.y * t }, f.p);
-      const a = at(seg.fromMm);
-      const b = at(seg.toMm);
+      if (!w || derive.wallLength(w) === 0) continue;
+      const a = across(w, seg.fromMm);
+      const b = across(w, seg.toMm);
       made.push({ from: Math.min(a, b), to: Math.max(a, b) });
     }
     made.sort((x, y) => x.from - y.from);
+    const panes: { from: number; to: number; sill: number }[] = [];
+    for (const o of p.openings) {
+      if (o.kind !== "window") continue;
+      const w = walls.find((x) => x.id === o.wallId);
+      if (!w || derive.wallLength(w) === 0) continue;
+      if (roomWallCompass(p, w, room) !== c) continue;
+      const iv = derive.openingAlongInterval(o, w);
+      const a = across(w, iv.from);
+      const b = across(w, iv.to);
+      panes.push({ from: Math.min(a, b), to: Math.max(a, b), sill: o.sill });
+    }
     runsByWall.set(c, made);
-    return made;
+    windowsByWall.set(c, panes);
+    return { runs: made, windows: panes };
   };
+
   const beside: Record<derive.Compass, [derive.Compass, derive.Compass]> = {
     north: ["east", "west"],
     south: ["east", "west"],
@@ -740,7 +778,7 @@ export function planFurnishing(
         const want = Math.max(1, Math.round(number(step.countExpr, "countExpr", 1)));
         const compass = wallFor(step.wall);
         const f = frameOn(compass);
-        const open = runsOn(compass, f);
+        const { runs: open, windows } = runsOn(compass, f);
         const label = step.label || step.category;
         if (open.length === 0) {
           warnings.push(
@@ -768,7 +806,11 @@ export function planFurnishing(
         // Which free stretch to use: the one nearest the middle of the wall for "centre", the
         // first or last for "start" and "end". A door in the middle of a wall therefore pushes a
         // centred bed to one side of it rather than on top of it.
-        const usable = open.filter((run) => holds(run) > 0);
+        // Anything taller than a window's sill may not stand in front of it, so for those the runs
+        // are cut at every window; a bed or a kitchen run, which are not, uses the wall whole.
+        const tall = windows.filter((pane) => r.size.h > pane.sill);
+        const candidates = tall.length === 0 ? open : splitAround(open, tall);
+        const usable = candidates.filter((run) => holds(run) > 0);
         if (usable.length === 0) {
           warnings.push(
             `no free run on the ${compass} wall for the ${label}: it is ${Math.round(width)} mm wide and the longest gap between the openings is ${Math.round(widest)} mm`,
@@ -802,13 +844,18 @@ export function planFurnishing(
             0,
             floor,
           );
-        // what is left of that stretch, so the next fixture on this wall stands beside this one
-        const rest: { from: number; to: number }[] = [];
-        if (gFrom - step.spacingMm - chosen.from >= 1)
-          rest.push({ from: chosen.from, to: gFrom - step.spacingMm });
-        if (chosen.to - (gFrom + span2 + step.spacingMm) >= 1)
-          rest.push({ from: gFrom + span2 + step.spacingMm, to: chosen.to });
-        open.splice(open.indexOf(chosen), 1, ...rest);
+        // Take what this group used out of the wall's own runs, so the next fixture on the wall
+        // stands beside it. Done against the wall's list rather than the candidate's, because a
+        // candidate cut around a window is a slice of a run and not a run.
+        const used = { from: gFrom - step.spacingMm, to: gFrom + span2 + step.spacingMm };
+        const left = open.flatMap((run) => {
+          if (used.to <= run.from || used.from >= run.to) return [run];
+          const pieces: { from: number; to: number }[] = [];
+          if (used.from - run.from >= 1) pieces.push({ from: run.from, to: used.from });
+          if (run.to - used.to >= 1) pieces.push({ from: used.to, to: run.to });
+          return pieces;
+        });
+        open.splice(0, open.length, ...left);
         if (n < want)
           warnings.push(`only ${n} of ${want} ${step.category} items fit along the ${compass} wall`);
         if (r.size.d + step.clearanceMm > f.depth)

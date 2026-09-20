@@ -420,7 +420,7 @@ block. Codes, first release:
 | `item.outside-room` | warning | roomId set but centre not inside the room polygon |
 | `item.in-wall` | warning | footprint fully inside a wall footprint (F-089) |
 | `item.overlap` | warning | footprints of two floor-mounted items on one level overlap by more than 10 percent of the smaller |
-| `item.blocks-opening` | warning | a floor-mounted item within 250 mm of a wall's face covers part of a door or window in it |
+| `item.blocks-opening` | warning | a floor-mounted item within 250 mm of a wall's face covers part of a door, or of a window whose sill it is taller than |
 | `item.needs-wall` | warning | a bed, wardrobe, sofa or kitchen run whose back is more than 250 mm from the nearest wall face |
 | `item.mount-target` | error | mount kind wall or item without a resolving targetId |
 | `item.elevation-range` | warning | elevation plus height above the level height plus 1000 mm |
