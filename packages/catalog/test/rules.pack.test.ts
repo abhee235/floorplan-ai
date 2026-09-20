@@ -256,6 +256,31 @@ describe("a workplace is not a house with different labels", () => {
     expect(width).toBeLessThan(1200);
   });
 
+  // Expected to fail, and left here failing on purpose (ADR-022 D2, amended).
+  //
+  // This is the comb, and the packer cannot currently produce anything else. Bands run the full
+  // width of the building by construction, and in this brief the open office is 73 per cent of the
+  // floor: a band holding it is 21.7 m deep and well proportioned, and a band holding a 12 m2
+  // meeting room across the same 46 m frontage is 300 mm deep. Splitting into more bands was
+  // tried and makes it worse, because every band still spans the whole frontage.
+  //
+  // Fixing it means zones that take part of the width rather than all of it, which is a different
+  // algorithm and not a tuning of this one. When that lands this test starts passing, `it.fails`
+  // turns red, and whoever did it deletes this comment.
+  it.fails("makes rooms, not slices: nothing more than two and a half times its own width", () => {
+    // Every room in the comb was above its minimum width and every one of them was a corridor,
+    // which is the thing the minimum-width test cannot say.
+    const { design } = packProgramme(OFFICE);
+    const slices = design.rooms
+      .filter((r) => r.purpose !== "corridor")
+      .map((r) => ({
+        name: r.name,
+        ratio: Math.max(r.rect.w, r.rect.d) / Math.min(r.rect.w, r.rect.d),
+      }))
+      .filter((r) => r.ratio > 2.5);
+    expect(slices).toEqual([]);
+  });
+
   it("comes out of the checker clean, like the house does", () => {
     expect(errorsIn(OFFICE)).toEqual([]);
   });
