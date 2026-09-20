@@ -389,6 +389,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
   const recent: string[] = [];
   let lastPromptTokens = 0;
   let warnedTruncation = false;
+  let warnedCramped = false;
   let stall: string | null = null;
   // The person said "leave all my work alone": every later consent question is answered for them.
   let consentWithheld = false;
@@ -453,6 +454,22 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
           after: result.after,
           dropped: result.dropped,
         });
+      }
+      // Compaction that has to run again almost immediately is the failure mode this was designed
+      // against: each one breaks the cached prefix and is paid for in prefill. When it can no
+      // longer buy a few steps, the window is too small for the work rather than the conversation
+      // being too big, and saying so once is more use than saying it every step.
+      if (result.compacted && !warnedCramped) {
+        const stepsBought = (conversationBudget(budget) - result.after) / Math.max(1, growth);
+        if (stepsBought < 3) {
+          warnedCramped = true;
+          emit({
+            type: "warning",
+            step: steps,
+            at: now(),
+            message: `there is only room for ${stepsBought.toFixed(1)} more steps after compacting, so this will compact again almost every step and each one costs time; ${options.provider.model} needs a larger context for work this size`,
+          });
+        }
       }
       if (result.overflows)
         return finish(

@@ -338,6 +338,27 @@ describe("inside a real run", () => {
     expect(requests).toHaveLength(0);
   });
 
+  it("says once when the window is too small for the work, rather than every step", async () => {
+    // Seen live: from step 19 a run compacted on almost every step, each saving a few hundred
+    // tokens. Nothing was broken and everything was slow, which is the failure mode that is easiest
+    // to live with and hardest to notice.
+    const { provider } = scripted(2_400);
+    const events: AgentEvent[] = [];
+    await runAgent({
+      provider,
+      tools,
+      system: "you draw floor plans",
+      task: "build a flat",
+      maxSteps: 40,
+      compaction: { reserve: 100 },
+      callTool: async () => ({ ok: true, result: { note: "x".repeat(2_400) }, warnings: [] }),
+      onEvent: (e) => events.push(e),
+      gates: { idle: false },
+    });
+    const cramped = events.filter((e) => e.type === "warning" && e.message.includes("larger context"));
+    expect(cramped).toHaveLength(1);
+  });
+
   it("gives up the shield before it gives up the run", async () => {
     // Found live, on a 24,576-token window: the fixed cost was 16,436 and eight results of the size
     // that run produced were about 6,000, which was the whole conversation budget. A run that was
