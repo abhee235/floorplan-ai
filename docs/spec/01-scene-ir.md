@@ -185,6 +185,40 @@ mistakes only one is recoverable: an agent that asks once about an old file
 wastes a question, an agent that assumes an old file is its own rearranges work
 somebody spent a week on.
 
+### 4.3b Design (ADR-022 D2)
+
+Not part of a project: the artefact the architect produces and `check_design`
+measures, in `packages/ir/src/design.ts` because everything that touches it
+already depends on the IR.
+
+```ts
+export const DesignRoom = z.object({
+  key: RoomKey,                      // "bed1": the model's own name, kept between rounds
+  name: z.string(),                  // what a person calls it
+  purpose: RoomPurpose,
+  rect: { x, y, w, d },              // the CLEAR INSIDE, mm; walls go outside it
+  capacity: z.number().int().nullable(),
+  doorsTo: z.array(z.string()),      // room keys, or "outside"
+  window: z.boolean(),
+});
+export const Design = z.object({
+  brief: z.string(), kind: z.enum(["dwelling", "workplace", "mixed"]),
+  levelId: z.string().nullable(),
+  shell: { x, y, w, d, wallMm, interiorWallMm },   // the OUTSIDE of the building
+  rooms: z.array(DesignRoom).min(1),
+  circulation: z.array(RoomKey), assumptions: z.array(z.string()),
+});
+```
+
+Rectangles, for three reasons: a room a person can name is a rectangle nearly
+always; a rectangle is checkable in arithmetic the model can also do, so it can
+correct itself; and a set of rectangles draws deterministically. An L-shaped
+room is two keys with a door between them.
+
+Helpers beside it, used by both the checker and the builder: `rectOverlap`,
+`sharedEdge` (the wall two rooms have in common, which is what a door needs)
+and `onOutsideWall`.
+
 ### 4.4 Room
 
 ```ts

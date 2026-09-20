@@ -136,6 +136,14 @@ function stampAuthorship(draft: Project, changes: Changes, origin: Origin, at: s
   const author = AUTHOR_OF[origin];
   if (!author) return;
   const made = new Set(changes.added.map((r) => `${r.type}:${r.id}`));
+  // Group the refs by type and walk each list once. Scanning the list per ref instead makes an
+  // arrange of four hundred desks quadratic, which a benchmark caught and a reader would not.
+  const wanted = new Map<string, Set<string>>();
+  for (const ref of [...changes.added, ...changes.updated]) {
+    const ids = wanted.get(ref.type) ?? new Set<string>();
+    ids.add(ref.id);
+    wanted.set(ref.type, ids);
+  }
   const lists: Record<string, { id: string; by?: Authorship }[]> = {
     level: draft.levels,
     wall: draft.walls,
@@ -145,16 +153,19 @@ function stampAuthorship(draft: Project, changes: Changes, origin: Origin, at: s
     zone: draft.zones,
     annotation: draft.annotations,
   };
-  for (const ref of [...changes.added, ...changes.updated]) {
-    const entity = lists[ref.type]?.find((e) => e.id === ref.id);
-    if (!entity) continue;
-    const fresh = made.has(`${ref.type}:${ref.id}`) || !entity.by;
-    entity.by = {
-      createdBy: fresh ? author : (entity.by?.createdBy ?? "unknown"),
-      editedBy: author,
-      editedAt: at,
-      touchedByPerson: (entity.by?.touchedByPerson ?? false) || author === "person",
-    };
+  for (const [type, ids] of wanted) {
+    const list = lists[type];
+    if (!list) continue;
+    for (const entity of list) {
+      if (!ids.has(entity.id)) continue;
+      const fresh = made.has(`${type}:${entity.id}`) || !entity.by;
+      entity.by = {
+        createdBy: fresh ? author : (entity.by?.createdBy ?? "unknown"),
+        editedBy: author,
+        editedAt: at,
+        touchedByPerson: (entity.by?.touchedByPerson ?? false) || author === "person",
+      };
+    }
   }
 }
 

@@ -3,8 +3,9 @@
 Status: Proposed
 Date: 2026-09-20
 Related: ADR-005 (single deployment), ADR-006 (tool surface), ADR-007 (provider
-and runner), ADR-019 (session log), ADR-023 (authorship and consent), PRD P4-1
-(the agent in the editor), spec 04 (tools), spec 07 (rules packs)
+and runner), ADR-019 (session log), ADR-023 (authorship and consent, whose D7
+here is the other half), PRD P4-1 (the agent in the editor), spec 04 (tools),
+spec 07 (rules packs)
 
 ## Context
 
@@ -75,9 +76,61 @@ topology, numeric constraints, overlaps. The last one matters twice: it says
 what a checker should check, and it is the reward function the owner's later
 reinforcement-learning experiment will need.
 
+### What the two implementations we can read actually do
+
+**Amended 2026-09-20.** The first version of this ADR reasoned from two papers
+and from ADR-005's single-deployment rule, and did not look at either agent
+sitting on this machine. That was the wrong order, and reading them changed
+four of the decisions below. Both were read for their architecture only; no
+code was copied from either.
+
+Where Claude Code (`src/query.ts`, `src/tools/AgentTool/`) and Cascade
+(`packages/core/src/agent/agentLoop.ts`) agree, they agree closely, and that
+agreement is the strongest evidence available here:
+
+- A sub-agent is **the same loop called again with a fresh message array**, not
+  a second engine and not a second service. Claude Code's `runAgent` is a
+  `query()` call; Cascade's `spawnSubagent` is a nested `runAgentLoop`.
+- **Only the last assistant text goes back to the parent.** The child's
+  transcript never enters the parent's conversation. Claude Code forwards inner
+  events to the UI as progress messages and stores the child transcript as a
+  sidechain; Cascade consumes child events internally.
+- **One level of nesting.** Both put the spawn tool in the child's own
+  disallowed list.
+- **The turn ends when there are no tool-use blocks**, never on the model's
+  stop reason. Both say in comments that the stop reason is unreliable.
+- **A restricted agent's tools are removed, not forbidden in prose.** Cascade's
+  `toolGrants.ts` states the reason plainly: a persona prompt does not stop a
+  mid-sized model from doing the thing, so take the capability away.
+- **Errors are ordinary tool results flagged as errors**, never thrown.
+- **Model-facing and user-facing renderings of a result are separate
+  functions**, deliberately, with a comment warning against conflating them.
+
+Two mechanisms neither this ADR nor this codebase had, both from Claude Code:
+a permission decision may carry a **rewritten input**, so a gate can answer "no,
+but here is the corrected value" rather than only refusing; and after compaction
+the most recently read files are **re-read from disk** rather than trusted from
+the summary.
+
+And one measurement of our own, taken the same day from the nine-room flat run:
+
+| | tokens |
+|---|---|
+| tool schemas, re-sent every step | 10,389 |
+| system prompt, re-sent every step | 2,689 |
+| fixed cost per step | 13,078 |
+| over 25 steps | ~327,000 |
+| conversation content, cumulative | ~105,000 |
+| **measured for the run** | **419,915** |
+
+Seventy-eight per cent of that run was re-sending the tool surface. An
+architect holding five inspect tools and `check_design` costs 1,468 tokens of
+schema instead of 10,389. That is the decisive argument for D1 below, and it is
+not the argument the first version made.
+
 ## Decision
 
-### D1. One process, one model, three roles
+### D1. One process, one model, three roles, each a sub-run of its own
 
 The agent is three roles in one loop, in one process, against one model:
 
@@ -90,12 +143,53 @@ The agent is three roles in one loop, in one process, against one model:
   furniture, and fixes what the checker finds, with the design pinned in its
   prompt.
 
-A role is a system prompt and a tool subset, chosen by the runner for a phase
-of one run. It is not a process, a service, or a separate agent with its own
-conversation. The roles share the project, the conversation and the event
-stream, so a tab watching the run sees the architect's plan, the checker's
-report and the builder's walls in one transcript. ADR-005's rule that this
-product deploys as one application is kept: nothing new listens on a port.
+**Amended 2026-09-20.** This said a role was "a system prompt and a tool subset
+chosen for a phase of one run", and that the roles shared one conversation. Two
+things say otherwise.
+
+Both implementations we can read make a sub-agent the same loop with a **fresh
+message array**, and return **only its last assistant message** to the parent.
+And the measurement above says the cost of a phase is dominated by the tool
+surface it carries, not by the conversation: an architect that can see all
+thirty-one tools pays 10,389 tokens a step for the twenty-six it must not use.
+
+So a role is a **sub-run**: the same `runAgent`, called again, with
+
+- its own `messages`, starting empty but for the task;
+- its own system prompt;
+- its own advertised tools, and — the part that matters — **only those tools
+  reachable**, enforced by the registry rather than asked for in the prompt
+  (D1a);
+- its own step budget, smaller than the parent's;
+- the parent's project, registry, abort signal, event stream and question
+  channel, all shared.
+
+What returns to the parent is **the structured design, not prose** — the one
+place we depart from both references, and for a reason they do not have: their
+sub-agents report on work they did elsewhere, ours hands over an artefact the
+next role has to measure and draw. A paragraph could not be checked.
+
+The child's steps do not enter the parent's conversation. They do reach the
+chat, labelled with the phase, because a person watching a plan being designed
+should see it happening; what they must not do is fill the builder's context
+with rejected drafts it can re-open.
+
+**One level of nesting**, as both references enforce: a sub-run may not spawn
+one. And ADR-005 is untouched: this is one process, one model, one deployment,
+and nothing new listens on a port.
+
+### D1a. A role's tools are removed, not forbidden
+
+The architect must not draw. Saying so in its prompt is not how that is
+achieved: `Registry.call` takes the run's grant list and refuses a name outside
+it with `tool.not-granted`, the same shape as any other refusal, so the model
+reads it and corrects itself.
+
+This is the rule the consent guard already follows (ADR-023 D4) and the reason
+Cascade gives for its own `toolGrants`: a persona prompt does not stop a
+mid-sized model from doing the thing it was told not to do. Remove the
+capability instead. It is also what makes D1's token argument real — a tool the
+registry will refuse is a tool not worth advertising.
 
 ### D2. The design is an artefact, not a paragraph
 
@@ -126,6 +220,50 @@ between them and no wall, which the builder merges.
 
 The design lives with the conversation, per project, so a follow-up reads the
 design that was built rather than re-deriving it from the walls.
+
+**Amended 2026-09-20, after the architect's first live run.** The design above
+is still what the checker measures and the builder draws. What changed is who
+writes the rectangles.
+
+The architect was given the brief and six rounds. It produced, in order, 12,
+11, 14, 14, 14 and 13 problems: not converging, flailing. Its complaints were
+real -- checked by hand against its own submission, every one was accurate:
+
+```
+bed2 east edge      x = 4400
+corridor west edge  x = 5000      a 600 mm gap, so no shared wall
+bath                x 9650..11450 nowhere near the corridor it opens onto
+lobby/corridor overlap 300 mm, and a door needs 1000
+```
+
+It was being asked to solve two-dimensional rectangle packing: nine rooms,
+none overlapping, filling a shell, with eight named pairs each sharing at least
+a metre of wall. That is the one thing a language model is worst at and the one
+thing a program finds easy, and putting it on the model's side of the line
+contradicts every other decision in this ADR.
+
+So the line moves:
+
+- **The architect supplies a programme**: which rooms, what each is for, roughly
+  how big, which should be near which, which need a window, and how big the
+  building should be. That is judgement about how people live, and it did this
+  part well in every round.
+- **A solver packs it** into rectangles that satisfy the checker by
+  construction rather than by being marked: `packProgramme`, deterministic,
+  in `packages/catalog`.
+
+The Design stays exactly as it is, because it is the contract between the
+checker and the builder and neither cares who wrote it. `check_design` still
+takes one, so a model that wants to place rooms itself may; the architect will
+not.
+
+The solver lays a flat out the way flats are laid out: a circulation band with
+the rooms in strips either side of it, each room running the full depth of its
+strip so it touches the corridor along its whole width and the outside wall
+behind it. Every room reachable, every door with a wall, every habitable room
+on an outside wall, by construction. Where the programme cannot fit, the solver
+says which room it could not place, and the architect changes the programme
+rather than the coordinates.
 
 ### D3. The checker is code; the critic is a bounded model pass
 
@@ -180,6 +318,25 @@ never overrides the checker, and the loop does not wait on it when the checker
 has errors, because a room that overlaps another is not improved by an opinion
 about its proportions.
 
+**Deferred 2026-09-20, not rejected.** The critic is not built until a
+measurement asks for it. The checker as built covers areas by purpose, sizes,
+overlaps, doors that have a wall to sit in, reachability from the front door,
+windows and the programme — sixteen kinds of error. The critic was for what is
+left: proportion, and whether a plan is pleasant to live in. Whether anything
+is left is an empirical question, and the study this pair came from found the
+actor often ignores the critic anyway. So: build the architect, run the eval,
+look at designs that pass the checker, and add the critic only if they are
+still bad. Building it on schedule would be paying a call a round to find out.
+
+**And the gate has a failure mode the first version did not name.** Sixteen
+kinds of error, and `build_design` refuses a design with any of them, so a
+model that cannot satisfy the checker draws nothing at all — which is worse
+than the poor flat it drew before, because the person gets an apology instead
+of a plan. Therefore: the architect sub-run has a round budget, and when it is
+spent the run does not fail silently. It reports the errors it could not clear,
+asks whether to build the best design it reached or to change the brief, and
+says which rooms are wrong. A gate that can only say no is not finished.
+
 ### D4. The builder draws from the design, and code draws what code can
 
 The churn in the first run came from a model drawing walls one at a time and
@@ -195,6 +352,19 @@ A follow-up that changes the layout ("make the kitchen bigger") goes through
 the architect again with the current design as its starting point, and the
 checker compares the new design with what stands, so the builder changes only
 the rooms that changed.
+
+**Amended 2026-09-20: the check comes back with the change, unasked.** The
+builder's job is "furnish, then `validate`, then fix", and the first run showed
+what happens when a model is merely asked to check its work: it does, twice,
+and then stops doing it. So every mutating tool result carries the validation
+state already — the envelope's `problems` field, which exists — and the loop
+puts the errors in front of the model rather than waiting for it to ask. Both
+references do a version of this; Cascade pushes post-edit diagnostics into the
+conversation for exactly the reason that the model never calls the tool that
+would have found them.
+
+The verify gate stays, because a gate that rarely fires is cheap and the run
+that needs it is the one that matters.
 
 ### D5. The rules that keep trust
 
@@ -238,15 +408,72 @@ What the model sees never overrules what the checker measured, because a
 picture is where a model is least reliable and arithmetic is where it is
 least needed.
 
+### D7. A mutation says which version of the world it was decided on
+
+The person is editing the plan while the agent works. That is the premise of
+this whole product, and until now the agent had no way to notice.
+
+ADR-023 asks **whose** an entity is. This asks **when** the agent last looked.
+They are different failures: the first is an agent moving a sofa that is not
+its business, the second is an agent moving a sofa to where something now
+stands, having read the room a minute ago.
+
+Claude Code solves this for files by refusing an edit when the file changed
+since it was read, and answering with the current content so the model re-reads.
+The plan is that case without the pauses, so:
+
+- The store keeps a **revision number**, raised by every command, and each
+  entity keeps the revision it was last changed at.
+- A read tool returns the revision it read at.
+- A mutating tool call may carry `basedOn`, the revision the model is acting
+  on. When an entity it touches has changed since, the call is refused with
+  `stale.read`, the current value, and the instruction to look again.
+- Without `basedOn` the call proceeds, because the editor's own calls and the
+  first call of a run have nothing to be stale against.
+
+This is advisory for a person and binding for the agent, like every other rule
+here. It is also what makes the agent safe to leave running while somebody
+works beside it, which nothing else in this ADR provides.
+
+### D8. Context is a budget, and the tool surface is most of it
+
+Measured, not assumed: 78 per cent of a real nine-room run was the tool schemas
+and system prompt, re-sent on all twenty-five steps. The conversation was the
+other 22 per cent. Any effort spent compacting the conversation first would
+have been spent on the smaller half.
+
+In the order the numbers justify:
+
+1. **Advertise fewer tools per role.** D1's sub-runs do this by construction:
+   an architect carrying six tools pays 1,468 tokens a step instead of 10,389.
+   This is now the main reason the sub-run shape is right, ahead of the
+   contamination argument the first version made.
+2. **Read what the provider already caches.** OpenAI-compatible servers report
+   cached prompt tokens separately, and a stable prefix — system prompt, then
+   tools, then conversation — is what makes the cache hit. We neither order for
+   it nor measure it. Measuring comes first: the saving may already be there.
+3. **Then compact**, cheapest layer first, as Cascade does: drop superseded
+   reads, mask old oversized results, clear compactable results, and only then
+   summarise. With the last few results shielded, the task kept verbatim, and a
+   circuit breaker after three failures.
+4. **Rebuild from the world, not from the summary.** When a conversation is
+   compacted, the scene is re-serialised from the store and re-attached. Claude
+   Code re-reads files for this reason; our equivalent is cheaper and more
+   reliable, because the store is right there.
+
 ## Alternatives considered
 
 **Separate agents: an architect agent, a verifier agent, an orchestrator.**
-The owner's first framing, and the one most agent products advertise. Rejected.
-The roles share one project and one conversation; splitting them into agents
-adds a protocol between them and removes nothing. The 2025 study found exactly
-that cost on sequential work. And it would be a second service of ours, which
-ADR-005 forbids. Roles as prompts give the same separation of concerns without
-a wire between them.
+The owner's first framing, and the one most agent products advertise. Rejected,
+and the reading confirms it: neither Claude Code nor Cascade has agents that
+talk to each other. Both have one loop that can call itself with a fresh
+context and hand back one answer, which is what D1 now describes. Splitting the
+roles into agents with a protocol between them adds the coordination cost the
+2025 study measured and removes nothing, and it would be a second service of
+ours, which ADR-005 forbids.
+
+What the first version got wrong was the opposite end: it made the roles too
+joined, sharing one conversation. D1 is amended.
 
 **A model as the verifier.** "One agent that checks the rules mathematically
 and feeds the orchestrator." Rejected as the gate, kept as the critic. Every
@@ -310,7 +537,20 @@ evaluation says otherwise.
   the environment and the reward for the owner's later reinforcement-learning
   experiment. Nothing here is built for it, and nothing here would have to
   change.
-- Not built yet, in order: the drawing-side checks and the placement fixes the
-  second run exposed; `Design` and `check_design`; the architect phase;
-  `build_design`; the critic; the cards. ADR-023's authorship lands before the
-  builder can touch a project a person has worked in.
+- Built as of 2026-09-20: the drawing-side checks and the placement fixes the
+  second run exposed; `Design` (spec 01 section 4.3b); `check_design` and
+  `build_design` (spec 04 section 6a); ADR-023's authorship and consent.
+- The layout solver of D2's amendment, and the architect answering with a
+  programme instead of rectangles, come before anything else: without them the
+  architect cannot produce a design that passes, which was measured.
+- Not built yet, in the order the amendments put them: sub-runs in the runner
+  with their own context and step budget (D1); tool grants in the registry
+  (D1a); the architect as the first sub-run; validation pushed back with every
+  mutation (D4); the round budget and what happens when it is spent (D3);
+  revisions and `basedOn` (D7); the cached-token measurement, then the tool
+  surface, then compaction (D8); the design and checker cards in the chat. The
+  critic is deferred until the eval asks for it.
+- What the amendments cost: `runAgent` gains a sub-run entry point and a grant
+  set; `Registry.call` gains a grant check beside the consent check it already
+  has; the store gains a revision counter. None of it is a new package, a new
+  process or a new port.

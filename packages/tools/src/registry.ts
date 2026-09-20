@@ -45,6 +45,14 @@ export interface CallOptions {
    * Empty and absent mean the same thing, and both are the safe answer.
    */
   released?: ReadonlySet<string>;
+  /**
+   * The only tools this caller may reach (ADR-022 D1a). Absent means all of them.
+   *
+   * A role is what it can do, not what it was asked to do. Telling the architect in its prompt not
+   * to draw is how a mid-sized model comes to draw anyway; taking create_walls away from it is how
+   * it does not. The refusal is an ordinary tool error, so the model reads it and corrects itself.
+   */
+  granted?: ReadonlySet<string>;
 }
 
 export interface ToolDef<I extends AnyObjectSchema = AnyObjectSchema, O = unknown> {
@@ -94,6 +102,12 @@ const LOW_PROFILE = new Set([
   "import_plan",
   "finish_opening",
   "finish_wall",
+  // and the two a weak model needs most: they are what turn "three bedrooms and a hall" into
+  // something measured, drawn in one step and impossible to get half right.
+  "design_layout",
+  "plan_rooms",
+  "check_design",
+  "build_design",
 ]);
 const MEDIUM_HIDDEN = new Set(["modify_wall"]);
 
@@ -147,7 +161,18 @@ export class Registry {
     const origin = options.origin ?? "agent";
     const before = this.ctx.store.historyPosition;
     const was = this.ctx.store.project;
-    let result = await this.invoke(name, rawArgs, origin);
+    let result =
+      options.granted && !options.granted.has(name)
+        ? fail(
+            {
+              code: "tool.not-granted",
+              message: `${name} is not one of the tools this step may use`,
+              entityId: null,
+              hint: `use one of: ${[...options.granted].sort().join(", ")}`,
+            },
+            [],
+          )
+        : await this.invoke(name, rawArgs, origin);
     if (result.ok && origin === "agent") {
       const trespass = this.trespass(was, result.changed, options.released);
       if (trespass) {

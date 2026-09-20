@@ -1,0 +1,22 @@
+{
+  "id": "four-bed-house",
+  "title": "a four bedroom house with a study, where the programme is longer than the plot is obvious",
+  "task": "build a four bedroom house with a separate dining room, a study and a downstairs toilet",
+  "maxSteps": 36,
+  "expect": {
+    "rooms": [
+      { "purpose": "bedroom", "areaM2": [9, 22] },
+      { "purpose": "bedroom", "areaM2": [9, 22] },
+      { "purpose": "bedroom", "areaM2": [9, 22] },
+      { "purpose": "bedroom", "areaM2": [9, 22] },
+      { "purpose": "living", "areaM2": [12, 34] },
+      { "purpose": "dining", "areaM2": [7, 20] },
+      { "purpose": "kitchen", "areaM2": [5, 20] },
+      { "purpose": "toilet", "areaM2": [1.2, 6] }
+    ],
+    "categories": ["bed", "wardrobe", "sanitary"],
+    "minCounts": { "bed": 4 },
+    "maxValidationErrors": 0,
+    "maxWarnings": { "room.unenclosed": 0, "item.needs-wall": 0, "item.blocks-opening": 2 }
+  }
+}

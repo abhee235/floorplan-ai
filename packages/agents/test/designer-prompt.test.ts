@@ -27,11 +27,16 @@ describe("what the prompt tells the model", () => {
     expect(full).toMatch(/never invent one/i);
   });
 
-  it("says to design before drawing, and in what order to draw", () => {
-    expect(full).toMatch(/Design the whole thing on paper first/);
-    expect(full).toMatch(/Do the arithmetic/);
+  it("says to design before drawing, and to have the design measured", () => {
+    expect(full).toMatch(/Call design_layout with the brief/);
+    expect(full).toMatch(/tell the person, in your own words, what is about to be built/);
+    expect(full).toMatch(/Build it with build_design and the designId it gave you/);
+    expect(full).toMatch(/Never re-type the design yourself/);
+    expect(full).toMatch(/design_layout is how a plan gets designed/);
+    expect(full).toMatch(/check_design is the same checker, for when you are designing yourself/);
     expect(full).toMatch(/shell/i);
-    expect(full).toMatch(/Do not draw one room completely and then start the next/);
+    // and when to draw walls by hand instead, which is the thing a rule like this has to say
+    expect(full).toMatch(/Draw walls yourself only for what build_design cannot express/);
   });
 
   it("carries the sizes a home is made of, which is what the office prompt never had", () => {

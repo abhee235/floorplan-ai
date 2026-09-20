@@ -25,6 +25,7 @@ import {
   type Provider,
   registryToolSpecs,
   runAgent,
+  runArchitect,
 } from "@fpv/agents";
 import { type AgentEventMsg, type AgentStateMsg, type AgentWireEvent, type ChangeSet } from "@fpv/commands";
 import type { Attachment, ToolReliability } from "@fpv/tools";
@@ -297,6 +298,27 @@ export class AgentRuns {
         .map((t) => t.name),
     );
     const flush = this.deltaFlusher(held.id, active.runId);
+
+    // The architect, reachable through design_layout. A sub-run of the same loop with its own
+    // conversation and six tools, whose steps reach this chat labelled as the architect's and the
+    // parent model's context not at all (ADR-022 D1).
+    session.ctx.subagent = {
+      run: (request) =>
+        runArchitect(req.provider, registry, request, {
+          reliability: req.reliability,
+          signal: active.controller.signal,
+          released: new Set(session.store.selection),
+          now: this.now,
+          onEvent: (event) => {
+            const wire = this.toWire(event, flush, "architect");
+            if (wire) {
+              flush.now();
+              this.emit(held.id, active.runId, wire);
+            }
+          },
+        }),
+    };
+
     try {
       const run = await runAgent({
         provider: req.provider,
@@ -404,7 +426,13 @@ export class AgentRuns {
   private toWire(
     event: AgentEvent,
     flush: { text(step: number, text: string): void; reasoning(step: number, text: string): void },
+    role?: string,
   ): AgentWireEvent | null {
+    // A sub-run's words are not the conversation's words. Its cards are shown, labelled, so a person
+    // can watch the design being worked out; its part-written sentences are not, because they would
+    // interleave with the parent's and read as one voice contradicting itself (ADR-022 D1).
+    if (role && (event.type === "text.delta" || event.type === "reasoning.delta")) return null;
+    if (role && event.type === "step.started") return null;
     switch (event.type) {
       case "step.started":
         return { type: "step.started", step: event.step, at: event.at };
@@ -415,9 +443,12 @@ export class AgentRuns {
         flush.reasoning(event.step, event.text);
         return null;
       case "reply":
-        return event.text?.trim()
-          ? { type: "message", step: event.step, at: event.at, text: event.text }
-          : null;
+        if (!event.text?.trim()) return null;
+        // A sub-run's final word is shown as its own, not as the assistant's: the chat is one
+        // conversation and the architect is not the one having it.
+        return role
+          ? { type: "message", step: event.step, at: event.at, text: `**${role}:** ${event.text}` }
+          : { type: "message", step: event.step, at: event.at, text: event.text };
       case "tool.started":
         // The loop's own tools are not cards. plan_work speaks through the plan card it updates and
         // ask_user through the question it asks; a "plan work" row beside them is the same thing said
@@ -430,7 +461,7 @@ export class AgentRuns {
           id: event.id,
           name: event.name,
           args: event.args,
-          summary: summarise(event.name, event.args),
+          summary: role ? `${role}: ${summarise(event.name, event.args)}` : summarise(event.name, event.args),
         };
       case "tool.finished": {
         if (LOOP_TOOL_NAMES.has(event.name)) return null;

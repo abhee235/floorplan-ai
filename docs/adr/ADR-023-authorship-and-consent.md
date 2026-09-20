@@ -145,6 +145,19 @@ the finer undo of the history panel instead. The stamps make that sentence
 possible: the log can count the person's commands, and the history can show
 which entries are theirs.
 
+### D7. Whose it is, and when it was read, are two questions
+
+**Added 2026-09-20.** Everything above answers "whose is this?" and refuses an
+agent that changes a person's work without leave. It says nothing about an
+agent whose information is out of date — one that read a room a minute ago, and
+moves a sofa to where something now stands, having every right to move it.
+
+That second failure is ADR-022 D7: a revision on the store, a revision on each
+entity, `basedOn` on a mutating call, and `stale.read` with the current value
+when they disagree. The two guards sit side by side in `Registry.call` and
+neither replaces the other. A consent refusal says "ask them"; a staleness
+refusal says "look again".
+
 ## Alternatives considered
 
 **A lock the person sets.** A padlock on an entity meaning "agent, hands off".

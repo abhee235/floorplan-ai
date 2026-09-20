@@ -29,6 +29,8 @@ and profile.
 | import-messy-dxf | qwen3.6:35b | medium | pass | 10 of 25 | 9 (1) | 251778 / 1295 | 68 | 0 | none | - | 2026-09-16 |
 | import-office | gpt-5.6-luna | medium | pass | 5 of 20 | 4 (0) | 34360 / 184 | 8 | 0 | none | - | 2026-09-15 |
 | import-office | qwen3.6:35b | medium | pass | 5 of 20 | 4 (0) | 50667 / 708 | 20 | 0 | none | - | 2026-09-16 |
+| one-bed-flat | gpt-5.6-luna | high | pass | 14 of 26 | 15 (1) | 203370 / 1631 | 31 | 0 | none | 67% of 9 | 2026-09-20 |
+| three-bed-flat | gpt-5.6-luna | high | fail (done) | 11 of 30 | 16 (0) | 162660 / 981 | 35 | 0 | 3 bed (found 1) | 71% of 14 | 2026-09-20 |
 <!-- runs:end -->
 
 ## Findings (2026-09-16)
@@ -165,3 +167,42 @@ go ahead, it changed all four and the stamps moved to the agent.
 The registry refused nothing in either run, which is the result worth having:
 the model read `by` in the views and asked of its own accord, so enforcement
 never had to fire. The enforcement is there for the run where it does not.
+
+### The same brief again, with an architect and a layout solver (2026-09-20)
+
+Third run of "build a 3 bedroom apartment with hall and lobby" against
+gpt-5.6-luna. This time the builder called `design_layout`, which ran the
+architect as a sub-run with six tools and its own context; the architect wrote
+a programme and called `plan_rooms`, which packed it and checked it; the
+builder took the designId and called `build_design`.
+
+| | first run | prompt only | architect and packer |
+|---|---|---|---|
+| rooms | 5 | 9 | 9 |
+| walls left around nothing | 24 | 0 | 0 |
+| rooms with a side no wall runs along | not measured | 5 | 0 |
+| items standing across a door or window | 12 | 12 | 1 |
+| beds with no wall behind the head | 1 | 1 | 0 |
+| steps | 40, the budget | 25 | 10 |
+| prompt tokens | ~760,000 | 419,915 | 157,739 |
+
+One round of design, not six. The architect wrote the programme, `plan_rooms`
+sized the building at 11.8 by 8.4 m, laid the rooms either side of a hallway
+and passed its own check first time. Every room has a door to the hallway, a
+wall on the outside of the building, and furniture in it.
+
+Two things this run found, both fixed before it:
+
+- `runArchitect` watched only `check_design` and not `plan_rooms`, so a design
+  that passed was reported to the builder as a failure. The builder then
+  re-typed the design out of the architect's prose, got 3.6 m² bedrooms and a
+  1.9 m² bathroom, and refused to build. The prompt now says never to re-type a
+  design: the id names a plan that has been measured and a sentence does not.
+- The checker's maximum room sizes were absolute, so a 4.2 m² cloakroom in a
+  142 m² house was an error. Largeness is relative to the building, and the
+  maxima now are too.
+
+What is still wrong: one basin in the bathroom stands across the door, because
+`furnish_room` places fixtures along a wall without knowing the door is in it
+when the run of free wall is longer than the fixture. Five windows for six
+habitable rooms; one room's window was not placed and nothing said why.

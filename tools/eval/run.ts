@@ -12,7 +12,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { openAICompatible, type ProviderConfig } from "@fpv/agents";
+import { openAICompatible, type ProviderConfig, runArchitect } from "@fpv/agents";
 import type { ToolReliability } from "@fpv/tools";
 import { AGENT_TIMEOUT_MS, describeEvent, runAgentTask } from "../../apps/host/src/agent.js";
 import { loadDotEnv } from "../../apps/host/src/env.js";
@@ -142,6 +142,19 @@ async function main() {
       const at = new Date().toISOString();
       const started = Date.now();
       console.log(`\n${card.id} on ${spec} (${provider.profile.toolReliability})`);
+      // The architect, so a card measures the path the product ships rather than the tools alone.
+      // Without it design_layout answers "unavailable" and the model quietly does something else,
+      // which would make the suite green about a road nobody travels (ADR-024 D6).
+      session.ctx.subagent = {
+        run: (request) =>
+          runArchitect(provider, session.registry, request, {
+            ...(reliability ? { reliability } : {}),
+            onEvent: (event) => {
+              const line = describeEvent(event);
+              if (line) console.log(`  architect ${line}`);
+            },
+          }),
+      };
       try {
         const {
           run,

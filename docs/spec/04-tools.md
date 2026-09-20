@@ -178,6 +178,78 @@ true, which deletes the room's items in the same transaction. A product that no 
 satisfies is placed as a primitive recipe and listed in `unresolved`. `preferences.make` orders
 candidates; `preferences.budget` is accepted and not applied yet.
 
+## 6a. Design tools (ADR-022)
+
+### plan_rooms (tier: both, non-mutating)
+Input: `{ brief, kind, shell?, rooms: ProgrammeRoom[], assumptions?, alternatives?: { note, shell?, rooms }[] }`
+Output: `{ designId, buildable, score, tried, chosen, rejected, totals, shell, rooms, decided, unplaced, errors, warnings }`
+
+A programme into a plan (ADR-022 D2 amended, `packProgramme`). The caller says
+which rooms the building needs, what each is for and roughly how many square
+metres it wants; the packer sizes the building, lays the rooms in strips either
+side of a hallway, and checks its own work. Every room runs the full depth of
+its strip, which gives one long side on the hallway for the door and the other
+on the outside of the building for the window.
+
+`alternatives` (ADR-024 D5) are other ways of arranging the same brief, each
+with a `note` saying what is different. All of them are packed and checked, and
+the best is kept: fewest errors, then the higher score, then fewer unplaced
+rooms. The others come back in `rejected` with their scores, and the envelope
+warns which was chosen. Packing and checking cost nothing, so three
+alternatives cost one answer's worth of extra words and no extra tool calls.
+
+`unplaced` names a room the packer could not fit and says what it needed. The
+answer is to change the programme, never to place the room by hand.
+
+### check_design (tier: both, non-mutating)
+Input: `{ design: Design }` — the artefact of spec 01 section 4.3b: a shell
+rectangle, a list of room rectangles with purposes and `doorsTo`, circulation
+keys and assumptions.
+Output: `{ designId, buildable, score, totals: { shellM2, roomsM2,
+unaccountedM2, rooms, byPurpose }, errors: Problem[], warnings: Problem[] }`
+
+`score` is one minus what the problems cost, in [0, 1], errors weighing six
+times a warning and saturating at zero (ADR-024 D4). It exists to rank two
+designs and to notice a change between runs; the problems themselves are what a
+model should read to fix anything.
+
+Measures the design before anything is drawn (`checkLayout`,
+`packages/catalog/src/rules/layout.ts`). Every error also appears in the
+envelope's `warnings`, so a chat card shows what is wrong without unpacking the
+result. Checking changes nothing and may be repeated; each call returns a
+`designId` the session keeps (eight at a time, per store, like import drafts).
+
+Errors, all prefixed `design.`: `duplicate-key`, `door-to-nowhere`,
+`outside-shell`, `rooms-overlap`, `rooms-exceed-shell`, `too-small`,
+`too-large`, `corridor-narrow`, `missing-room`, `no-way-in`,
+`door-without-wall`, `private-to-private`, `wet-into-kitchen`,
+`door-outside-inside`, `unreachable`, `window-inside`. Warnings:
+`unexplained-space`, `no-window`.
+
+The size limits come from the rules pack's facts (`bedroomMinM2`,
+`bedroomMinSideMm` and so on, spec 07 section 3.2), so a user's own pack moves
+them without touching code. The maxima — a toilet over 4 m², a bathroom over
+9 — are the checker's own, because a room far larger than its purpose is a
+mistake in the design rather than a matter of local standards.
+
+### build_design (tier: semantic, mutating)
+Input: `{ designId, levelId? }`
+Output: `{ walls, doors, windows, rooms: RoomView[], unplaced: string[] }`
+
+Draws a design that passed, and refuses one that did not with
+`design.not-checked` naming the first error. Three transactions — walls, then
+openings, then rooms — so the whole building is three history entries and a
+failure part-way undoes what it had done.
+
+Walls are worked out from the rectangles, not drawn one by one: each room's
+four edges become wall centrelines, an edge facing another room lands on the
+line between them so both rooms compute the same wall, edges on the outside of
+the building land on the shell, and collinear runs merge, so one wall serves a
+whole row of rooms. Doors go in the middle of the wall two rooms share (750 mm
+to a bathroom or toilet, 1000 at the front door, 900 elsewhere); windows go in
+the middle of a room's longest outside wall. An opening with no wall to sit in
+is returned in `unplaced` and warned about rather than dropped quietly.
+
 ## 7. Catalog and BOM (tier: both)
 
 ### verify_product

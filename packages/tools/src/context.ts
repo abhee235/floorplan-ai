@@ -211,6 +211,37 @@ export interface TranscriptRecorder {
   record(entry: TranscriptEntry): void;
 }
 
+/**
+ * A run of a second role, asked for by the model through a tool (ADR-022 D1).
+ *
+ * Declared here and implemented in `@fpv/agents`, injected by the host, because a tool may not
+ * import the agent runner and a sub-run is a run of that runner. It is the same seam Cascade uses
+ * for the same reason.
+ */
+export interface SubagentRequest {
+  role: "architect";
+  /** What to design, in the person's words. */
+  brief: string;
+  /** Anything already agreed with the person, so a sub-run inherits the parent's consent. */
+  released?: readonly string[];
+}
+
+export interface SubagentResult {
+  /** The design it settled on, ready for build_design; null when it did not reach one. */
+  designId: string | null;
+  /** Its own account of what it did. All that returns to the parent: the rest stays in its context. */
+  text: string;
+  /** Errors the checker still reported when the round budget ran out, for an honest answer. */
+  unresolved: string[];
+  steps: number;
+  rounds: number;
+  reason: string;
+}
+
+export interface SubagentRunner {
+  run(request: SubagentRequest): Promise<SubagentResult>;
+}
+
 export interface ToolContext {
   store: Store;
   catalog: CatalogSearch;
@@ -226,6 +257,8 @@ export interface ToolContext {
   /** Files attached to the agent's conversation; absent in a session nobody is talking to. */
   attachments?: AttachmentStore | null;
   transcript: TranscriptRecorder | null;
+  /** Runs another role in its own context; absent in a session with no agent behind it. */
+  subagent?: SubagentRunner | null;
   now(): string;
 }
 

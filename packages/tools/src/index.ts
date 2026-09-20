@@ -4,6 +4,7 @@ export const PACKAGE = "tools" as const;
 
 import type { ToolContext } from "./context.js";
 import { Registry } from "./registry.js";
+import { buildDesignTool, checkDesignTool, designLayoutTool, planRoomsTool } from "./tools/design.js";
 import { exportTool } from "./tools/export.js";
 import { importPlan } from "./tools/import.js";
 import { describeRoom, getScene, measure, searchCatalog, validateTool } from "./tools/inspect.js";
@@ -55,6 +56,10 @@ export const TOOLS = [
   finishWall,
   finishItem,
   addLevel,
+  designLayoutTool,
+  planRoomsTool,
+  checkDesignTool,
+  buildDesignTool,
 ] as const;
 
 export function createRegistry(ctx: ToolContext): Registry {
@@ -85,6 +90,9 @@ export {
   RECIPE_TEMPLATES,
   type RenderedImage,
   type RenderRequest,
+  type SubagentRequest,
+  type SubagentResult,
+  type SubagentRunner,
   searchRecipes,
   sizesFor,
   type ToolContext,

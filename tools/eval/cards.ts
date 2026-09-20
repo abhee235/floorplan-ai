@@ -32,6 +32,15 @@ export interface TaskCard {
     minWalls?: number;
     /** Null leaves validation unchecked. */
     maxValidationErrors?: number | null;
+    /**
+     * At most this many warnings of each code (ADR-024 D6).
+     *
+     * The placement faults a run can pass `validate` with and still be a bad drawing: a room with a
+     * side no wall runs along, a wardrobe across a door, a bed with nothing behind its head. They
+     * are warnings because a person dragging their own furniture must not be refused, so a card is
+     * where the agent is held to them.
+     */
+    maxWarnings?: Record<string, number>;
   };
 }
 
@@ -71,6 +80,8 @@ export interface CardScore {
   completionTokens: number;
   seconds: number;
   validationErrors: number;
+  /** How many of each warning code the finished drawing has, for the codes a card names. */
+  warningCounts: Record<string, number>;
   walls: number;
   rooms: number;
   items: number;
@@ -137,7 +148,14 @@ export function scoreCard(card: TaskCard, session: Session, run: AgentRun, meta:
     if ((counts.get(c) ?? 0) < n) missing.push(`${n} ${c} (found ${counts.get(c) ?? 0})`);
   if (card.expect.minWalls !== undefined && project.walls.length < card.expect.minWalls)
     missing.push(`${card.expect.minWalls} walls (found ${project.walls.length})`);
-  const validationErrors = session.registry.problems().filter((p) => p.severity === "error").length;
+  const problems = session.registry.problems();
+  const validationErrors = problems.filter((p) => p.severity === "error").length;
+  const warningCounts: Record<string, number> = {};
+  for (const [code, limit] of Object.entries(card.expect.maxWarnings ?? {})) {
+    const n = problems.filter((p) => p.severity === "warning" && p.code === code).length;
+    warningCounts[code] = n;
+    if (n > limit) missing.push(`at most ${limit} ${code} (found ${n})`);
+  }
   let bomLines = 0;
   let bomVerified: number | null = null;
   if (session.ctx.rules && project.items.length > 0) {
@@ -174,6 +192,7 @@ export function scoreCard(card: TaskCard, session: Session, run: AgentRun, meta:
     completionTokens: run.usage.completionTokens,
     seconds: Math.round(meta.seconds),
     validationErrors,
+    warningCounts,
     walls: project.walls.length,
     rooms: project.rooms.length,
     items: project.items.length,

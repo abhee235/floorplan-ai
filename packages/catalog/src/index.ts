@@ -59,6 +59,15 @@ export {
   recipeKey,
 } from "./rules/facts.js";
 export { CORE_RULES, HOME_CORE, HOME_CORE_INPUT } from "./rules/home-core.js";
+export { checkLayout, HOME_PURPOSES, type LayoutReport, layoutIsBuildable } from "./rules/layout.js";
+export {
+  isResidential,
+  missingFromProgramme,
+  type PackResult,
+  type Programme,
+  type ProgrammeRoom,
+  packProgramme,
+} from "./rules/pack.js";
 export {
   BomRule,
   DependencyRule,

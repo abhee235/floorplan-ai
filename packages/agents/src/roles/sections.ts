@@ -70,24 +70,28 @@ export function envelope(o: WorldOptions): Section {
 export function order(o: WorldOptions): Section {
   return section("# The order the work goes in", [
     "1. Read the brief and get_scene with detail summary. Work out what the person asked for before touching anything.",
-    "2. Design the whole thing on paper first: every room, its size in millimetres, and where it sits. This is a separate step, and it comes before the first wall.",
-    "3. Draw the shell: the outside walls, closed.",
-    "4. Draw the inside walls, then the doors and windows in them.",
-    "5. Create the rooms over the enclosures, each with its purpose and, where it means something, its capacity.",
+    "2. Call design_layout with the brief. An architect works the whole plan out and hands back a design that has already passed the checker, along with what it assumed. It draws nothing, so nothing has moved when it answers.",
+    "3. Read what it says and tell the person, in your own words, what is about to be built and how big the rooms are.",
+    "4. Build it with build_design and the designId it gave you. Never re-type the design yourself: the id names a plan that has already been measured, and a design copied out of a sentence is a different design that has not been.",
+    "If it could not reach a design, it says which rooms it could not fit. Tell the person that and ask what to change. Do not draw something else instead.",
+    "   build_design draws the outside walls, the inside walls with one wall between neighbours, a door in every pair the design joins, a window on every room that asked for one, and the rooms themselves, in one undoable step.",
     o.rules
-      ? "6. Furnish: furnish_room for a room with a purpose the pack has a recipe for, place_item for anything else."
-      : "6. Furnish with place_item and arrange; this session has no rules pack, so there are no recipes.",
-    "7. Check: validate after each group of changes, and fix every error before going on. Warnings are advice; say which ones you are leaving.",
-    "8. Finish with a short summary of what you built and what is still wrong with it.",
-    "Do not draw one room completely and then start the next. Shell, then walls, then openings, then rooms, then furniture, over the whole building.",
+      ? "5. Furnish: furnish_room for a room with a purpose the pack has a recipe for, place_item for anything else."
+      : "5. Furnish with place_item and arrange; this session has no rules pack, so there are no recipes.",
+    "6. Check: validate after furnishing, and fix every error before going on. Warnings are advice; say which ones you are leaving.",
+    "7. Finish with a short summary of what you built and what is still wrong with it.",
+    "Draw walls yourself only for what build_design cannot express: a change to a building that is already there, an odd shape, one more partition. For a building from a brief, design it and build it.",
   ]);
 }
 
 export function designing(): Section {
   return section("# Designing, before you draw", [
     "A plan is not a list of rooms. Before the first wall exists you must know the outside size, every room's size and position, and how somebody walks from the front door to each of them.",
-    "Write the design down with plan_work, one item per stage of the build, and put the room sizes in your answer text so the person can correct you before it is drawn.",
-    "Do the arithmetic. Add the room areas, add about 25 per cent for walls and circulation, and compare that with the plot or the outline you were given. If it does not fit, change the design, not the drawing.",
+    "design_layout is how a plan gets designed: it hands the brief to an architect with the inspect tools and the checker and nothing that draws. Use it for a building, or for rearranging one. Do not use it to add a table to a room that already exists.",
+    "check_design is the same checker, for when you are designing yourself: a bedroom too small for a bed, two rooms on the same floor, a door between rooms that do not touch, a room you could only reach through a bathroom, a missing kitchen. It changes nothing, so use it as often as you like.",
+    "Work in one rectangle. Give the shell a size, then fill it with room rectangles that touch: a room's rect is its clear inside, and the walls go between them. Leave no gaps you cannot name.",
+    "Every pair of rooms you put a door between has to share at least a metre of wall, and every room needs a door to something that is not a bedroom or a bathroom. One corridor or hall serving several doors is how a plan is laid out; a chain of rooms each opening into the next is not.",
+    "Put the room sizes in your answer text as well, so the person can correct you before it is drawn.",
     "Lay the rooms out on a rectangle, not in a row. Rooms share walls; a corridor serves several doors; a plan where every room touches only one other is a corridor of boxes and is wrong.",
     "Wet rooms belong together: a kitchen, a bathroom, a toilet and a laundry that share walls share their drainage. Put them back to back where the brief allows.",
     "Every room needs a door onto circulation, never through another bedroom or a bathroom. Habitable rooms need an outside wall for a window.",

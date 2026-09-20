@@ -1,0 +1,20 @@
+{
+  "id": "three-bed-flat",
+  "title": "a three bedroom flat with a hall and a lobby",
+  "task": "build a 3 bedroom apartment with hall and lobby",
+  "maxSteps": 30,
+  "expect": {
+    "rooms": [
+      { "purpose": "bedroom", "areaM2": [9, 20] },
+      { "purpose": "bedroom", "areaM2": [9, 20] },
+      { "purpose": "bedroom", "areaM2": [9, 20] },
+      { "purpose": "living", "areaM2": [12, 30] },
+      { "purpose": "kitchen", "areaM2": [5, 16] },
+      { "purpose": "bathroom", "areaM2": [3, 9] }
+    ],
+    "categories": ["bed", "wardrobe", "sofa", "kitchen-run", "sanitary"],
+    "minCounts": { "bed": 3 },
+    "maxValidationErrors": 0,
+    "maxWarnings": { "room.unenclosed": 0, "item.needs-wall": 0, "item.blocks-opening": 1 }
+  }
+}

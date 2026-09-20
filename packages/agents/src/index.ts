@@ -55,6 +55,13 @@ export {
   type Usage,
 } from "./provider.js";
 export {
+  ARCHITECT_TOOLS,
+  type ArchitectOptions,
+  architectSystem,
+  MAX_ROUNDS,
+  runArchitect,
+} from "./roles/architect.js";
+export {
   DESIGNER_SYSTEM,
   type DesignerOptions,
   designerSystem,

@@ -50,18 +50,32 @@ export function designerSystem(world: WorldOptions = {}): string {
 /** The prompt with nothing connected: the one MCP advertises and the tests pin. */
 export const DESIGNER_SYSTEM = designerSystem({ rules: true, viewer: true, vision: true });
 
-/** The registry's advertised tools for a reliability profile, as OpenAI function parameters. */
-export function registryToolSpecs(registry: Registry, profile: ToolReliability): ToolSpec[] {
-  return registry.advertised(profile).map((def) => {
-    const schema = zodToJsonSchema(def.input, { $refStrategy: "none", target: "jsonSchema7" }) as Record<
-      string,
-      unknown
-    >;
-    delete schema.$schema;
-    // unknown keys are reported as warnings by the registry rather than rejected (spec 04 section 1)
-    delete schema.additionalProperties;
-    return { name: def.name, description: def.description, parameters: schema };
-  });
+/**
+ * The registry's advertised tools for a reliability profile, as OpenAI function parameters.
+ *
+ * `granted` narrows the list further, for a role that may only use some of them (ADR-022 D1a). It
+ * is not only a matter of obedience: the schemas are re-sent on every step, and they were 78 per
+ * cent of a measured nine-room run, so a role carrying six tools costs a seventh of what one
+ * carrying thirty-one costs, every step.
+ */
+export function registryToolSpecs(
+  registry: Registry,
+  profile: ToolReliability,
+  granted?: ReadonlySet<string>,
+): ToolSpec[] {
+  return registry
+    .advertised(profile)
+    .filter((def) => !granted || granted.has(def.name))
+    .map((def) => {
+      const schema = zodToJsonSchema(def.input, { $refStrategy: "none", target: "jsonSchema7" }) as Record<
+        string,
+        unknown
+      >;
+      delete schema.$schema;
+      // unknown keys are reported as warnings by the registry rather than rejected (spec 04 section 1)
+      delete schema.additionalProperties;
+      return { name: def.name, description: def.description, parameters: schema };
+    });
 }
 
 export type DesignerOptions = Omit<AgentOptions, "provider" | "tools" | "callTool" | "system" | "task"> & {
