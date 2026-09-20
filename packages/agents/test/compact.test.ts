@@ -13,6 +13,7 @@ import {
   compact,
   conversationBudget,
   conversationTokens,
+  forNextRun,
   needsCompaction,
   outputRoom,
   type Provider,
@@ -331,5 +332,44 @@ describe("inside a real run", () => {
     });
     expect(run.reason).toBe("context-full");
     expect(run.error).toContain("start a new chat");
+  });
+});
+
+describe("what a finished run leaves for the next message (scenario S2)", () => {
+  const chat = () => {
+    const messages = conversation(20);
+    messages.push({ role: "assistant", content: "I built a one bedroom flat with a hall." });
+    return messages;
+  };
+
+  it("keeps what was asked and what was answered", () => {
+    const out = forNextRun(chat());
+    expect(out.filter((m) => m.role === "user").map((m) => String(m.content))).toEqual([
+      "build a one bedroom flat with an open kitchen",
+    ]);
+    expect(out.at(-1)?.content).toBe("I built a one bedroom flat with a hall.");
+  });
+
+  it("is small enough that a third message does not start over the line", () => {
+    const before = conversationTokens(chat());
+    const after = conversationTokens(forNextRun(chat()));
+    expect(after).toBeLessThan(before / 4);
+    // Three exchanges of this size used to be over a 32,768-token window before the model spoke.
+    expect(after * 3).toBeLessThan(conversationBudget(budget));
+  });
+
+  it("keeps the newest results as receipts, so their identifiers survive", () => {
+    const out = forNextRun(chat(), { shield: 2 });
+    const results = out.filter((m) => m.role === "tool");
+    expect(results).toHaveLength(2);
+    expect(String(results[0]?.content)).toContain("item_18");
+  });
+
+  it("never leaves a result whose call is gone, or a call whose result is gone", () => {
+    const out = forNextRun(chat(), { shield: 3 });
+    const askedIds = new Set(out.flatMap((m) => (m.toolCalls ?? []).map((c) => c.id)));
+    const answeredIds = out.filter((m) => m.role === "tool").map((m) => m.toolCallId);
+    for (const id of answeredIds) expect(askedIds.has(id as string)).toBe(true);
+    expect(askedIds.size).toBe(answeredIds.length);
   });
 });

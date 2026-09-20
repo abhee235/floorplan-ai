@@ -335,3 +335,53 @@ export function needsCompaction(
 ): boolean {
   return conversationTokens(messages) + expectedGrowth > conversationBudget(budget);
 }
+
+/**
+ * What a finished run leaves behind for the next message in the same chat (ADR-025 D5).
+ *
+ * Stricter than compaction inside a run, and for a different reason. Inside a run the detail is
+ * still being worked with; once the run is over it is history, and what a person remembers of a
+ * conversation is what they asked and what they were told, not forty tool calls.
+ *
+ * So: every word the person said, every answer the agent gave, the newest few results as receipts
+ * so the identifiers survive, and nothing else. Without this a chat that has been going all
+ * afternoon replays every result it ever saw and is over the window before the model has done
+ * anything -- which is the failure this was reported as.
+ */
+export function forNextRun(messages: readonly ChatMessage[], options: CompactionOptions = {}): ChatMessage[] {
+  const shield = options.shield ?? DEFAULT_SHIELD;
+  const calls = askedBy(messages);
+  const resultAt = messages.map((m, i) => (isToolResult(m) ? i : -1)).filter((i) => i >= 0);
+  const keep = new Set(resultAt.slice(-shield));
+  // The assistant turn that asked for a result we are keeping has to be kept with it: a result
+  // whose call is gone is a message answering nothing.
+  const byId = new Map<string, number>();
+  for (const [i, m] of messages.entries()) for (const c of m.toolCalls ?? []) byId.set(c.id, i);
+  const askedFor = new Set<number>();
+  for (const i of keep) {
+    const at = messages[i]?.toolCallId ? byId.get(messages[i]?.toolCallId as string) : undefined;
+    if (at !== undefined) askedFor.add(at);
+  }
+
+  const out: ChatMessage[] = [];
+  for (const [i, m] of messages.entries()) {
+    if (m.role === "user") {
+      out.push({ ...m });
+      continue;
+    }
+    if (isToolResult(m)) {
+      if (!keep.has(i)) continue;
+      const line = receipt(m, calls.get(i)?.name);
+      out.push({ ...m, content: shorter(m, line) ? line : m.content });
+      continue;
+    }
+    if (m.role === "assistant") {
+      const hasText = typeof m.content === "string" && m.content.trim().length > 0;
+      if (askedFor.has(i)) out.push({ ...m });
+      else if (hasText) out.push({ role: "assistant", content: m.content });
+      continue;
+    }
+    out.push({ ...m });
+  }
+  return out;
+}

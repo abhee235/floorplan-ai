@@ -12,6 +12,7 @@ export {
   DEFAULT_HEADROOM_STEPS,
   DEFAULT_SHIELD,
   estimateTokens,
+  forNextRun,
   messageTokens,
   needsCompaction,
   outputRoom,

@@ -20,6 +20,7 @@ import {
   CONSENT_OPTIONS,
   type ContentPart,
   designerSystem,
+  forNextRun,
   LOOP_TOOL_NAMES,
   type PlanItem,
   type Provider,
@@ -375,7 +376,10 @@ export class AgentRuns {
         },
       });
       flush.now();
-      mine.conversation = run.messages;
+      // What the next message in this chat starts from. Not the whole run: a chat that has been
+      // going all afternoon would otherwise replay every tool result it ever saw and be over the
+      // window before the model had done anything (ADR-025 D5).
+      mine.conversation = forNextRun(run.messages);
       mine.plan = run.plan;
       // Let go of the run BEFORE saying it is finished. A listener that hears "finished" and asks to
       // start another is right to expect one, and anything cleared after an await is cleared too late.
