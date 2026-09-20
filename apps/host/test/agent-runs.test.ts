@@ -181,6 +181,35 @@ describe("one run at a time, per project", () => {
   });
 });
 
+describe("which tools the model is shown", () => {
+  it("uses the profile the provider was configured with, not the widest one", async () => {
+    // A hard-coded "high" meant FPV_AGENT_RELIABILITY was obeyed by the card runner and ignored by
+    // the chat. It is not a free choice: every tool is 12,641 tokens of schema on every step,
+    // against 8,608 for the smaller set, and on a modest window that is most of the room there was.
+    const { agent, held, done, of } = await setup([() => reply("Done.")], {
+      provider: {
+        ...scripted([() => reply("Done.")]),
+        profile: { ...DEFAULT_PROFILE, toolReliability: "low" as const },
+      },
+    });
+    agent.start(held, { text: "build a flat" });
+    await done();
+    expect(of("run.started")[0]?.reliability).toBe("low");
+  });
+
+  it("still lets one message ask for something wider", async () => {
+    const { agent, held, done, of } = await setup([() => reply("Done.")], {
+      provider: {
+        ...scripted([() => reply("Done.")]),
+        profile: { ...DEFAULT_PROFILE, toolReliability: "low" as const },
+      },
+    });
+    agent.start(held, { text: "build a flat", reliability: "high" });
+    await done();
+    expect(of("run.started")[0]?.reliability).toBe("high");
+  });
+});
+
 describe("a conversation that carries on", () => {
   it("remembers the turn before, so a follow-up knows what it means", async () => {
     const provider = scripted([() => reply("Done.")]);

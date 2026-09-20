@@ -204,7 +204,11 @@ export class AgentRuns {
       checkpointId = null; // a store without checkpoints still runs; the card simply cannot offer undo
     }
 
-    const reliability = req.reliability ?? "high";
+    // The configured profile, not "high". A hard-coded default meant FPV_AGENT_RELIABILITY was
+    // obeyed by the card runner and ignored by the chat, and "high" is not a free choice: it is
+    // every tool, which is 12,641 tokens of schema on every step against 8,608 for the smaller set.
+    // On a model with a modest window that difference is most of the room the conversation had.
+    const reliability = req.reliability ?? provider.profile.toolReliability;
     this.emit(held.id, runId, {
       type: "run.started",
       at: this.now(),
