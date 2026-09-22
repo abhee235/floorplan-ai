@@ -1,0 +1,33 @@
+{
+  "id": "hundred-desk-office",
+  "title": "A hundred-person IT office, with the desks that make it one",
+  "task": "Design and build a modern office for a hundred IT people: an open workspace, three glass meeting rooms of 4, 6 and 8 seats, a boardroom for 12, a cafeteria for 40, a reception, a server room and toilets. Furnish every room, fix any validation errors, and finish with the bill of materials.",
+  "maxSteps": 80,
+  "expect": {
+    "rooms": [
+      {
+        "purpose": "open-office",
+        "minCapacity": 100,
+        "areaM2": [800, 1400]
+      },
+      {
+        "purpose": "cafeteria"
+      },
+      {
+        "purpose": "reception"
+      },
+      {
+        "purpose": "restroom"
+      }
+    ],
+    "categories": ["desk", "chair", "display"],
+    "minCounts": {
+      "desk": 100,
+      "chair": 100
+    },
+    "maxValidationErrors": 0,
+    "calls": {
+      "must": ["design_layout", "build_design", "furnish_room"]
+    }
+  }
+}

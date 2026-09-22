@@ -33,7 +33,7 @@ describe("what the prompt tells the model", () => {
     expect(full).toMatch(/Build it with build_design and the designId it gave you/);
     expect(full).toMatch(/Never re-type the design yourself/);
     expect(full).toMatch(/design_layout is how a plan gets designed/);
-    expect(full).toMatch(/check_design is the same checker, for when you are designing yourself/);
+    expect(full).toMatch(/check_design is the same checker, for a design written by hand/);
     expect(full).toMatch(/shell/i);
     // and when to draw walls by hand instead, which is the thing a rule like this has to say
     expect(full).toMatch(/Draw walls yourself only for what build_design cannot express/);
@@ -88,6 +88,10 @@ describe("what the prompt tells the model", () => {
     // prompt is re-sent on every step -- measured at 2,997 tokens, 9 per cent of a 32,768-token
     // window -- so it is a real cost and not a style rule. Anything that pushes past this should
     // come with a measurement of what it bought.
-    expect(words).toBeLessThan(2400);
+    //
+    // Raised from 2,400 to 2,450 for the notes section (ADR-027 D2): 28 words, about 40 tokens a
+    // step, and it is what lets a thing the model learned from a picture or a page outlive
+    // compaction. Two runs had thrown that away.
+    expect(words).toBeLessThan(2450);
   });
 });

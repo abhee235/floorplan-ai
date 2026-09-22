@@ -3,7 +3,8 @@
 // the one process the product deploys as: no sidecar, no separate service (ADR-005).
 
 import { join } from "node:path";
-import { providerFor } from "@fpv/agents";
+import { fileURLToPath } from "node:url";
+import { loadSkills, providerFor } from "@fpv/agents";
 import { CORE_RULES, ensureSeed } from "@fpv/catalog";
 import { CatalogStore } from "@fpv/catalog/store";
 import { PROTOCOL_VERSION } from "@fpv/commands";
@@ -23,8 +24,11 @@ import { ProjectRegistry } from "./projects.js";
 import { createReader, loadReaderConfig } from "./reader.js";
 import { DEFAULT_PORT, serve } from "./server.js";
 import { TextureImages } from "./textures.js";
-import { createVerifier, loadHostConfig } from "./verifier.js";
+import { createVerifier, createWeb, loadHostConfig } from "./verifier.js";
 import { Workspace } from "./workspace.js";
+
+/** The skills that ship with the product (ADR-026 D5), beside the host's source. */
+const BUILT_IN_SKILLS = fileURLToPath(new URL("../skills/", import.meta.url));
 
 export interface CliArgs {
   mcp: boolean;
@@ -236,6 +240,14 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   for (const note of loaded.notes) process.stderr.write(`floorplan-ai config: ${note}\n`);
   const verification = createVerifier(catalog.store, loaded.config, { now });
   process.stderr.write(`floorplan-ai verifier: ${verification.describe}\n`);
+  // The agent's web tools (ADR-027 D4): the verifier's search and fetcher, offered to the model.
+  const web = createWeb(loaded.config);
+  process.stderr.write(`floorplan-ai web: ${web.describe}\n`);
+  // Skills (ADR-026 D3): the built-ins beside the host, then the installation's own.
+  const skills = loadSkills([BUILT_IN_SKILLS, join(catalog.dir, "skills")]);
+  process.stderr.write(
+    `floorplan-ai skills: ${skills.length ? skills.map((k) => k.name).join(", ") : "none"}\n`,
+  );
   const readerConfig = loadReaderConfig({ dataDir: catalog.dir });
   for (const note of readerConfig.notes) process.stderr.write(`floorplan-ai config: ${note}\n`);
   const planReaderSetup = createReader(readerConfig.model);
@@ -252,6 +264,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     rules: CORE_RULES,
     writer: (store) => new FileExportWriter({ baseDir: () => store.path() ?? join(catalog.dir, "exports") }),
     plans: new FilePlanReader({ baseDir: () => process.cwd(), raster: planReaderSetup.reader }),
+    web: web.web,
   });
   const first = args.project ? await workspace.open(args.project) : await workspace.create();
   const files = first.files;
@@ -275,6 +288,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     const agent = new AgentRuns(workspace, {
       dataDir: catalog.dir,
       provider: agentConfig.model ? providerFor(agentConfig.model) : null,
+      skills,
       note: agentConfig.model
         ? `${agentConfig.model.id}:${agentConfig.model.model}`
         : "no agent model (set FPV_AGENT_MODEL, or a designer role in the host's config)",

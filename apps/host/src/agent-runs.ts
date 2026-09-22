@@ -10,26 +10,29 @@
 // change stream the bridge already broadcasts, because a tool call is a store command like any
 // other. The two are correlated by the ids in `changed`, and neither has to know about the other.
 
-import { mkdirSync } from "node:fs";
-import { appendFile, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { appendFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   type AgentEvent,
+  ASK_USER,
   type AskRequest,
   type ChatMessage,
   CONSENT_OPTIONS,
   type ContentPart,
   designerSystem,
   forNextRun,
-  LOOP_TOOL_NAMES,
-  type PlanItem,
+  NOTES,
+  PLAN_WORK,
   type Provider,
   registryToolSpecs,
   runAgent,
   runArchitect,
+  type Skill,
 } from "@fpv/agents";
 import { type AgentEventMsg, type AgentStateMsg, type AgentWireEvent, type ChangeSet } from "@fpv/commands";
 import type { Attachment, ToolReliability } from "@fpv/tools";
+import { NEEDS_SIGHT, NEEDS_WEB } from "@fpv/tools";
 import type { Held, Workspace } from "./workspace.js";
 
 /** Text deltas are gathered for this long before a frame goes out, so a fast model is not a flood. */
@@ -42,6 +45,8 @@ export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 const REPLAY_KEEP = 400;
 /** Runs kept on disk per project, as the session log keeps its own. */
 const KEEP_RUNS = 20;
+/** The loop's own tools that speak through a card of their own, and so are not shown as calls. */
+const SPOKEN_FOR: ReadonlySet<string> = new Set([PLAN_WORK, ASK_USER, NOTES]);
 
 export interface AgentRunsOptions {
   /** Where conversations and runs are written; null keeps everything in memory. */
@@ -52,6 +57,8 @@ export interface AgentRunsOptions {
   now?(): string;
   maxSteps?: number;
   system?: string;
+  /** Skills the designer and the architect may read (ADR-026 D3). */
+  skills?: readonly Skill[];
 }
 
 interface Active {
@@ -68,10 +75,13 @@ interface Active {
 
 interface Held2 {
   conversation: ChatMessage[];
-  plan: PlanItem[];
+  /** What the model wrote down (ADR-027 D2); kept with the plan, cleared with it. */
+  notes: string;
   attachments: Map<string, Attachment>;
   replay: AgentEventMsg[];
   seq: number;
+  /** The last run's number for this project, from disk, so a restart does not reuse a file. */
+  runSeq: number;
   active: Active | null;
   loaded: boolean;
 }
@@ -84,7 +94,6 @@ export class AgentRuns {
   private readonly projects = new Map<string, Held2>();
   private readonly listeners = new Set<(projectId: string, msg: AgentEventMsg) => void>();
   private readonly now: () => string;
-  private runSeq = 0;
 
   constructor(
     private readonly workspace: Workspace,
@@ -183,8 +192,8 @@ export class AgentRuns {
         })),
     };
 
-    this.runSeq += 1;
-    const runId = `run_${this.runSeq}`;
+    mine.runSeq += 1;
+    const runId = `run_${mine.runSeq}`;
     const controller = new AbortController();
     const active: Active = {
       runId,
@@ -199,7 +208,7 @@ export class AgentRuns {
     // through a hundred history entries.
     let checkpointId: string | null = null;
     try {
-      checkpointId = held.session.store.checkpoint(`before agent run ${this.runSeq}`);
+      checkpointId = held.session.store.checkpoint(`before agent run ${mine.runSeq}`);
     } catch {
       checkpointId = null; // a store without checkpoints still runs; the card simply cannot offer undo
     }
@@ -219,6 +228,8 @@ export class AgentRuns {
       checkpointId,
     });
     held.session.log.write("agent", "agent", { event: "started", runId, task: text.slice(0, 200) });
+    // Nothing is shown before the model has read the message. An earlier run's plan used to appear
+    // here the instant a message was sent, and read as the agent's answer to it (ADR-027 D5, amended).
 
     void this.run(held, mine, active, { text, attached, reliability, provider });
     return { ok: true, runId };
@@ -271,7 +282,7 @@ export class AgentRuns {
     const mine = this.projects.get(projectId);
     if (!mine) return;
     mine.conversation = [];
-    mine.plan = [];
+    mine.notes = "";
     mine.replay = [];
     mine.attachments.clear();
   }
@@ -307,6 +318,14 @@ export class AgentRuns {
     // The architect, reachable through design_layout. A sub-run of the same loop with its own
     // conversation and six tools, whose steps reach this chat labelled as the architect's and the
     // parent model's context not at all (ADR-022 D1).
+    const skills = this.options.skills ?? [];
+    const canSee = req.provider.profile.vision;
+    // Tools the session cannot use are not advertised: the web without a search provider, a look at
+    // a picture for a model that cannot see or a conversation with nothing attached.
+    const omit = new Set<string>([
+      ...(session.ctx.web ? [] : NEEDS_WEB),
+      ...(canSee && mine.attachments.size ? [] : NEEDS_SIGHT),
+    ]);
     session.ctx.subagent = {
       run: (request) =>
         runArchitect(req.provider, registry, request, {
@@ -314,20 +333,27 @@ export class AgentRuns {
           signal: active.controller.signal,
           released: new Set(session.store.selection),
           now: this.now,
+          skills,
+          // The designer's notes as they stand now, not as the run began: notes.updated keeps them.
+          notes: mine.notes,
+          attachments: canSee && mine.attachments.size > 0,
           onEvent: (event) => {
             const wire = this.toWire(event, flush, "architect");
             if (wire) {
               flush.now();
-              this.emit(held.id, active.runId, wire);
+              this.emit(held.id, active.runId, wire, "architect");
             }
           },
         }),
     };
 
     try {
+      // Settle the provider before the prompt reads its profile; see runAgentTask for why.
+      await req.provider.ready?.();
       const run = await runAgent({
         provider: req.provider,
-        tools: registryToolSpecs(registry, req.reliability),
+        tools: registryToolSpecs(registry, req.reliability, undefined, omit),
+        skills,
         callTool: (name, args, released) => registry.call(name, args, { origin: "agent", released }),
         // The prompt is built for this session, not for every session: a model that cannot see is
         // never told to look at a render, and a session without a rules pack is never told to
@@ -340,6 +366,9 @@ export class AgentRuns {
             rules: Boolean(session.ctx.rules),
             viewer: Boolean(session.ctx.viewer),
             sourceImage: req.attached.some((a) => a.mime.startsWith("image/")),
+            attachments: canSee && mine.attachments.size > 0,
+            web: Boolean(session.ctx.web),
+            skills,
           }),
         task: taskOf(req.text, req.attached, session.store.selection, req.provider, mine),
         // What they had selected when they asked is what they were pointing at: consent for this
@@ -351,7 +380,9 @@ export class AgentRuns {
         mutatingTools: mutating,
         verifyingTools: new Set(["validate", "get_bom", "compare_plan_image"]),
         loop: {
-          plan: mine.plan,
+          // No plan is handed on: a plan is the run's own, and a stale one was followed as if it were
+          // the new request's. The conversation carries what a "carry on" needs.
+          notes: mine.notes,
           ask: (request) =>
             new Promise<Record<string, string>>((resolve, reject) => {
               active.status = "waiting";
@@ -372,6 +403,9 @@ export class AgentRuns {
             }),
         },
         onEvent: (event) => {
+          // The notes as the model writes them, so the architect, asked later in this same run, is
+          // handed what the designer has learned by then.
+          if (event.type === "notes.updated") mine.notes = event.text;
           const wire = this.toWire(event, flush);
           if (wire) {
             flush.now();
@@ -384,7 +418,7 @@ export class AgentRuns {
       // going all afternoon would otherwise replay every tool result it ever saw and be over the
       // window before the model had done anything (ADR-025 D5).
       mine.conversation = forNextRun(run.messages);
-      mine.plan = run.plan;
+      mine.notes = run.notes;
       // Let go of the run BEFORE saying it is finished. A listener that hears "finished" and asks to
       // start another is right to expect one, and anything cleared after an await is cleared too late.
       mine.active = null;
@@ -458,10 +492,10 @@ export class AgentRuns {
           ? { type: "message", step: event.step, at: event.at, text: `**${role}:** ${event.text}` }
           : { type: "message", step: event.step, at: event.at, text: event.text };
       case "tool.started":
-        // The loop's own tools are not cards. plan_work speaks through the plan card it updates and
-        // ask_user through the question it asks; a "plan work" row beside them is the same thing said
-        // twice, in worse words.
-        if (LOOP_TOOL_NAMES.has(event.name)) return null;
+        // Loop tools with a card of their own are not also rows: plan_work speaks through the plan
+        // card, notes through the notes card, ask_user through the question. read_skill has no card,
+        // and a run whose log never showed it read the skill was a run nobody could check.
+        if (SPOKEN_FOR.has(event.name)) return null;
         return {
           type: "tool.started",
           step: event.step,
@@ -472,7 +506,17 @@ export class AgentRuns {
           summary: role ? `${role}: ${summarise(event.name, event.args)}` : summarise(event.name, event.args),
         };
       case "tool.finished": {
-        if (LOOP_TOOL_NAMES.has(event.name)) return null;
+        // A refusal is not something the card already said. Four plan_work refusals ended a real
+        // run for stalling, and the log had not a line about any of them.
+        if (SPOKEN_FOR.has(event.name)) {
+          if (event.ok) return null;
+          const refused = event.result as { error?: { message?: string; hint?: string | null } };
+          return {
+            type: "warning",
+            step: event.step,
+            message: `${event.name} was refused: ${refused.error?.message ?? "?"}${refused.error?.hint ? ` (${refused.error.hint})` : ""}`,
+          };
+        }
         const envelope = event.result as {
           ok?: boolean;
           result?: unknown;
@@ -503,6 +547,8 @@ export class AgentRuns {
       }
       case "plan.updated":
         return { type: "plan.updated", step: event.step, items: event.items };
+      case "notes.updated":
+        return { type: "notes.updated", step: event.step, text: event.text };
       case "reminder":
         return { type: "reminder", step: event.step, gate: event.gate, text: event.text };
       case "compacted": {
@@ -566,10 +612,19 @@ export class AgentRuns {
     };
   }
 
-  private emit(projectId: string, runId: string, event: AgentWireEvent): void {
+  private emit(projectId: string, runId: string, event: AgentWireEvent, by?: string): void {
     const mine = this.of(projectId);
     mine.seq += 1;
-    const msg: AgentEventMsg = { type: "agent.event", projectId, runId, seq: mine.seq, event };
+    // `by` marks a sub-run's events -- the architect's -- so a reader of the log can tell whose
+    // call a call was, which the log could not say before and the owner asked for.
+    const msg: AgentEventMsg = {
+      type: "agent.event",
+      projectId,
+      runId,
+      seq: mine.seq,
+      event,
+      ...(by ? { by } : {}),
+    };
     // Deltas are not replayed: a reloaded tab wants the answer, not the typing that produced it.
     if (event.type !== "text.delta" && event.type !== "reasoning.delta") {
       mine.replay.push(msg);
@@ -589,14 +644,19 @@ export class AgentRuns {
     if (found) return found;
     const made: Held2 = {
       conversation: [],
-      plan: [],
+      notes: "",
       attachments: new Map(),
       replay: [],
       seq: 0,
+      runSeq: 0,
       active: null,
       loaded: false,
     };
     this.projects.set(projectId, made);
+    // What an earlier host wrote down for this project, read back at first touch: the conversation,
+    // the plan, the notes and the run counter. This used to be a separate load() that nothing
+    // called, so a restarted host forgot every conversation and numbered its first run one.
+    this.readBack(projectId, made);
     return made;
   }
 
@@ -644,7 +704,7 @@ export class AgentRuns {
         .map((m) => JSON.stringify({ ...m, content: withoutImages(m.content) }))
         .join("\n");
       await writeFile(join(dir, "conversation.jsonl"), `${text}\n`, "utf8");
-      await writeFile(join(dir, "plan.json"), `${JSON.stringify(mine.plan, null, 2)}\n`, "utf8");
+      await writeFile(join(dir, "notes.md"), `${mine.notes}\n`, "utf8");
       void runId;
       await this.pruneRuns(dir);
     } catch {
@@ -654,13 +714,16 @@ export class AgentRuns {
 
   /** Read a project's conversation back, so a follow-up after a restart still knows what was built. */
   async load(projectId: string): Promise<void> {
-    const mine = this.of(projectId);
+    this.of(projectId);
+  }
+
+  private readBack(projectId: string, mine: Held2): void {
     if (mine.loaded) return;
     mine.loaded = true;
     const dir = this.dirFor(projectId);
     if (!dir) return;
     try {
-      const text = await readFile(join(dir, "conversation.jsonl"), "utf8");
+      const text = readFileSync(join(dir, "conversation.jsonl"), "utf8");
       mine.conversation = text
         .split("\n")
         .filter((l) => l.trim())
@@ -669,9 +732,20 @@ export class AgentRuns {
       // no conversation yet, which is the usual case
     }
     try {
-      mine.plan = JSON.parse(await readFile(join(dir, "plan.json"), "utf8")) as PlanItem[];
+      mine.notes = readFileSync(join(dir, "notes.md"), "utf8").trim();
     } catch {
-      mine.plan = [];
+      mine.notes = "";
+    }
+    // The run counter continues from the files on disk. It used to start at one with every host,
+    // and a second day's run was appended to the first day's file.
+    try {
+      const numbers = readdirSync(join(dir, "runs"))
+        .map((f) => /^run_(\d+)\.jsonl$/.exec(f)?.[1])
+        .filter((n): n is string => n !== undefined)
+        .map(Number);
+      mine.runSeq = Math.max(mine.runSeq, ...numbers, 0);
+    } catch {
+      // no runs yet
     }
   }
 }
@@ -697,8 +771,8 @@ function taskOf(
   const lines = [text];
   if (attached.length)
     lines.push(
-      `Attached: ${attached.map((a) => `${a.name} (attachment ${a.id})`).join(", ")}. ` +
-        "Read a plan with import_plan and the attachment's id; never paste its bytes.",
+      `Attached: ${attached.map((a) => `${a.name} (attachment ${a.id}, ${a.mime}, ${Math.round(a.bytes / 1024)} KB)`).join(", ")}. ` +
+        "A line drawing of a plan is read with import_plan and the attachment's id; a photograph, an illustration or a sketch is looked at with look_at. Never paste its bytes.",
     );
   if (selection.length) lines.push(`Selected in the editor: ${selection.join(", ")}.`);
   const said = lines.join("\n\n");
@@ -750,6 +824,14 @@ export function summarise(name: string, args: unknown): string {
       return "Looking at it";
     case "import_plan":
       return a.confirm ? "Committing the plan" : "Reading the plan";
+    case "read_skill":
+      return a.file ? `Reading ${String(a.name)}: ${String(a.file)}` : `Reading the ${String(a.name)} skill`;
+    case "look_at":
+      return a.url ? "Looking at a picture from the web" : `Looking at attachment ${String(a.attachmentId)}`;
+    case "web_search":
+      return `Searching the web for "${String(a.query)}"`;
+    case "read_page":
+      return "Reading a web page";
     case "get_scene":
       return "Reading the project";
     case "get_bom":

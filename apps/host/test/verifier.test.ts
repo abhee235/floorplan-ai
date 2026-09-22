@@ -7,7 +7,7 @@ import { sequentialIdGenerator } from "@fpv/ir";
 import type { ToolResult } from "@fpv/tools";
 import { afterEach, describe, expect, it } from "vitest";
 import { createSession } from "../src/session.js";
-import { createVerifier, loadHostConfig } from "../src/verifier.js";
+import { createVerifier, createWeb, loadHostConfig } from "../src/verifier.js";
 
 const NOW = "2026-09-15T12:00:00.000Z";
 const temps: string[] = [];
@@ -137,5 +137,32 @@ describe("verifier configuration (ADR-007 D1, ADR-008 D3)", () => {
     // the seed had the wrong size for this bar; the verified record replaced it and placement uses it
     expect(store.get("logitech-rally-bar")?.dims).toEqual({ w: 910, d: 131, h: 164 });
     store.close();
+  });
+});
+
+describe("the web for the agent (ADR-027 D4)", () => {
+  it("takes a SearXNG address alone to mean SearXNG, and says so", () => {
+    // The owner's own .env: FPV_SEARCH_URL set, FPV_SEARCH not, and the host said "no search
+    // provider" with no word about why.
+    const loaded = loadHostConfig({ dataDir: dir(), env: { FPV_SEARCH_URL: "http://searx.local:8080" } });
+    expect(loaded.config.search).toEqual({ kind: "searxng", baseUrl: "http://searx.local:8080" });
+    expect(loaded.notes).toEqual([
+      "FPV_SEARCH_URL is set and FPV_SEARCH is not; taking the search to be searxng",
+    ]);
+  });
+
+  it("is nothing without search, and search with pictures with SearXNG", () => {
+    const none = createWeb({ search: null, model: null, allowPrivatePages: false, maxPages: 3 });
+    expect(none.web).toBeNull();
+    expect(none.describe).toContain("FPV_SEARCH=searxng");
+    const searx = createWeb({
+      search: { kind: "searxng", baseUrl: "http://searx.local:8080" },
+      model: null,
+      allowPrivatePages: true,
+      maxPages: 3,
+    });
+    expect(searx.web?.search.id).toBe("searxng");
+    expect(typeof searx.web?.search.images).toBe("function");
+    expect(searx.describe).toBe("searxng at searx.local:8080, with images");
   });
 });

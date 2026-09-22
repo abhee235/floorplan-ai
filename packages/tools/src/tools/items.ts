@@ -130,11 +130,38 @@ export const placeItem = defineTool({
     const p0 = call.ctx.store.project;
     const ref = itemRefFor(call.ctx.catalog, args.productId, args.recipe);
     const hasXY = args.x !== undefined && args.y !== undefined;
+    // A mount on another item says where the thing goes: on that item. A real run put a display on a
+    // table this way, was told to give x and y or an anchor, and sent the same call twice more,
+    // because nothing said that "on:<itemId>" was the anchor it had already described.
+    const onto =
+      !hasXY &&
+      !args.anchor &&
+      args.mount?.targetId &&
+      (args.mount.kind === "table" || args.mount.kind === "item")
+        ? p0.items.find((i) => i.id === args.mount?.targetId)
+        : undefined;
+    if (onto && args.roomId && onto.roomId && onto.roomId !== args.roomId) {
+      const there = p0.rooms.find((r) => r.id === onto.roomId);
+      throw invalidArg(
+        "mount",
+        `${onto.id} is in ${there?.name ?? onto.roomId}, not in the room you named`,
+        "stand it on something in this room, or leave roomId out to follow the item",
+      );
+    }
+    if (onto) {
+      args = {
+        ...args,
+        anchor: `on:${onto.id}`,
+        ...(onto.roomId ? { roomId: args.roomId ?? onto.roomId } : {}),
+      };
+    }
     if (!hasXY && !(args.roomId && args.anchor))
       throw invalidArg(
         "position",
         "give x and y, or roomId and anchor",
-        "e.g. roomId: 'room_000001', anchor: 'center'",
+        args.mount?.targetId
+          ? `to stand it on ${args.mount.targetId}, give anchor 'on:${args.mount.targetId}'`
+          : "e.g. roomId: 'room_000001', anchor: 'center'",
       );
     const levelId = levelFor(p0, args.roomId, args.levelId);
     const payload: Record<string, unknown> = { levelId, ref };
@@ -347,13 +374,13 @@ const COMPASS_DEG: Record<"north" | "west" | "south" | "east", number> = {
 export const arrange = defineTool({
   name: "arrange",
   description:
-    "Fill a room or zone with a pattern: 'grid', 'rows', 'bench' (desks back to back), 'boardroom' (one table, chairs around), 'u-shape', 'classroom'. count is the number of items requested; the result says how many fit.",
+    "Fill a room or zone with ONE product in a pattern: 'grid', 'rows', or 'bench' (rows in back-to-back pairs). It places that product only, so two arrange calls make two unrelated grids; for desks with their chairs use furnish_room with recipe 'open-office', and for chairs around a table furnish_room with 'meeting', 'boardroom' or 'huddle'. To redo a zone, call again with its zoneId and replace: true. count is the number requested; the result says how many fit.",
   tier: "both",
   mutating: true,
   input: z.object({
     roomId: z.string().optional(),
     zoneId: z.string().optional(),
-    pattern: z.enum(["grid", "rows", "u-shape", "boardroom", "classroom", "bench"]),
+    pattern: z.enum(["grid", "rows", "bench"]),
     productId: z.string().optional(),
     recipe: PrimitiveRecipe.optional(),
     count: z.number().int().min(1).describe("items requested, e.g. 12"),

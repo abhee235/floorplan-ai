@@ -1,7 +1,7 @@
 // What a tool runs against: the store, the catalog, and optional services (ADR-005 D1, ADR-006 D2).
 // Everything here is an in-process object; nothing is a network client.
 
-import type { RulesPack, VerifyOutcome, VerifyRequest } from "@fpv/catalog";
+import type { PageFetcher, RulesPack, SearchProvider, VerifyOutcome, VerifyRequest } from "@fpv/catalog";
 import type { Origin, Store } from "@fpv/commands";
 import type { PlanDraft, PlanPreview } from "@fpv/importers";
 import type { PrimitiveRecipe, Project, Size3 } from "@fpv/ir";
@@ -224,6 +224,11 @@ export interface SubagentRequest {
   brief: string;
   /** Anything already agreed with the person, so a sub-run inherits the parent's consent. */
   released?: readonly string[];
+  /**
+   * A design to continue from, with the errors it still has: an earlier architect's closest
+   * attempt. The architect fixes it rather than starting again (ADR-028 D10).
+   */
+  from?: { designId: string; errors: readonly string[] };
 }
 
 export interface SubagentResult {
@@ -233,6 +238,8 @@ export interface SubagentResult {
   text: string;
   /** Errors the checker still reported when the round budget ran out, for an honest answer. */
   unresolved: string[];
+  /** The last design it checked, passed or not, so a next architect can continue from it. */
+  lastDesignId: string | null;
   steps: number;
   rounds: number;
   reason: string;
@@ -240,6 +247,15 @@ export interface SubagentResult {
 
 export interface SubagentRunner {
   run(request: SubagentRequest): Promise<SubagentResult>;
+}
+
+/**
+ * The web, when the host has a search provider configured: the same search and the same guarded
+ * fetcher the product verifier uses. Without it the web tools are not advertised and refuse if called.
+ */
+export interface WebAccess {
+  search: SearchProvider;
+  fetcher: PageFetcher;
 }
 
 export interface ToolContext {
@@ -256,6 +272,8 @@ export interface ToolContext {
   plans?: PlanReader | null;
   /** Files attached to the agent's conversation; absent in a session nobody is talking to. */
   attachments?: AttachmentStore | null;
+  /** Search and a guarded fetcher (ADR-027 D4); absent or null when the host has no search provider. */
+  web?: WebAccess | null;
   transcript: TranscriptRecorder | null;
   /** Runs another role in its own context; absent in a session with no agent behind it. */
   subagent?: SubagentRunner | null;

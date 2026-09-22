@@ -41,6 +41,12 @@ export interface TaskCard {
      * where the agent is held to them.
      */
     maxWarnings?: Record<string, number>;
+    /**
+     * Tools the run must have called, and tools it must not have (ADR-027). A picture that is not a
+     * plan must be looked at and not read; an open office must come from the recipe and not from
+     * two grids.
+     */
+    calls?: { must?: string[]; never?: string[] };
   };
 }
 
@@ -170,6 +176,9 @@ export function scoreCard(card: TaskCard, session: Session, run: AgentRun, meta:
     bomLines = products.length;
     if (bomLines > 0) bomVerified = products.filter((l) => l.status === "verified").length / bomLines;
   }
+  const called = new Set(run.events.flatMap((e) => (e.type === "tool.started" ? [e.name] : [])));
+  for (const name of card.expect.calls?.must ?? []) if (!called.has(name)) missing.push(`a call to ${name}`);
+  for (const name of card.expect.calls?.never ?? []) if (called.has(name)) missing.push(`no call to ${name}`);
   const maxErrors = card.expect.maxValidationErrors;
   const pass =
     run.reason === "done" &&

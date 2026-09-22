@@ -127,13 +127,17 @@ const BAD = {
 };
 
 describe("the architect's reach", () => {
-  it("is six tools, none of which draws", () => {
+  it("is nine tools, none of which draws", () => {
+    // look_at joined in ADR-027 D3: a picture the person attached, which the architect never saw.
     expect([...ARCHITECT_TOOLS].sort()).toEqual([
       "check_design",
       "describe_room",
       "get_scene",
+      "look_at",
       "measure",
       "plan_rooms",
+      "query_design",
+      "revise_design",
       "search_catalog",
     ]);
     for (const drawing of ["create_walls", "build_design", "place_item", "furnish_room", "add_opening"])
@@ -164,7 +168,7 @@ describe("the architect's reach", () => {
     void provider;
     const all = registry.advertised("high").length;
     const mine = registry.advertised("high").filter((t) => ARCHITECT_TOOLS.has(t.name)).length;
-    expect(mine).toBe(6);
+    expect(mine).toBe(9);
     expect(all).toBeGreaterThan(25);
   });
 });
@@ -255,5 +259,24 @@ describe("when it cannot get there", () => {
     expect(seen[0]).toMatch(/there are no more rounds/);
     expect(result.rounds).toBe(1);
     expect(result.designId).toBeNull();
+  });
+});
+
+describe("the architect draws (ADR-028 D1, D9)", () => {
+  it("is told to write the design itself, and no longer told not to", () => {
+    const plain = architectSystem();
+    expect(plain).toMatch(/The design is yours to draw/);
+    expect(plain).toMatch(/plan_rooms is a helper for a quick first draft/);
+    expect(plain).toMatch(/walled, glass or open/);
+    expect(plain).toMatch(/query_design/);
+    expect(plain).not.toMatch(/Do not place rectangles yourself/);
+    expect(plain).not.toMatch(/Copying a picture/);
+  });
+
+  it("says how to copy a picture when one is attached", () => {
+    const withPicture = architectSystem({ attachments: true });
+    expect(withPicture).toMatch(/Copying a picture/);
+    expect(withPicture).toMatch(/do not let plan_rooms rearrange it/);
+    expect(withPicture).toMatch(/look_at it, with its id/);
   });
 });

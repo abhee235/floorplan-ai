@@ -8,9 +8,20 @@ export interface SearchHit {
   snippet: string;
 }
 
+export interface ImageHit {
+  /** The picture itself. */
+  url: string;
+  title: string;
+  /** The page it was found on. */
+  source: string;
+  thumbnail: string | null;
+}
+
 export interface SearchProvider {
   readonly id: string;
   search(query: string, options?: { limit?: number; signal?: AbortSignal }): Promise<SearchHit[]>;
+  /** Pictures rather than pages, for a provider that has an image index; SearXNG does, Brave's web endpoint does not. */
+  images?(query: string, options?: { limit?: number; signal?: AbortSignal }): Promise<ImageHit[]>;
 }
 
 export interface FetchedPage {
@@ -22,8 +33,18 @@ export interface FetchedPage {
   truncated: boolean;
 }
 
+export interface FetchedBytes {
+  url: string;
+  status: number;
+  contentType: string;
+  bytes: Uint8Array;
+  truncated: boolean;
+}
+
 export interface PageFetcher {
   fetch(url: string, options?: { signal?: AbortSignal }): Promise<FetchedPage>;
+  /** The response as it came, for a picture; the same address guard and cap as a page. */
+  fetchBytes?(url: string, options?: { signal?: AbortSignal; maxBytes?: number }): Promise<FetchedBytes>;
 }
 
 export type FetchFn = (input: string, init?: RequestInit) => Promise<Response>;
@@ -87,18 +108,38 @@ export function searxngSearch(options: { baseUrl: string; fetch?: FetchFn }): Se
         .map((r) => ({ url: r.url as string, title: r.title ?? "", snippet: r.content ?? "" }))
         .slice(0, limit);
     },
+    async images(query, { limit = 10, signal } = {}) {
+      const url = `${base}/search?q=${encodeURIComponent(query)}&format=json&categories=images`;
+      const body = (await json(
+        "searxng",
+        await f(url, { headers: { accept: "application/json" }, ...(signal ? { signal } : {}) }),
+      )) as { results?: { img_src?: string; thumbnail_src?: string; url?: string; title?: string }[] };
+      return (body.results ?? [])
+        .filter((r) => typeof r.img_src === "string" && /^https?:/.test(r.img_src))
+        .map((r) => ({
+          url: r.img_src as string,
+          title: r.title ?? "",
+          source: r.url ?? "",
+          thumbnail: r.thumbnail_src ?? null,
+        }))
+        .slice(0, limit);
+    },
   };
 }
 
 /** Fixed answers for tests and replays: a map from query to hits, or a function. */
 export function staticSearch(
   answers: Record<string, SearchHit[]> | ((query: string) => SearchHit[]),
+  pictures: Record<string, ImageHit[]> = {},
 ): SearchProvider {
   return {
     id: "static",
     async search(query, { limit = 10 } = {}) {
       const hits = typeof answers === "function" ? answers(query) : (answers[query] ?? []);
       return hits.slice(0, limit);
+    },
+    async images(query, { limit = 10 } = {}) {
+      return (pictures[query] ?? []).slice(0, limit);
     },
   };
 }
@@ -123,6 +164,13 @@ export function staticFetcher(
         body: p.body,
         truncated: false,
       };
+    },
+    async fetchBytes(url) {
+      // A fixture picture is written as base64 so a test can hold a real PNG in a string.
+      const page = await this.fetch(url);
+      const text = page.contentType.startsWith("image/") ? atob(page.body) : page.body;
+      const bytes = Uint8Array.from(text, (ch) => ch.charCodeAt(0) & 0xff);
+      return { url: page.url, status: page.status, contentType: page.contentType, bytes, truncated: false };
     },
   };
 }

@@ -79,6 +79,7 @@ export function roomCreate(p: Project, payload: PayloadOf<"room.create">, ctx: C
     ...(payload.name !== undefined ? { name: payload.name } : {}),
     ...(payload.purpose !== undefined ? { purpose: payload.purpose } : {}),
     ...(payload.capacity !== undefined ? { capacity: payload.capacity } : {}),
+    ...(payload.properties !== undefined ? { properties: { ...payload.properties } } : {}),
   });
   p.rooms.push(normalizeRoom(room));
   const stored = roomById(p, room.id);

@@ -288,6 +288,9 @@ a promise of room.
 - **The person's own messages, verbatim, all of them.** They are 60 characters
   each and they are the task. This answers S3 outright.
 - The current plan, which is pinned into the system prompt already.
+- The model's notes (ADR-027 D2), pinned beside the plan for the same reason:
+  they are what it learned from a picture, a page or a skill, and the tool
+  results that taught it are exactly what the layers below drop.
 - Every tool **call**, which is how the model knows what it has done; calls are
   4% of the conversation and dropping them buys nothing.
 - **Failed results in full**, however old (S5). A failure is small, and it is

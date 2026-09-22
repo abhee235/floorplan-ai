@@ -376,3 +376,10 @@ describe("a consent question", () => {
     expect(screen.queryByRole("button", { name: /things? on the plan|1 thing/ })).toBeNull();
   });
 });
+
+describe("what the model wrote down", () => {
+  it("shows the notes the model wrote", () => {
+    show(stateOf([started, { type: "notes.updated", step: 1, text: "the picture shows a courtyard" }]));
+    expect(screen.getByText("the picture shows a courtyard")).not.toBeNull();
+  });
+});

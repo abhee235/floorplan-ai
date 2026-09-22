@@ -300,6 +300,8 @@ export type AgentWireEvent =
       display?: AgentToolDisplay;
     }
   | { type: "plan.updated"; step: number; items: AgentPlanItem[] }
+  /** What the model has written down (ADR-027 D2), whole. */
+  | { type: "notes.updated"; step: number; text: string }
   | {
       type: "question";
       step: number;
@@ -337,6 +339,15 @@ export interface AgentEventMsg {
   /** Per project and rising; a gap tells a tab it missed something and should ask for the rest. */
   seq: number;
   event: AgentWireEvent;
+  /**
+   * Which run produced it, when it was not the main one: "architect" for the design sub-run.
+   *
+   * Absent for the parent. Without this the architect's tool calls were written to the run file
+   * with nothing to tell them from the parent's, and the only way to know a sub-run had happened
+   * was to notice a `design_layout` call and infer the rest. A log that cannot say who did what
+   * cannot answer where a run went wrong.
+   */
+  by?: string;
 }
 
 /**

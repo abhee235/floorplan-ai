@@ -1,6 +1,8 @@
 # ADR-026: Skills: teaching the agent things it was not trained on
 
-Status: Proposed
+Status: Accepted (D3 and D5 shipped with ADR-027 on 2026-09-22: `packages/agents/src/skills.ts`,
+`apps/host/skills/office-layout` and `home-layout`; D2, the packer reading its dimensions from the
+pack, is still open)
 Date: 2026-09-20
 Related: ADR-006 (tool tiers), ADR-007 (provider), ADR-022 (agent roles, D8 context
 is a budget), spec 07 (rules packs)

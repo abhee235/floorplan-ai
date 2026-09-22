@@ -31,6 +31,7 @@ export type AgentItem =
       durationMs: number | null;
     }
   | { kind: "plan"; id: string; items: AgentPlanItem[] }
+  | { kind: "notes"; id: string; text: string }
   | {
       kind: "question";
       id: string;
@@ -237,6 +238,18 @@ export function reduce(state: AgentState, msg: AgentEventMsg | AgentStateMsg): A
         kind: "plan",
         id: at >= 0 ? (next.items[at] as { id: string }).id : nextId("p"),
         items: event.items,
+      };
+      if (at >= 0) return { ...next, items: [...next.items.slice(0, at), card, ...next.items.slice(at + 1)] };
+      return { ...next, items: [...next.items, card] };
+    }
+
+    case "notes.updated": {
+      // One notes card, kept where it first appeared, for the same reason as the plan.
+      const at = next.items.findIndex((i) => i.kind === "notes");
+      const card: AgentItem = {
+        kind: "notes",
+        id: at >= 0 ? (next.items[at] as { id: string }).id : nextId("n"),
+        text: event.text,
       };
       if (at >= 0) return { ...next, items: [...next.items.slice(0, at), card, ...next.items.slice(at + 1)] };
       return { ...next, items: [...next.items, card] };

@@ -14,9 +14,11 @@ import {
   type ProviderConfig,
   registryToolSpecs,
   runAgent,
+  type Skill,
   toolResultText,
 } from "@fpv/agents";
 import type { ToolReliability } from "@fpv/tools";
+import { NEEDS_SIGHT, NEEDS_WEB } from "@fpv/tools";
 import type { Session } from "./session.js";
 import { HostConfigFile } from "./verifier.js";
 
@@ -103,6 +105,8 @@ export interface AgentTaskOptions {
   signal?: AbortSignal;
   onEvent?(event: AgentEvent): void;
   now?(): string;
+  /** Skills the model may read; the eval harness passes the built-ins. */
+  skills?: readonly Skill[];
 }
 
 export interface AgentTaskResult {
@@ -121,8 +125,13 @@ export async function runAgentTask(
   options: AgentTaskOptions = {},
 ): Promise<AgentTaskResult> {
   const now = options.now ?? (() => new Date().toISOString());
+  // Settle the provider before reading its profile. The prompt below asks the profile whether the
+  // model can see, and a provider that has not yet asked its server still holds the default, which
+  // says no. Read too early, a sighted model got a prompt written for a blind one.
+  await provider.ready?.();
   const reliability = options.reliability ?? provider.profile.toolReliability;
-  const tools = registryToolSpecs(session.registry, reliability);
+  const omit = new Set<string>([...(session.ctx.web ? [] : NEEDS_WEB), ...NEEDS_SIGHT]);
+  const tools = registryToolSpecs(session.registry, reliability, undefined, omit);
   const system =
     options.system ??
     designerSystem({
@@ -130,6 +139,8 @@ export async function runAgentTask(
       low: reliability === "low",
       rules: Boolean(session.ctx.rules),
       viewer: Boolean(session.ctx.viewer),
+      web: Boolean(session.ctx.web),
+      ...(options.skills ? { skills: options.skills } : {}),
     });
   let transcriptPath: string | null = null;
   const write = (record: unknown) => {
@@ -158,6 +169,7 @@ export async function runAgentTask(
     tools,
     system,
     task,
+    ...(options.skills ? { skills: options.skills } : {}),
     callTool: (name, args, released) => session.registry.call(name, args, { released }),
     now,
     ...(options.maxSteps !== undefined ? { maxSteps: options.maxSteps } : {}),
@@ -181,6 +193,8 @@ export function describeEvent(event: AgentEvent): string | null {
         : `  ${event.name} failed: ${(event.result as { error?: { message?: string } }).error?.message ?? "?"}`;
     case "plan.updated":
       return `  plan: ${event.items.filter((i) => i.status === "done").length} of ${event.items.length} done`;
+    case "notes.updated":
+      return `  notes: ${event.text.length} characters`;
     case "question":
       return `  asking: ${event.request.question}`;
     case "compacted":

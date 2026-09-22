@@ -16,7 +16,7 @@ import {
   verifyProduct,
 } from "@fpv/catalog";
 import { httpPageFetcher } from "@fpv/catalog/store";
-import type { ProductVerifier } from "@fpv/tools";
+import type { ProductVerifier, WebAccess } from "@fpv/tools";
 import { z } from "zod";
 
 const ProviderEntry = z.object({
@@ -109,7 +109,11 @@ export function loadHostConfig(options: {
     entry.apiKey ?? (entry.apiKeyEnv ? env[entry.apiKeyEnv] : undefined);
 
   let search: SearchConfig | null = null;
-  const kind = env.FPV_SEARCH ?? parsed.search?.kind;
+  // A SearXNG address with no FPV_SEARCH beside it was the owner's own .env, and it produced "no
+  // search provider" with no word about why. The address says what it is.
+  const kind = env.FPV_SEARCH ?? parsed.search?.kind ?? (env.FPV_SEARCH_URL ? "searxng" : undefined);
+  if (!env.FPV_SEARCH && !parsed.search?.kind && env.FPV_SEARCH_URL)
+    notes.push("FPV_SEARCH_URL is set and FPV_SEARCH is not; taking the search to be searxng");
   if (kind === "brave") {
     const apiKey =
       env.FPV_SEARCH_API_KEY ??
@@ -156,6 +160,35 @@ export function loadHostConfig(options: {
     },
     file,
     notes,
+  };
+}
+
+/**
+ * Search and a guarded fetcher for the agent's web tools (ADR-027 D4): the same two the verifier is
+ * built from. Null when no search is configured, and then the tools are not advertised.
+ */
+export function createWeb(
+  config: VerifierConfig,
+  parts: { search?: SearchProvider | null; fetcher?: PageFetcher } = {},
+): { web: WebAccess | null; describe: string } {
+  const search =
+    parts.search !== undefined
+      ? parts.search
+      : config.search?.kind === "brave"
+        ? braveSearch({ apiKey: config.search.apiKey })
+        : config.search?.kind === "searxng"
+          ? searxngSearch({ baseUrl: config.search.baseUrl })
+          : null;
+  if (!search)
+    return {
+      web: null,
+      describe: "no web search (set FPV_SEARCH=searxng and FPV_SEARCH_URL, or FPV_SEARCH=brave and a key)",
+    };
+  const fetcher = parts.fetcher ?? httpPageFetcher({ allowPrivate: config.allowPrivatePages });
+  const where = config.search?.kind === "searxng" ? ` at ${new URL(config.search.baseUrl).host}` : "";
+  return {
+    web: { search, fetcher },
+    describe: `${search.id}${where}${search.images ? ", with images" : ""}`,
   };
 }
 

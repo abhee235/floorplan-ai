@@ -44,6 +44,7 @@ export {
   ASK_USER_SPEC,
   type AskRequest,
   answerText,
+  applyNotes,
   applyPlan,
   CONSENT_NO,
   CONSENT_NONE,
@@ -51,6 +52,11 @@ export {
   CONSENT_YES,
   describePlan,
   LOOP_TOOL_NAMES,
+  NOTES,
+  NOTES_MAX_CHARS,
+  NOTES_SPEC,
+  type NotesResult,
+  notesForPrompt,
   PLAN_WORK,
   PLAN_WORK_SPEC,
   type PlanItem,
@@ -58,6 +64,7 @@ export {
   parseAsk,
   planForPrompt,
   planIsOpen,
+  READ_SKILL,
 } from "./loop-tools.js";
 export {
   ARCH_CONTEXT_CAP,
@@ -116,6 +123,7 @@ export {
   type AgentEvent,
   type AgentOptions,
   type AgentRun,
+  canonical,
   DEFAULT_MAX_RESULT_CHARS,
   DEFAULT_MAX_STEPS,
   parseToolArguments,
@@ -123,6 +131,16 @@ export {
   type StopReason,
   toolCallsInText,
   toolResultText,
+  UNREADABLE_REPLIES,
 } from "./runner.js";
+export {
+  loadSkills,
+  parseFrontmatter,
+  READ_SKILL_SPEC,
+  readSkill,
+  type Skill,
+  type SkillIndexEntry,
+  skillsIndex,
+} from "./skills.js";
 export { DONE, decodeChunk, type StreamEvent, sseData, sseReader } from "./sse.js";
 export { providerFor } from "./wire.js";

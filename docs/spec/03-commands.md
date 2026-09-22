@@ -99,7 +99,8 @@ Changes: updated opening, old wall, new wall.
 Payload: `{ openingIds }`. Changes: removed openings; updated walls.
 
 ### room.create
-Payload: `{ levelId, polygon?: Point[], rect?: { x, y, w, d }, atPoint?: Point, name?, purpose?, capacity?, gapToleranceMm?: Mm (default 20) }`
+Payload: `{ levelId, polygon?: Point[], rect?: { x, y, w, d }, atPoint?: Point, name?, purpose?, capacity?, gapToleranceMm?: Mm (default 20), properties?: Record<string, string> }`
+`properties.enclosure: "open"` marks a zone a design left unwalled on purpose (ADR-028 D3); `validate` does not report it as `room.unenclosed`.
 Preconditions: exactly one of polygon, rect, atPoint. For atPoint, detection (spec 05 section 4) must find an enclosure containing the point (`room.not-enclosed`). Polygon simple, at least 3 points.
 Effect: adds the room with `source` manual, manual, or detected respectively; detected rooms record `boundingWallIds`. Items whose centre lies inside and have `roomId` null get `roomId` set.
 Changes: added room; updated items.

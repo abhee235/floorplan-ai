@@ -34,6 +34,12 @@ export interface WorldOptions {
   low?: boolean;
   /** Somebody attached a plan to read. */
   sourceImage?: boolean;
+  /** Something is attached at all, so look_at has something to show. */
+  attachments?: boolean;
+  /** The host has a search provider, so web_search and read_page exist. */
+  web?: boolean;
+  /** The skills the model may read, one line each. */
+  skills?: readonly { name: string; description: string; whenToUse: string | null }[];
 }
 
 export const IDENTITY = [
@@ -73,7 +79,7 @@ export function order(o: WorldOptions): Section {
     "2. Call design_layout with the brief. An architect works the whole plan out and hands back a design that has already passed the checker, along with what it assumed. It draws nothing, so nothing has moved when it answers.",
     "3. Read what it says and tell the person, in your own words, what is about to be built and how big the rooms are.",
     "4. Build it with build_design and the designId it gave you. Never re-type the design yourself: the id names a plan that has already been measured, and a design copied out of a sentence is a different design that has not been.",
-    "If it could not reach a design, it says which rooms it could not fit. Tell the person that and ask what to change. Do not draw something else instead.",
+    "If it could not reach a design, call design_layout again with the lastDesignId it gave; the next architect finishes that design. Never draw the building wall by wall instead.",
     "   build_design draws the outside walls, the inside walls with one wall between neighbours, a door in every pair the design joins, a window on every room that asked for one, and the rooms themselves, in one undoable step.",
     o.rules
       ? "5. Furnish: furnish_room for a room with a purpose the pack has a recipe for, place_item for anything else."
@@ -92,6 +98,39 @@ export function order(o: WorldOptions): Section {
  * asked: a real run for a hundred-person office made 54 tool calls over 27 steps and never wrote
  * down a single item, so the person watching had 54 cards and no idea what was left.
  */
+/**
+ * What to read before designing (ADR-027).
+ *
+ * A model that drew a classroom of a hundred desks was not short of knowing what an office looks
+ * like; it was short of a tool that draws one and of being told to read what we know first. The
+ * skills are that knowledge, a page each; the notes are where what it read goes so it survives.
+ */
+export function skills(o: WorldOptions): Section {
+  if (!o.skills?.length) return null;
+  return section("# Skills: what somebody who does this for a living knows", [
+    "Before design_layout for a building, read_skill the skill for its kind and put the parts that matter for this brief into notes: which rooms it implies, what goes beside what, what to ask. The architect reads your notes.",
+    ...o.skills.map((k) => `  ${k.name}: ${k.description}${k.whenToUse ? ` Read it ${k.whenToUse}.` : ""}`),
+    "A skill is advice. The checker is not: a design still has to pass it.",
+  ]);
+}
+
+export function notes(): Section {
+  return section("# Your notes", [
+    "notes is a page you keep: what a picture showed, what a skill said matters here, what the person clarified, what you assumed. It is shown to you every step and survives when the conversation is shortened; a tool result does not. Send the whole text each time. The plan goes in plan_work, not here.",
+  ]);
+}
+
+export function sources(o: WorldOptions): Section {
+  return section("# Reading before designing", [
+    o.attachments
+      ? "A picture that was attached is shown to you once. To see it again, or to see it in the architect's turn, call look_at with its id and say what you want from it; then write what it showed into notes. A line drawing of a plan that you mean to trace into walls goes to import_plan instead; a photograph, an illustration, a logo or a sketch goes to look_at."
+      : null,
+    o.web
+      ? "web_search and read_page exist for what no skill covers: a named style or brand, a building type without a skill, a real building to model on, a product the catalog lacks, and kind 'images' for pictures to look_at. Not for what you already know, and not on every run: each search is a step spent not drawing. Put what you learn into notes."
+      : null,
+  ]);
+}
+
 export function planning(): Section {
   return section("# Say what you are going to do, before you do it", [
     "For anything over two or three tool calls, call plan_work first with the jobs in order. Somebody is watching a long run and needs to know what is left.",
@@ -105,7 +144,8 @@ export function designing(): Section {
   return section("# Designing, before you draw", [
     "A plan is not a list of rooms. Before the first wall exists you must know the outside size, every room's size and position, and how somebody walks from the front door to each of them.",
     "design_layout is how a plan gets designed: it hands the brief to an architect with the inspect tools and the checker and nothing that draws. Use it for a building, or for rearranging one. Do not use it to add a table to a room that already exists.",
-    "check_design is the same checker, for when you are designing yourself: a bedroom too small for a bed, two rooms on the same floor, a door between rooms that do not touch, a room you could only reach through a bathroom, a missing kitchen. It changes nothing, so use it as often as you like.",
+    "check_design is the same checker, for a design written by hand: rooms as rectangles, each walled, glass or open, and which sides of the building are glazed. It judges whether the plan can be built, never its shape. It changes nothing; use it freely.",
+    "To copy a picture, say so in the brief to design_layout and name the attachment; the architect draws that arrangement, and nothing rearranges a design that passed.",
     "Work in one rectangle. Give the shell a size, then fill it with room rectangles that touch: a room's rect is its clear inside, and the walls go between them. Leave no gaps you cannot name.",
     "Every pair of rooms you put a door between has to share at least a metre of wall, and every room needs a door to something that is not a bedroom or a bathroom. One corridor or hall serving several doors is how a plan is laid out; a chain of rooms each opening into the next is not.",
     "Put the room sizes in your answer text as well, so the person can correct you before it is drawn.",
@@ -135,12 +175,15 @@ export function workplaces(): Section {
     "  huddle room 2.5 m² a seat; meeting room 3 m²; boardroom 3.5 m²; training room 2.2 m²; open office 10 m² a person",
     "  desk 1600 x 800 with 1000 clear behind it; corridor 1500 wide; meeting-room door 900",
     "A meeting room's display wall is the one opposite the door, and the farthest seat should be no more than six display diagonals away.",
+    "An office has toilets: about 12 m² per fifty people; the checker refuses a workplace for twenty or more without one.",
+    "An open office is benches: furnish_room with recipe open-office puts desks back to back with a chair at each. Two arrange grids, desks and chairs, land on top of each other.",
   ]);
 }
 
 export function choosing(o: WorldOptions): Section {
   return section("# Choosing what to put in a room", [
     "Never invent a product id. search_catalog returns real ones; use the id it gives, exactly.",
+    "search_catalog's category is the product's own: desks are under desk, not table. When a category returns nothing, the warning says where the matches are.",
     "When the catalog has nothing suitable, place a recipe instead: a parametric shape at the size you name. A recipe is honest about being a placeholder, an invented id is not.",
     o.rules
       ? "furnish_room lays out a whole room from the pack's recipe for its purpose, and is better than placing items one by one. It refuses when the pack has no recipe for that purpose, which means place the items yourself."

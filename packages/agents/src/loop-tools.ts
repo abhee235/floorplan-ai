@@ -22,9 +22,31 @@ export interface PlanItem {
 
 export const PLAN_WORK = "plan_work";
 export const ASK_USER = "ask_user";
+export const NOTES = "notes";
+export const READ_SKILL = "read_skill";
 
-/** Both are answered inside the loop; the registry never sees them. */
-export const LOOP_TOOL_NAMES: ReadonlySet<string> = new Set([PLAN_WORK, ASK_USER]);
+/** All answered inside the loop; the registry never sees them. */
+export const LOOP_TOOL_NAMES: ReadonlySet<string> = new Set([PLAN_WORK, ASK_USER, NOTES, READ_SKILL]);
+
+/**
+ * How much the model may write down. Three thousand characters is a page: what a picture showed,
+ * what a skill said mattered here, what the person clarified, what was assumed. It rides on the
+ * system prompt every step, so it is paid for every step, which is why it is a page and not a file.
+ */
+export const NOTES_MAX_CHARS = 3000;
+
+export const NOTES_SPEC: ToolSpec = {
+  name: NOTES,
+  description:
+    "Write down what you have learned and decided, so it is in front of you on every step and survives when the conversation is shortened: what a picture or a page showed, what the skill said matters for this brief, what the person clarified, what you assumed. Send the whole text each time; it replaces what was there. Up to 3000 characters. Do not write the plan here, or the room list you are about to give design_layout.",
+  parameters: {
+    type: "object",
+    properties: {
+      text: { type: "string", description: "your notes, whole, in plain lines" },
+    },
+    required: ["text"],
+  },
+};
 
 export const PLAN_WORK_SPEC: ToolSpec = {
   name: PLAN_WORK,
@@ -114,6 +136,10 @@ export function applyPlan(current: readonly PlanItem[], raw: unknown): PlanResul
 
   const next: PlanItem[] = [];
   const seen = new Set<string>();
+  // An item sent without its id but with its text is the same item. A real run re-sent its list
+  // with the ids left off, was told it had dropped three unfinished jobs it had in fact kept, said
+  // the same thing three times and was stopped for stalling, a step short of finishing.
+  const byText = new Map(current.map((c) => [c.text.trim().toLowerCase(), c.id]));
   for (const [i, entry] of items.entries()) {
     const e = entry as { id?: unknown; text?: unknown; status?: unknown };
     const text = typeof e.text === "string" ? e.text.trim() : "";
@@ -127,7 +153,8 @@ export function applyPlan(current: readonly PlanItem[], raw: unknown): PlanResul
       };
     // An id the model kept is the item's identity; anything else gets one, so the editor can follow
     // a single job through a rewrite rather than redrawing the whole card.
-    const id = typeof e.id === "string" && e.id.trim() ? e.id.trim() : `p${i + 1}`;
+    const given = typeof e.id === "string" && e.id.trim() ? e.id.trim() : null;
+    const id = given ?? byText.get(text.toLowerCase()) ?? `p${i + 1}`;
     if (seen.has(id)) return { ok: false, error: `two items share the id "${id}"`, hint: "ids are unique" };
     seen.add(id);
     next.push({ id, text, status });
@@ -170,6 +197,28 @@ export function describePlan(items: readonly PlanItem[]): string {
 /** Whether any job is still waiting, which is what the plan gate asks. */
 export function planIsOpen(items: readonly PlanItem[]): boolean {
   return items.some((i) => i.status === "pending" || i.status === "doing");
+}
+
+export type NotesResult = { ok: true; text: string } | { ok: false; error: string; hint: string };
+
+/** The notes call, checked: text, and not too much of it. */
+export function applyNotes(raw: unknown): NotesResult {
+  const text = (raw as { text?: unknown } | null)?.text;
+  if (typeof text !== "string") return { ok: false, error: "text must be a string", hint: "send { text }" };
+  const trimmed = text.trim();
+  if (trimmed.length > NOTES_MAX_CHARS)
+    return {
+      ok: false,
+      error: `${trimmed.length} characters is over the ${NOTES_MAX_CHARS} the notes may hold`,
+      hint: "keep what still matters and drop the rest",
+    };
+  return { ok: true, text: trimmed };
+}
+
+/** The notes as the system prompt carries them, after the plan. */
+export function notesForPrompt(text: string): string {
+  if (!text) return "";
+  return `\n\nYour notes, as you wrote them:\n${text}`;
 }
 
 /** The plan as the system prompt carries it, so it survives anything done to the conversation. */

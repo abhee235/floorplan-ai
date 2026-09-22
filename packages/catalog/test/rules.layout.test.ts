@@ -426,6 +426,160 @@ describe("a room against the number of people it says it holds", () => {
     const hint = checkLayout(office(131.2, 100), null).problems.find(
       (p) => p.code === "design.too-small-for-capacity",
     )?.hint;
-    expect(hint).toContain("16");
+    // 131.2 m2 at 6 m2 a desk (ADR-028 D5) is twenty-one
+    expect(hint).toContain("21");
+  });
+});
+
+describe("a workplace has toilets (ADR-027 D8)", () => {
+  // A hundred-person office came out of a real run with no restroom: the checker had listed it under
+  // "missing", in a report nobody reads, and the building was built.
+  const office = (capacity: number, extra: Design["rooms"] = []) =>
+    DesignSchema.parse({
+      brief: "an office",
+      kind: "workplace",
+      levelId: null,
+      shell: { x: 0, y: 0, w: 40000, d: 20000, wallMm: 230, interiorWallMm: 115 },
+      rooms: [
+        {
+          key: "open",
+          name: "Open workspace",
+          purpose: "open-office",
+          rect: { x: 230, y: 230, w: 30000, d: 10000 },
+          doorsTo: ["hall"],
+          window: true,
+          capacity,
+        },
+        {
+          key: "hall",
+          name: "Hallway",
+          purpose: "corridor",
+          rect: { x: 230, y: 10500, w: 39540, d: 1500 },
+          doorsTo: ["outside"],
+        },
+        ...extra,
+      ],
+      circulation: ["hall"],
+      assumptions: [],
+    });
+  const wc: Design["rooms"][number] = {
+    key: "wc",
+    name: "Toilets",
+    purpose: "restroom",
+    rect: { x: 30345, y: 230, w: 4000, d: 3000 },
+    doorsTo: ["hall"],
+    window: false,
+    capacity: null,
+    glazed: false,
+  };
+
+  it("refuses forty people with nowhere to go", () => {
+    const p = checkLayout(office(40), CORE_RULES).problems.find((x) => x.code === "design.missing-room");
+    expect(p?.severity).toBe("error");
+    expect(p?.message).toContain("40 people needs toilets");
+  });
+
+  it("is satisfied by a restroom, and asks nothing of a room with a desk in it", () => {
+    expect(codes(office(40, [wc]))).not.toContain("design.missing-room");
+    expect(codes(office(8))).not.toContain("design.missing-room");
+  });
+});
+
+describe("the checker judges how, not what (ADR-028 D2, D3, D5)", () => {
+  it("makes a large room a warning, not an error", () => {
+    const d = flat((x) => {
+      room(x, "bath").purpose = "toilet";
+    });
+    expect(find(d, "too-large")?.severity).toBe("warning");
+    expect(errors(d)).not.toContain("design.too-large");
+  });
+
+  it("holds an open office to six square metres a desk, the desk zone and not the floor", () => {
+    const office = DesignSchema.parse({
+      brief: "an office",
+      kind: "workplace",
+      levelId: null,
+      shell: { x: 0, y: 0, w: 40000, d: 20000, wallMm: 230, interiorWallMm: 115 },
+      rooms: [
+        {
+          key: "open",
+          name: "Open workspace",
+          purpose: "open-office",
+          rect: { x: 230, y: 230, w: 30000, d: 20000 },
+          doorsTo: ["hall"],
+          window: true,
+          capacity: 100,
+        },
+        {
+          key: "hall",
+          name: "Hallway",
+          purpose: "corridor",
+          rect: { x: 30460, y: 230, w: 1500, d: 19540 },
+          doorsTo: ["outside", "wc"],
+        },
+        {
+          key: "wc",
+          name: "Toilets",
+          purpose: "restroom",
+          rect: { x: 32075, y: 230, w: 4000, d: 3000 },
+          doorsTo: ["hall"],
+        },
+      ],
+      circulation: ["hall"],
+      assumptions: [],
+    });
+    expect(codes(office)).not.toContain("design.too-small-for-capacity");
+  });
+
+  it("counts a glazed side as daylight, and an open room as lit by the floor", () => {
+    // the kitchen is against the south side of the flat, which here is glass the length of it
+    const glazed = flat((x) => {
+      x.shell.facade = { north: "windows", south: "glazed", east: "windows", west: "windows" };
+      room(x, "kitchen").window = false;
+    });
+    const dark = flat((x) => {
+      room(x, "kitchen").window = false;
+    });
+    const unlit = (d: Design) =>
+      checkLayout(d, CORE_RULES).problems.some(
+        (p) => p.code === "design.no-window" && p.entityId === "kitchen",
+      );
+    expect(unlit(glazed)).toBe(false);
+    expect(unlit(dark)).toBe(true);
+  });
+});
+
+describe("an overlap says how to clear it (ADR-028 D10)", () => {
+  it("names the smaller room and the rectangle that clears the larger one", () => {
+    const d = DesignSchema.parse({
+      brief: "a floor",
+      kind: "workplace",
+      levelId: null,
+      shell: { x: 0, y: 0, w: 20000, d: 12000, wallMm: 230, interiorWallMm: 115 },
+      rooms: [
+        {
+          key: "corridor",
+          name: "Corridor",
+          purpose: "corridor",
+          rect: { x: 0, y: 5000, w: 20000, d: 1500 },
+          doorsTo: ["outside"],
+        },
+        // drawn a metre into the corridor, as the live run drew its meeting rooms
+        {
+          key: "meet1",
+          name: "Meeting 1",
+          purpose: "meeting",
+          rect: { x: 0, y: 1500, w: 5000, d: 4500 },
+          doorsTo: ["corridor"],
+        },
+      ],
+      circulation: ["corridor"],
+      assumptions: [],
+    });
+    const p = checkLayout(d, CORE_RULES).problems.find((x) => x.code === "design.rooms-overlap");
+    expect(p?.hint).toContain(
+      'revise_design rooms: [{ key: "meet1", rect: { x: 0, y: 385, w: 5000, d: 4500 } }]',
+    );
+    expect(p?.hint).toContain("or shrink it instead: rect: { x: 0, y: 1500, w: 5000, d: 3385 }");
   });
 });

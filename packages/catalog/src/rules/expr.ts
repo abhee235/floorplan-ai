@@ -293,6 +293,16 @@ function builtin(name: string, args: Value[]): Value | undefined {
     case "abs":
       arity(1);
       return Math.abs(n(0));
+    case "max":
+    case "min": {
+      // The core pack's display steps have said max(75, ...) since they were written, and every
+      // one fell back to a fixed diagonal with a warning nobody read.
+      // The design rules' scope has its own max: max('display', 'diagonalIn') is the largest such
+      // spec among a room's items. Numbers are the arithmetic one; anything else is the scope's.
+      if (args.length < 1 || !args.every((a) => typeof a === "number")) return undefined;
+      const values = args.map((_, i) => n(i));
+      return name === "max" ? Math.max(...values) : Math.min(...values);
+    }
     case "sqrt":
       arity(1);
       if (n(0) < 0) throw new ExprError("sqrt of a negative number");

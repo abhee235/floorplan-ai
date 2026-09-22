@@ -13,7 +13,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { RulesPack } from "@fpv/catalog";
 import { newProjectId } from "@fpv/ir";
-import type { CatalogSearch, ExportWriter, PlanReader, ProductVerifier } from "@fpv/tools";
+import type { CatalogSearch, ExportWriter, PlanReader, ProductVerifier, WebAccess } from "@fpv/tools";
 import { blankProject } from "@fpv/tools";
 import { archiveName, packProject, readArchive } from "./archive.js";
 import { ProjectFileStore } from "./files.js";
@@ -39,6 +39,8 @@ export interface WorkspaceOptions {
   /** Built per project, because the export writer resolves paths against the project's own folder. */
   writer?: (files: ProjectFileStore) => ExportWriter | null;
   plans?: PlanReader | null;
+  /** The agent's web tools' search and fetch; null or absent without a search provider. */
+  web?: WebAccess | null;
   /** The run's log; each project gets a view of it stamped with its id. */
   log?: EventLog | null;
   /** Where projects are remembered, so an open is recorded wherever it came from. */
@@ -289,6 +291,7 @@ export class Workspace {
       ...(this.options.verifier !== undefined ? { verifier: this.options.verifier } : {}),
       ...(this.options.rules !== undefined ? { rules: this.options.rules } : {}),
       ...(this.options.plans !== undefined ? { plans: this.options.plans } : {}),
+      ...(this.options.web !== undefined ? { web: this.options.web } : {}),
       ...(this.options.writer ? { writer: this.options.writer(files) } : {}),
     });
     files.startAutosave();

@@ -138,7 +138,11 @@ describe("a new project has no file (ADR-012 D8)", () => {
     const session = createSession({ files, project: opened.project, now: () => NOW });
     expect(files.path()).toBe(project);
 
-    const made = await session.registry.call("project", { op: "new", name: "Untitled" });
+    const made = await session.registry.call(
+      "project",
+      { op: "new", name: "Untitled" },
+      { origin: "editor" },
+    );
     expect(made.ok).toBe(true);
     expect(files.path()).toBeNull();
 
@@ -185,7 +189,7 @@ describe("a new project has no file (ADR-012 D8)", () => {
     const dir = temp();
     const files = new ProjectFileStore({ now: () => NOW });
     const session = createSession({ files, now: () => NOW });
-    await session.registry.call("project", { op: "new", name: "Untitled" });
+    await session.registry.call("project", { op: "new", name: "Untitled" }, { origin: "editor" });
     const where = join(dir, "somewhere-new");
     const saved = await session.registry.call("project", { op: "save", path: where });
     expect(saved.ok).toBe(true);

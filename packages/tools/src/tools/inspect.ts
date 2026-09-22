@@ -232,6 +232,19 @@ export const validateTool = defineTool({
   },
 });
 
+/**
+ * What to do when the catalog has nothing: say so, and say what to place instead.
+ *
+ * A real run searched for a stool, a ping-pong table, a server rack three ways, a plant and coffee,
+ * twelve searches over twelve minutes before it placed anything, because an empty list says only
+ * "not this query" and invites the next one. The catalog is a list of products somebody verified;
+ * what is not in it will not be found by asking differently.
+ */
+function placeInstead(query: string): string {
+  const label = query.trim().slice(0, 40);
+  return `nothing in the catalog is a "${label}", and rewording will not find one; place a recipe instead: place_item with recipe { kind: "box", size: { w, d, h }, label: "${label}" } at the size it really is, or leave it out and say so in your answer`;
+}
+
 export const searchCatalog = defineTool({
   name: "search_catalog",
   description:
@@ -271,15 +284,37 @@ export const searchCatalog = defineTool({
     total: z.number(),
     cursor: z.string().nullable().optional(),
   }),
-  run(args, { ctx }) {
+  run(args, call) {
+    const { ctx } = call;
     const limit = args.limit ?? 20;
-    if (args.kind === "recipe") return searchRecipes(args.query, args.category, limit);
+    if (args.kind === "recipe") {
+      const found = searchRecipes(args.query, args.category, limit);
+      if (found.total === 0 && args.query.trim()) call.warn(placeInstead(args.query));
+      return found;
+    }
     const r = ctx.catalog.search({
       query: args.query,
       limit,
       ...(args.category ? { category: args.category } : {}),
       ...(args.cursor ? { cursor: args.cursor } : {}),
     });
+    // A filter that matched nothing is answered with where the matches are. A real run searched
+    // "desk" under category table twice, got nothing twice, and never found the three desks filed
+    // under desk; an empty list says "there are none", and that was not true.
+    if (r.total === 0 && args.category && args.query.trim()) {
+      const elsewhere = ctx.catalog.search({ query: args.query, limit: 20 });
+      if (elsewhere.total > 0) {
+        const counts = new Map<string, number>();
+        for (const h of elsewhere.hits) counts.set(h.category, (counts.get(h.category) ?? 0) + 1);
+        call.warn(
+          `nothing under category "${args.category}", but "${args.query}" matches ${elsewhere.total} elsewhere: ${[
+            ...counts,
+          ]
+            .map(([c, n]) => `${c} (${n})`)
+            .join(", ")}; search again with one of those categories, or none`,
+        );
+      } else call.warn(placeInstead(args.query));
+    } else if (r.total === 0 && args.query.trim()) call.warn(placeInstead(args.query));
     return { hits: r.hits, total: r.total, cursor: r.cursor ?? null };
   },
 });

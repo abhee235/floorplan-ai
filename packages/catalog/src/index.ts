@@ -194,8 +194,10 @@ export {
 } from "./verify/text.js";
 export {
   braveSearch,
+  type FetchedBytes,
   type FetchedPage,
   type FetchFn,
+  type ImageHit,
   type PageFetcher,
   SearchError,
   type SearchHit,

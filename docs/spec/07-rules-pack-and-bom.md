@@ -226,7 +226,9 @@ export const RoomRecipe = z.object({
     z.object({ op: z.literal("video-bar"), under: z.literal("display") }),
     z.object({ op: z.literal("ceiling-array"), category: z.enum(["ceiling-mic", "ceiling-speaker"]), perAreaM2: z.number(), minCount: z.number() }),
     z.object({ op: z.literal("by-door"), category: z.enum(["scheduler", "touch-panel"]), heightMm: z.number(), side: z.enum(["outside", "inside"]) }),
-    z.object({ op: z.literal("arrange"), pattern: z.string(), category: Category, countExpr: z.string(), spacingMm: z.number() }),
+    z.object({ op: z.literal("arrange"), pattern: z.string(), category: Category, countExpr: z.string(), spacingMm: z.number(),
+               seatsEach: z.number().int().default(0), sides: z.union([z.literal(1), z.literal(2)]).default(1),
+               perCluster: z.number().int().default(0), aisleMm: z.number().int().default(1500) }),
     z.object({ op: z.literal("whiteboard"), wall: z.enum(["auto", "opposite-display"]) }),
     z.object({ op: z.literal("along-wall"), category: Category,
                wall: z.enum(["auto", "opposite-display", "beside-display", "north", "south", "east", "west"]),
@@ -245,10 +247,15 @@ and returns unresolved constraints for the agent or user to verify.
 
 ### 4.1 Recipes as implemented (packages/tools/src/furnish.ts)
 
-The core pack ships `huddle` (2 to 5 seats), `boardroom` (6 to 20) and
-`training` (21 to 60). A recipe is chosen by explicit id, else by purpose
-with the capacity in range, else by capacity range alone, else the closest
-range. A room without a capacity gets one seat per 3 m².
+The core pack ships `huddle` (2 to 5 seats), `boardroom` (6 to 20),
+`training` (21 to 60), `meeting` (4 to 12), `open-office` (4 to 400),
+`cafeteria` (4 to 200) and `reception` (0 to 40); the last four arrived with
+ADR-027 D7 after a real run asked for each by name and was refused. A recipe
+is chosen by explicit id, else by purpose with the capacity in range, else --
+for the seated rooms only (huddle, meeting, boardroom, training), which are
+one kind of room at several sizes -- by capacity range alone, else the
+closest of those. An open office, a cafeteria or a reception is only ever
+chosen by its own purpose. A room without a capacity gets one seat per 3 m².
 
 Layout uses a frame on the display wall: the wall is the step's `wall`, or
 for `auto` the door-free wall opposite a door (`suggestedDisplayWall`).
@@ -262,12 +269,24 @@ for `auto` the door-free wall opposite a door (`suggestedDisplayWall`).
 - `chairs`: `pitchMm` apart along both long sides first, then the far end,
   then the display end with a warning; round tables get chairs evenly
   around them. Chairs face the table.
-- `arrange` with pattern `rows` (the only pattern recipes support so far):
-  tables with their length across the room, rows starting 2.5 m from the
-  display wall, 600 mm between tables, `spacingMm` between a row's chairs
-  and the next row, rows added while 900 mm stays behind the last chairs;
-  `seatsEach` (new field, default 0) chairs behind each table face the
-  display.
+- `arrange` with pattern `rows` or `bench`: tables with their length across
+  the room, rows starting 1.2 m (or a tenth of the depth) from the display
+  wall, `spacingMm` between one row (or bench pair) and the next, rows added
+  while 900 mm stays behind the last chairs. `seatsEach` chairs sit behind
+  each table; `sides: 2` puts them on both sides (a cafeteria table);
+  `perCluster` groups tables across the room with `aisleMm` between
+  clusters. `bench` lays rows in back-to-back pairs with nothing between
+  the pair's tables, the chairs on the outside facing away from each other,
+  and the aisle between one pair and the next: `open-office` is
+  `bench`, category `desk`, `perCluster: 3`, so a hundred desks are benches
+  of six in neighbourhoods, each desk with its chair. The `desk` category
+  falls back to the pack's `deskWidthMm` x `deskDepthMm` table when the
+  catalog has none.
+- `meeting` is `boardroom` at working clearances (900 mm, 700 mm chair
+  pitch, a 65-inch minimum display); `cafeteria` is rows of four-seat
+  tables, chairs both sides, one table per four of capacity; `reception` is a
+  2400 x 800 desk with its back to the wall facing the door and a sofa per
+  four of capacity along a side wall.
 - `display`: centred on the table (or the room), its back on the wall,
   centre at `centreHeightMm`, wall-mounted to that wall. `diagonalExpr` sees
   `seatDistanceMm`, the farthest seat from the display wall centre; without a
@@ -293,7 +312,9 @@ for `auto` the door-free wall opposite a door (`suggestedDisplayWall`).
   is how three `sanitary` steps choose three different fixtures. `shape` and
   `sizeMm` give the recipe placed when the catalog has nothing that fits, and
   `clearanceMm` the floor the item needs in front of it; too little of either is a
-  warning, never a silent placement.
+  warning, never a silent placement. An item taller than a window's sill is kept
+  out of the window's run unless the step says `beforeWindow: true`, which a
+  reception desk does: its back to the window is the ordinary thing.
 
 Product choice: every candidate of the category that is not rejected,
 fits, and satisfies the recipe's `productPreferences` constraints for that

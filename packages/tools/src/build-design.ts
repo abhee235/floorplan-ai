@@ -9,7 +9,16 @@
 //
 // Deterministic: the same design always gives the same commands, in the same order, so a design that
 // built once builds the same way again.
-import { type Design, type DesignRoom, OUTSIDE, onOutsideWall, sharedEdge } from "@fpv/ir";
+import {
+  type Design,
+  type DesignRoom,
+  enclosureOf,
+  mustBeWalled,
+  OUTSIDE,
+  onOutsideWall,
+  outsideSides,
+  sharedEdge,
+} from "@fpv/ir";
 
 /** Room edges and shell faces within this of each other are the same wall. */
 const SNAP_MM = 400;
@@ -32,7 +41,11 @@ interface Run {
   to: number;
   thickness: number;
   kind: "exterior" | "interior" | "glass";
+  /** On the outside of the building, whatever it is made of. */
+  shell?: boolean;
 }
+
+type Side = "north" | "south" | "east" | "west";
 
 export interface BuildPlan {
   commands: unknown[];
@@ -57,14 +70,25 @@ function centreOf(edge: number, facing: number | null, shellFace: number | null,
  * is the same line the other room computes, so the two agree and the wall is drawn once.
  */
 /**
- * What a wall of this room is made of.
+ * What stands between two rooms, by rule and not by which was listed first (ADR-028 D3).
  *
- * Outside walls are never glass here, whatever the room asked for: a glazed facade is a decision
- * about a building and this is a decision about a meeting room. Everything else a glazed room is
- * bounded by faces the rest of the floor, which is exactly what it is meant to be seen through.
+ * Solid if either must be (a restroom, a store, a server room); else glass if either is a glass
+ * box; else nothing when both are open floor; else solid. `null` is no wall at all. A room facing
+ * unaccounted space is treated as facing open floor. The builder used to keep whichever room came
+ * first, and a transcribed plan with the open workspace listed first lost every glass wall it had.
  */
-function kindOf(room: Design["rooms"][number], onShell: boolean): Run["kind"] {
-  return onShell ? "exterior" : room.glazed ? "glass" : "interior";
+export function wallBetween(a: DesignRoom, b: DesignRoom | null): Run["kind"] | null {
+  if (mustBeWalled(a) || (b && mustBeWalled(b))) return "interior";
+  const ea = enclosureOf(a);
+  const eb = b ? enclosureOf(b) : "open";
+  if (ea === "glass" || eb === "glass") return "glass";
+  if (ea === "open" && eb === "open") return null;
+  return "interior";
+}
+
+/** A side of the building: glass the length of it when the facade says so, else a solid outside wall. */
+function shellKind(design: Design, side: Side): Run["kind"] {
+  return design.shell.facade[side] === "glazed" ? "glass" : "exterior";
 }
 
 export function wallRuns(design: Design): Run[] {
@@ -80,70 +104,100 @@ export function wallRuns(design: Design): Run[] {
   const near = (a: number, b: number) => Math.abs(a - b) <= shell.wallMm + SNAP_MM;
 
   const segments: Run[] = [];
-  const push = (axis: Axis, at: number, from: number, to: number, thickness: number, kind: Run["kind"]) => {
-    if (to - from > 1) segments.push({ axis, at: Math.round(at), from, to, thickness, kind });
+  const push = (
+    axis: Axis,
+    at: number,
+    from: number,
+    to: number,
+    thickness: number,
+    kind: Run["kind"],
+    onShell = false,
+  ) => {
+    if (to - from > 1) segments.push({ axis, at: Math.round(at), from, to, thickness, kind, shell: onShell });
   };
 
   for (const r of design.rooms) {
     const { x, y, w, d } = r.rect;
-    // the nearest edge of another room facing this one, if there is one
-    const facingVertical = (edge: number, y0: number, y1: number, side: "west" | "east") => {
-      let best: number | null = null;
+    // Every other room whose edge faces this one along part of it, with the part. An edge that
+    // faces three rooms is three walls, each of its own kind: the open workspace's north edge in
+    // the rendering faces a glass suite, a solid server room and an open cafe, and one wall of
+    // one kind along the whole of it was wrong twice over.
+    type Facing = { edge: number; room: DesignRoom; from: number; to: number };
+    const facingAll = (edge: number, lo: number, hi: number, side: Side): Facing[] => {
+      const out: Facing[] = [];
       for (const other of design.rooms) {
         if (other.key === r.key) continue;
-        const theirs = side === "west" ? other.rect.x + other.rect.w : other.rect.x;
+        const vertical = side === "west" || side === "east";
+        const theirs = vertical
+          ? side === "west"
+            ? other.rect.x + other.rect.w
+            : other.rect.x
+          : side === "south"
+            ? other.rect.y + other.rect.d
+            : other.rect.y;
         if (Math.abs(theirs - edge) > shell.interiorWallMm + SNAP_MM) continue;
-        if (Math.min(y1, other.rect.y + other.rect.d) - Math.max(y0, other.rect.y) <= 1) continue;
-        if (best === null || Math.abs(theirs - edge) < Math.abs(best - edge)) best = theirs;
+        const from = Math.max(lo, vertical ? other.rect.y : other.rect.x);
+        const to = Math.min(hi, vertical ? other.rect.y + other.rect.d : other.rect.x + other.rect.w);
+        if (to - from <= 1) continue;
+        out.push({ edge: theirs, room: other, from, to });
       }
-      return best;
+      return out.sort((a, b) => a.from - b.from);
     };
-    const facingHorizontal = (edge: number, x0: number, x1: number, side: "south" | "north") => {
-      let best: number | null = null;
-      for (const other of design.rooms) {
-        if (other.key === r.key) continue;
-        const theirs = side === "south" ? other.rect.y + other.rect.d : other.rect.y;
-        if (Math.abs(theirs - edge) > shell.interiorWallMm + SNAP_MM) continue;
-        if (Math.min(x1, other.rect.x + other.rect.w) - Math.max(x0, other.rect.x) <= 1) continue;
-        if (best === null || Math.abs(theirs - edge) < Math.abs(best - edge)) best = theirs;
+    // The edge as a sequence of stretches: facing a room, or facing nothing.
+    const stretches = (edge: number, lo: number, hi: number, side: Side) => {
+      const parts: { from: number; to: number; facing: Facing | null }[] = [];
+      let cursor = lo;
+      for (const f of facingAll(edge, lo, hi, side)) {
+        if (f.from > cursor + 1) parts.push({ from: cursor, to: f.from, facing: null });
+        parts.push({ from: Math.max(f.from, cursor), to: f.to, facing: f });
+        cursor = Math.max(cursor, f.to);
       }
-      return best;
+      if (hi > cursor + 1) parts.push({ from: cursor, to: hi, facing: null });
+      return parts;
     };
 
     for (const side of ["west", "east"] as const) {
       const edge = side === "west" ? x : x + w;
       const onShell = near(edge, side === "west" ? shell.x : shell.x + shell.w);
-      const at = centreOf(
-        edge,
-        onShell ? null : facingVertical(edge, y, y + d, side),
-        onShell ? (side === "west" ? shellLine.west : shellLine.east) : null,
-        shell.wallMm,
-      );
-      push("v", at, y, y + d, onShell ? shell.wallMm : shell.interiorWallMm, kindOf(r, onShell));
+      if (onShell) {
+        const at = side === "west" ? shellLine.west : shellLine.east;
+        push("v", at, y, y + d, shell.wallMm, shellKind(design, side), true);
+        continue;
+      }
+      for (const part of stretches(edge, y, y + d, side)) {
+        const kind = wallBetween(r, part.facing?.room ?? null);
+        if (kind === null) continue;
+        const at = centreOf(edge, part.facing?.edge ?? null, null, shell.wallMm);
+        push("v", at, part.from, part.to, shell.interiorWallMm, kind);
+      }
     }
     for (const side of ["south", "north"] as const) {
       const edge = side === "south" ? y : y + d;
       const onShell = near(edge, side === "south" ? shell.y : shell.y + shell.d);
-      const at = centreOf(
-        edge,
-        onShell ? null : facingHorizontal(edge, x, x + w, side),
-        onShell ? (side === "south" ? shellLine.south : shellLine.north) : null,
-        shell.wallMm,
-      );
-      push("h", at, x, x + w, onShell ? shell.wallMm : shell.interiorWallMm, kindOf(r, onShell));
+      if (onShell) {
+        const at = side === "south" ? shellLine.south : shellLine.north;
+        push("h", at, x, x + w, shell.wallMm, shellKind(design, side), true);
+        continue;
+      }
+      for (const part of stretches(edge, x, x + w, side)) {
+        const kind = wallBetween(r, part.facing?.room ?? null);
+        if (kind === null) continue;
+        const at = centreOf(edge, part.facing?.edge ?? null, null, shell.wallMm);
+        push("h", at, part.from, part.to, shell.interiorWallMm, kind);
+      }
     }
   }
 
   // the shell itself, so the building is closed even where no room reaches the edge
-  push("h", shellLine.south, shellLine.west, shellLine.east, shell.wallMm, "exterior");
-  push("h", shellLine.north, shellLine.west, shellLine.east, shell.wallMm, "exterior");
-  push("v", shellLine.west, shellLine.south, shellLine.north, shell.wallMm, "exterior");
-  push("v", shellLine.east, shellLine.south, shellLine.north, shell.wallMm, "exterior");
+  push("h", shellLine.south, shellLine.west, shellLine.east, shell.wallMm, shellKind(design, "south"), true);
+  push("h", shellLine.north, shellLine.west, shellLine.east, shell.wallMm, shellKind(design, "north"), true);
+  push("v", shellLine.west, shellLine.south, shellLine.north, shell.wallMm, shellKind(design, "west"), true);
+  push("v", shellLine.east, shellLine.south, shellLine.north, shell.wallMm, shellKind(design, "east"), true);
 
   // merge what lies on the same line: one wall along a row of rooms, not one per room
   const byLine = new Map<string, Run[]>();
   for (const s of segments) {
-    const key = `${s.axis}:${s.at}:${s.kind}`;
+    const key = `${s.axis}:${s.at}:${s.kind}:${s.shell ? "shell" : "in"}`;
     byLine.set(key, [...(byLine.get(key) ?? []), s]);
   }
   const runs: Run[] = [];
@@ -161,14 +215,14 @@ export function wallRuns(design: Design): Run[] {
     }
     runs.push(current);
   }
-  // drop an interior run that an exterior one already covers: a room against the shell says both
+  // drop an inside run that a shell run already covers: a room against the shell says both
   return runs
     .filter(
       (r) =>
-        r.kind === "exterior" ||
+        r.shell ||
         !runs.some(
           (e) =>
-            e.kind === "exterior" &&
+            e.shell &&
             e.axis === r.axis &&
             Math.abs(e.at - r.at) <= shell.wallMm &&
             e.from - SNAP_MM <= r.from &&
@@ -177,7 +231,7 @@ export function wallRuns(design: Design): Run[] {
     )
     .sort(
       (a, b) =>
-        (a.kind === b.kind ? 0 : a.kind === "exterior" ? -1 : 1) ||
+        (Boolean(a.shell) === Boolean(b.shell) ? 0 : a.shell ? -1 : 1) ||
         a.axis.localeCompare(b.axis) ||
         a.at - b.at ||
         a.from - b.from,
@@ -223,24 +277,26 @@ function doorBetween(a: DesignRoom, b: DesignRoom, gapMm: number): { x: number; 
   return { x: Math.round((from + to) / 2), y: Math.round(y) };
 }
 
-/** The middle of the room's longest side that lies on the outside of the building. */
+/** The middle of the room's longest side that lies on the outside of the building, and which side. */
 function outsideSpot(
   room: DesignRoom,
   shell: Design["shell"],
   gapMm: number,
-): { x: number; y: number } | null {
+): { at: { x: number; y: number }; side: Side; length: number } | null {
   const { x, y, w, d } = room.rect;
-  const sides: { at: { x: number; y: number }; length: number }[] = [];
+  const sides: { at: { x: number; y: number }; length: number; side: Side }[] = [];
   if (Math.abs(x - shell.x) <= gapMm)
-    sides.push({ at: { x: shell.x + shell.wallMm / 2, y: y + d / 2 }, length: d });
+    sides.push({ at: { x: shell.x + shell.wallMm / 2, y: y + d / 2 }, length: d, side: "west" });
   if (Math.abs(shell.x + shell.w - (x + w)) <= gapMm)
-    sides.push({ at: { x: shell.x + shell.w - shell.wallMm / 2, y: y + d / 2 }, length: d });
+    sides.push({ at: { x: shell.x + shell.w - shell.wallMm / 2, y: y + d / 2 }, length: d, side: "east" });
   if (Math.abs(y - shell.y) <= gapMm)
-    sides.push({ at: { x: x + w / 2, y: shell.y + shell.wallMm / 2 }, length: w });
+    sides.push({ at: { x: x + w / 2, y: shell.y + shell.wallMm / 2 }, length: w, side: "south" });
   if (Math.abs(shell.y + shell.d - (y + d)) <= gapMm)
-    sides.push({ at: { x: x + w / 2, y: shell.y + shell.d - shell.wallMm / 2 }, length: w });
+    sides.push({ at: { x: x + w / 2, y: shell.y + shell.d - shell.wallMm / 2 }, length: w, side: "north" });
   const best = sides.sort((a, b) => b.length - a.length)[0];
-  return best ? { x: Math.round(best.at.x), y: Math.round(best.at.y) } : null;
+  return best
+    ? { at: { x: Math.round(best.at.x), y: Math.round(best.at.y) }, side: best.side, length: best.length }
+    : null;
 }
 
 export interface OpeningWanted {
@@ -261,20 +317,23 @@ export function openingsWanted(design: Design): { wanted: OpeningWanted[]; warni
   const wanted: OpeningWanted[] = [];
   const warnings: string[] = [];
   const done = new Set<string>();
+  /** Which side of the building each room's entrance is on, so its window keeps clear of the door. */
+  const entrances = new Map<string, Side>();
   for (const r of design.rooms)
     for (const to of r.doorsTo) {
       const pair = [r.key, to].sort().join("|");
       if (done.has(pair)) continue;
       done.add(pair);
       if (to === OUTSIDE) {
-        const at = outsideSpot(r, design.shell, gap);
-        if (!at) {
+        const spot = outsideSpot(r, design.shell, gap);
+        if (!spot) {
           warnings.push(`${r.name} has a door to the outside but no wall on the outside of the building`);
           continue;
         }
+        entrances.set(r.key, spot.side);
         wanted.push({
           kind: "door",
-          at,
+          at: spot.at,
           width: ENTRANCE_MM,
           height: DOOR_HEIGHT_MM,
           sill: 0,
@@ -284,6 +343,8 @@ export function openingsWanted(design: Design): { wanted: OpeningWanted[]; warni
       }
       const other = byKey.get(to);
       if (!other) continue;
+      // Two open rooms have no wall between them to hang a door in; they are one floor.
+      if (wallBetween(r, other) === null) continue;
       const at = doorBetween(r, other, gap);
       if (!at) {
         warnings.push(`${r.name} and ${other.name} have a door between them but do not share a wall`);
@@ -304,16 +365,33 @@ export function openingsWanted(design: Design): { wanted: OpeningWanted[]; warni
       warnings.push(`${r.name} wants a window but has no wall on the outside of the building`);
       continue;
     }
-    const at = outsideSpot(r, design.shell, gap);
-    if (at)
-      wanted.push({
-        kind: "window",
-        at,
-        width: WINDOW_MM,
-        height: WINDOW_MM,
-        sill: WINDOW_SILL_MM,
-        between: r.name,
-      });
+    // A glazed side is one window the length of the building: nothing to punch (ADR-028 D3).
+    if (outsideSides(r, design.shell, gap).every((side) => design.shell.facade[side] === "glazed")) continue;
+    const spot = outsideSpot(r, design.shell, gap);
+    if (!spot || design.shell.facade[spot.side] === "glazed") continue;
+    let at = spot.at;
+    if (entrances.get(r.key) === spot.side) {
+      // The entrance is centred on this side already. The window moves a quarter of the way along,
+      // or is dropped when the side is too short for both; two openings centred on one wall was
+      // how a transcribed reception refused to build (ADR-028 D4).
+      const shift = spot.length / 4;
+      if (shift < (ENTRANCE_MM + WINDOW_MM) / 2 + MARGIN_MM) {
+        warnings.push(`${r.name}'s side is too short for its entrance and a window; the window is left out`);
+        continue;
+      }
+      at =
+        spot.side === "south" || spot.side === "north"
+          ? { x: at.x + shift, y: at.y }
+          : { x: at.x, y: at.y + shift };
+    }
+    wanted.push({
+      kind: "window",
+      at,
+      width: WINDOW_MM,
+      height: WINDOW_MM,
+      sill: WINDOW_SILL_MM,
+      between: r.name,
+    });
   }
   return { wanted, warnings };
 }

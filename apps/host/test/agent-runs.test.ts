@@ -3,7 +3,7 @@
 // The runner's own rules are tested in @fpv/agents against scripts. These are the host's part: one
 // run at a time, the conversation a follow-up needs, the events a tab draws, the checkpoint that
 // makes a run undoable, and what happens to a question when the person walks away.
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -11,6 +11,7 @@ import {
   type Completion,
   type CompletionRequest,
   DEFAULT_PROFILE,
+  loadSkills,
   type Provider,
 } from "@fpv/agents";
 import type { AgentEventMsg, AgentWireEvent } from "@fpv/commands";
@@ -210,6 +211,30 @@ describe("which tools the model is shown", () => {
   });
 });
 
+describe("who did what, in the run file", () => {
+  it("marks the architect's calls as the architect's, not the parent's", async () => {
+    // The architect's events were written to the run file with nothing to tell them from the
+    // parent's, so a log could not say whether plan_rooms had been called by the model or by the
+    // sub-run it delegated to. One scripted provider serves both: the parent asks for a design, the
+    // architect it spawns reads the scene and answers, and the parent answers.
+    const { agent, held, done, seen } = await setup([
+      () => reply(null, [{ id: "c1", name: "design_layout", args: { brief: "a one bedroom flat" } }]),
+      () => reply(null, [{ id: "a1", name: "get_scene", args: { detail: "summary" } }]),
+      () => reply("The architect could not settle a design."),
+      () => reply("Nothing was built."),
+    ]);
+    agent.start(held, { text: "build a one bedroom flat" });
+    await done();
+
+    const theirs = seen.filter((m) => m.by === "architect");
+    const mine = seen.filter((m) => !m.by);
+    expect(theirs.some((m) => m.event.type === "tool.started" && m.event.name === "get_scene")).toBe(true);
+    expect(mine.some((m) => m.event.type === "tool.started" && m.event.name === "design_layout")).toBe(true);
+    // And never the other way round: the sub-run's read is not attributed to the parent.
+    expect(mine.some((m) => m.event.type === "tool.started" && m.event.name === "get_scene")).toBe(false);
+  });
+});
+
 describe("a conversation that carries on", () => {
   it("remembers the turn before, so a follow-up knows what it means", async () => {
     const provider = scripted([() => reply("Done.")]);
@@ -351,3 +376,156 @@ async function waitFor<T>(get: () => T | undefined, tries = 200): Promise<T> {
   }
   throw new Error("it never arrived");
 }
+
+describe("what the model reads (ADR-027)", () => {
+  const PNG =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+  it("writes the notes down, reads them back, and numbers runs from the files", async () => {
+    const dir = temp();
+    const first = await setup(
+      [
+        () => reply(null, [{ id: "c1", name: "notes", args: { text: "the picture shows a courtyard" } }]),
+        () => reply("Noted."),
+      ],
+      { dataDir: dir },
+    );
+    first.agent.start(first.held, { text: "look at this" });
+    await first.done();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(readFileSync(join(dir, "agents", first.held.id, "notes.md"), "utf8")).toBe(
+      "the picture shows a courtyard\n",
+    );
+    expect(first.of("notes.updated").map((e) => e.text)).toEqual(["the picture shows a courtyard"]);
+
+    // a new host over the same files: the notes are in the prompt and the next run is run_2
+    const provider = scripted([() => reply("Still here.")]);
+    const again = new AgentRuns(first.workspace, { provider, now: () => NOW, dataDir: dir });
+    await again.load(first.held.id);
+    const finished = new Promise<void>((resolve) => {
+      const stop = again.onEvent((_p, m) => {
+        if (m.event.type === "run.finished") {
+          stop();
+          resolve();
+        }
+      });
+    });
+    const started = again.start(first.held, { text: "and now?" });
+    expect(started).toEqual({ ok: true, runId: "run_2" });
+    await finished;
+    expect(provider.requests[0]?.system).toContain(
+      "Your notes, as you wrote them:\nthe picture shows a courtyard",
+    );
+  });
+
+  it("starts every run with no plan: nothing from the last one is shown or handed to the model", async () => {
+    // The owner sent a message and a list of twelve jobs appeared within a millisecond: the plan a
+    // stopped run had left, shown before the model had read a word. A plan is its run's own.
+    const { agent, held, done, seen } = await setup([
+      () =>
+        reply(null, [
+          {
+            id: "c1",
+            name: "plan_work",
+            args: { items: [{ id: "a", text: "furnish the office", status: "pending" }] },
+          },
+        ]),
+      () => reply("Stopping here."),
+      () => reply("Stopping here."),
+      () => reply("Stopped."),
+      () => reply("That is a logo, not a floor plan."),
+    ]);
+    agent.start(held, { text: "build an office" });
+    await done();
+    const before = seen.length;
+    const provider = (agent as unknown as { options: { provider: { requests: CompletionRequest[] } } })
+      .options.provider;
+    const asked = provider.requests.length;
+
+    agent.start(held, { text: "what is this?" });
+    await done();
+    const later = seen.slice(before).map((m) => m.event);
+    expect(later.some((e) => e.type === "plan.updated")).toBe(false);
+    expect(provider.requests[asked]?.system).not.toContain("furnish the office");
+    expect(later.some((e) => e.type === "reminder" && e.gate === "plan")).toBe(false);
+  });
+
+  it("tells the model how to read what was attached, and offers look_at only to a model that can see", async () => {
+    const provider = scripted([() => reply("A logo.")]);
+    provider.profile.vision = true;
+    const seeing = await setup([], { provider });
+    seeing.agent.start(seeing.held, {
+      text: "what is this?",
+      attachments: [{ name: "logo.png", mime: "image/png", data: PNG }],
+    });
+    await seeing.done();
+    const first = provider.requests[0];
+    expect(first?.tools?.map((t) => t.name)).toContain("look_at");
+    const text = JSON.stringify(first?.messages[0]?.content);
+    expect(text).toContain("logo.png (attachment a1, image/png, 0 KB)");
+    expect(text).toContain("looked at with look_at");
+
+    const unsighted = scripted([() => reply("A logo.")]);
+    const blind = await setup([], { provider: unsighted });
+    blind.agent.start(blind.held, {
+      text: "what is this?",
+      attachments: [{ name: "logo.png", mime: "image/png", data: PNG }],
+    });
+    await blind.done();
+    const second = unsighted.requests[0];
+    expect(second?.tools?.map((t) => t.name)).not.toContain("look_at");
+    // and never the web, in a session without a search provider
+    expect(second?.tools?.map((t) => t.name)).not.toContain("web_search");
+  });
+});
+
+describe("a skill read is on the record", () => {
+  it("shows read_skill as a call, unlike the loop tools that have cards of their own", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "fpv-skill-"));
+    mkdirSync(join(dir, "office-layout"), { recursive: true });
+    writeFileSync(
+      join(dir, "office-layout", "SKILL.md"),
+      "---\nname: office-layout\ndescription: offices\n---\n# Office\n\nBenches of six.\n",
+    );
+    const { agent, held, done, of } = await setup(
+      [
+        () => reply(null, [{ id: "c1", name: "read_skill", args: { name: "office-layout" } }]),
+        () => reply(null, [{ id: "c2", name: "notes", args: { text: "benches of six" } }]),
+        () => reply("Read it."),
+      ],
+      { skills: loadSkills([dir]) },
+    );
+    agent.start(held, { text: "design an office" });
+    await done();
+    const calls = of("tool.started");
+    expect(calls.map((c) => c.name)).toEqual(["read_skill"]);
+    expect(calls[0]?.summary).toBe("Reading the office-layout skill");
+    expect(of("notes.updated").map((e) => e.text)).toEqual(["benches of six"]);
+  });
+});
+
+describe("a refused loop-tool call is on the record", () => {
+  it("shows plan_work's refusal as a warning rather than nothing at all", async () => {
+    const { agent, held, done, of } = await setup([
+      () =>
+        reply(null, [
+          {
+            id: "c1",
+            name: "plan_work",
+            args: {
+              items: [
+                { id: "a", text: "walls", status: "doing" },
+                { id: "a", text: "rooms", status: "pending" },
+              ],
+            },
+          },
+        ]),
+      () => reply("Stopping."),
+    ]);
+    agent.start(held, { text: "build" });
+    await done();
+    const warned = of("warning").map((w) => w.message);
+    expect(warned.some((m) => m.startsWith("plan_work was refused:") && m.includes('"a"'))).toBe(true);
+    expect(of("tool.started").map((c) => c.name)).not.toContain("plan_work");
+  });
+});

@@ -33,7 +33,17 @@ function furnish(call: ToolCall, room: Room, options: FurnishOptions) {
     for (const r of results)
       if (r.result && typeof r.result === "object" && "ref" in (r.result as object))
         placed.push(r.result as Item);
-  } else call.warn("nothing to place; the room already has everything the recipe adds");
+  } else {
+    // Say which it was. "Already has everything" was said of an empty cafeteria in which nothing had
+    // fitted, and the model had to work out from a second warning that it was not true.
+    const tag = `recipe:${plan.recipe.id}`;
+    const already = p.items.some((i) => i.roomId === room.id && i.tags.includes(tag));
+    call.warn(
+      already
+        ? "nothing to place; the room already has everything the recipe adds"
+        : `nothing from the ${plan.recipe.id} recipe fitted this room; the warnings above say why. Place what it needs with describe_room and place_item, or change the room`,
+    );
+  }
   for (const u of plan.unresolved)
     call.warn(
       `no catalog ${u.category} matches ${u.constraint}; placed a ${u.placedAs} (verify_product can add one)`,
@@ -63,7 +73,9 @@ export const furnishRoom = defineTool({
     recipe: z
       .string()
       .optional()
-      .describe("huddle, boardroom or training; default chosen by purpose and capacity"),
+      .describe(
+        "a recipe id from the pack: huddle, meeting, boardroom, training, open-office (benched desks with their chairs), cafeteria, reception, or a home's bedroom, living, kitchen, dining, bathroom, toilet, study, laundry; left out, chosen by the room's purpose and capacity",
+      ),
     replace: z.boolean().optional().describe("true removes the room's items first"),
     preferences: z
       .object({

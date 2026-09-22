@@ -50,6 +50,32 @@ export function roomKeys(words: readonly string[]): string[] {
 /** The world outside the building, as somewhere a door can lead. */
 export const OUTSIDE = "outside" as const;
 
+/**
+ * What stands between a room and the rest of the floor (ADR-028 D3).
+ *
+ * `walled` is plaster; `glass` is a glass box, which a meeting room in a modern office is; `open`
+ * is no wall at all, a zone on the floor with a name -- the desks, the cafe, the breakout. A
+ * cafeteria open to the workspace was in the picture the owner drew from, and the design had no
+ * way to say it.
+ */
+export const Enclosure = z.enum(["walled", "glass", "open"]);
+export type Enclosure = z.infer<typeof Enclosure>;
+
+/** Rooms that keep solid walls whatever the design says, for privacy, security and fire separation. */
+export const WALLED_ALWAYS: ReadonlySet<string> = new Set([
+  "restroom",
+  "toilet",
+  "bathroom",
+  "utility",
+  "storage",
+  "laundry",
+  "garage",
+]);
+
+/** A side of the building: punched windows, or one glass wall the length of it. */
+export const Facade = z.enum(["windows", "glazed"]);
+export type Facade = z.infer<typeof Facade>;
+
 export const DesignRect = z.object({
   /** South-west corner of the clear inside, in mm. */
   x: Mm,
@@ -151,7 +177,35 @@ export const DesignRoom = z.object({
    * room; left unsaid, the packer decides from what the room is for.
    */
   glazed: z.boolean().default(false),
+  /**
+   * What stands between this room and the floor: walls, glass, or nothing. Left unsaid, `glazed`
+   * decides, so a design written before this field existed still reads the same way.
+   */
+  enclosure: Enclosure.optional(),
 });
+
+/**
+ * The room's enclosure, with the older `glazed` flag read as glass.
+ *
+ * A corridor or a foyer left unsaid is open: it is floor, and the walls along it belong to the rooms
+ * on either side. Walled by default, a corridor was plastered off from the open office it ran into,
+ * and two hallways meeting got a wall and a door between them that the builder could not fit.
+ */
+export function enclosureOf(room: {
+  enclosure?: Enclosure | undefined;
+  glazed?: boolean;
+  purpose?: string;
+}): Enclosure {
+  if (room.enclosure) return room.enclosure;
+  if (room.glazed) return "glass";
+  return room.purpose === "corridor" || room.purpose === "foyer" ? "open" : "walled";
+}
+
+/**
+ * Whether the room must keep solid walls: a service room, whatever the design asked for. A model
+ * asked for an open-plan restroom once; nobody else needs to.
+ */
+export const mustBeWalled = (room: { purpose: string }): boolean => WALLED_ALWAYS.has(room.purpose);
 
 export const Design = z.object({
   /** The words this was designed for, so a later round can tell whether the brief changed. */
@@ -168,6 +222,18 @@ export const Design = z.object({
     wallMm: MmPositive.default(230),
     /** Inside wall thickness; 100 to 120. */
     interiorWallMm: MmPositive.default(115),
+    /**
+     * Each side of the building: punched windows, the default, or `glazed`, a glass wall the length
+     * of the side with no separate windows, which counts as daylight for every room along it.
+     */
+    facade: z
+      .object({
+        north: Facade.default("windows"),
+        south: Facade.default("windows"),
+        east: Facade.default("windows"),
+        west: Facade.default("windows"),
+      })
+      .default({}),
   }),
   rooms: z.array(DesignRoom).min(1),
   /** Keys of the rooms that are circulation: a hall, a corridor, a landing. */
@@ -209,6 +275,26 @@ export function sharedEdge(a: DesignRect, b: DesignRect, gapMm: number): number 
     return Math.max(0, overlap);
   }
   return 0;
+}
+
+/** The sides of the building this room's rectangle lies against. */
+export function outsideSides(
+  room: { rect: DesignRect },
+  shell: Pick<Design["shell"], "x" | "y" | "w" | "d">,
+  gapMm: number,
+): ("north" | "south" | "east" | "west")[] {
+  const { rect } = room;
+  const out: ("north" | "south" | "east" | "west")[] = [];
+  if (Math.abs(rect.x - shell.x) <= gapMm) out.push("west");
+  if (Math.abs(rect.y - shell.y) <= gapMm) out.push("south");
+  if (Math.abs(shell.x + shell.w - (rect.x + rect.w)) <= gapMm) out.push("east");
+  if (Math.abs(shell.y + shell.d - (rect.y + rect.d)) <= gapMm) out.push("north");
+  return out;
+}
+
+/** True when a side of the room is on a glazed side of the building: daylight without a window. */
+export function onGlazedSide(room: DesignRoom, shell: Design["shell"], gapMm: number): boolean {
+  return outsideSides(room, shell, gapMm).some((side) => shell.facade[side] === "glazed");
 }
 
 /** True when the room has a side on the outside of the building, so a window is possible. */

@@ -19,16 +19,21 @@ import {
   ASK_USER_SPEC,
   type AskRequest,
   answerText,
+  applyNotes,
   applyPlan,
   CONSENT_NO,
   CONSENT_NONE,
   describePlan,
   LOOP_TOOL_NAMES,
+  NOTES,
+  NOTES_SPEC,
+  notesForPrompt,
   PLAN_WORK,
   PLAN_WORK_SPEC,
   type PlanItem,
   parseAsk,
   planForPrompt,
+  READ_SKILL,
 } from "./loop-tools.js";
 import {
   type ChatMessage,
@@ -40,6 +45,7 @@ import {
   type ToolSpec,
   type Usage,
 } from "./provider.js";
+import { READ_SKILL_SPEC, readSkill, type Skill } from "./skills.js";
 
 export type StopReason = "done" | "step-budget" | "provider-error" | "stalled" | "aborted" | "context-full";
 
@@ -79,6 +85,8 @@ export type AgentEvent =
     }
   /** The model rewrote its plan, and this is the plan now. */
   | { type: "plan.updated"; step: number; at: string; items: PlanItem[] }
+  /** The model rewrote its notes (ADR-027 D2), and this is what it has written down. */
+  | { type: "notes.updated"; step: number; at: string; text: string }
   /** The model asked the person something; the loop waits here until `ask` answers. */
   | { type: "question"; step: number; at: string; request: AskRequest }
   | { type: "question.answered"; step: number; at: string; id: string; answers: Record<string, string> }
@@ -134,12 +142,21 @@ export interface AgentOptions {
   retryDelayMs?: number;
   maxTokens?: number;
   signal?: AbortSignal;
-  /** The plan this run starts with, and how a question reaches a person. */
+  /** The plan and notes this run starts with, and how a question reaches a person. */
   loop?: {
+    /**
+     * A plan from an earlier run of the same conversation. It is shown, not enforced: the plan gate
+     * stays quiet until this run has written a plan of its own, and plan_work may drop inherited
+     * items without a word (ADR-027 D5).
+     */
     plan?: readonly PlanItem[];
+    /** Notes from an earlier run, pinned into the prompt from the first step. */
+    notes?: string;
     /** Resolves when the person answers; rejects when the run is abandoned. */
     ask?(request: AskRequest): Promise<Record<string, string>>;
   };
+  /** Skills the model may read with read_skill; none means the tool is not offered. */
+  skills?: readonly Skill[];
   /**
    * How the conversation is kept inside the window (ADR-025).
    *
@@ -180,6 +197,8 @@ export interface AgentRun {
   messages: ChatMessage[];
   /** The plan as the run left it, for the next turn of the same conversation. */
   plan: PlanItem[];
+  /** The notes as the run left them. */
+  notes: string;
 }
 
 /**
@@ -196,7 +215,24 @@ export interface AgentRun {
  * model, so a run that reaches it is one somebody should look at.
  */
 export const DEFAULT_MAX_STEPS = 200;
+
+/** JSON with its keys sorted at every level, so two spellings of one value compare equal. */
+export function canonical(value: unknown): string {
+  const sort = (v: unknown): unknown =>
+    Array.isArray(v)
+      ? v.map(sort)
+      : v && typeof v === "object"
+        ? Object.fromEntries(
+            Object.keys(v as Record<string, unknown>)
+              .sort()
+              .map((k) => [k, sort((v as Record<string, unknown>)[k])]),
+          )
+        : v;
+  return JSON.stringify(sort(value));
+}
 export const DEFAULT_MAX_RESULT_CHARS = 16_000;
+/** Replies the server could not read that a run survives by telling the model; the next one ends it. */
+export const UNREADABLE_REPLIES = 2;
 /** The same failing call this many times in a row ends the run. */
 const STALL_REPEATS = 3;
 /** This many tool calls in a row made of at most two distinct calls is a loop, and ends the run. */
@@ -287,9 +323,18 @@ function imagesIn(result: unknown): string[] {
   const images = (result as { result?: { images?: unknown } } | null)?.result?.images;
   if (!Array.isArray(images)) return [];
   return images.flatMap((i) => {
-    const png = (i as { pngBase64?: unknown }).pngBase64;
-    return typeof png === "string" && png ? [`data:image/png;base64,${png}`] : [];
+    const { pngBase64: png, mime } = i as { pngBase64?: unknown; mime?: unknown };
+    const type = typeof mime === "string" && mime.startsWith("image/") ? mime : "image/png";
+    return typeof png === "string" && png ? [`data:${type};base64,${png}`] : [];
   });
+}
+
+/** What the lifted picture is introduced as: the tool's own words when it has them. */
+function captionOf(result: unknown): string {
+  const caption = (result as { result?: { caption?: unknown } } | null)?.result?.caption;
+  return typeof caption === "string" && caption.trim()
+    ? `${caption.trim()} Look at it, and write what it shows into notes before you go on.`
+    : "This is what the editor draws now. Look at it, and say what is wrong.";
 }
 
 /**
@@ -311,7 +356,7 @@ function liftImages(messages: ChatMessage[], result: unknown, max: number): void
   messages.push({
     role: "user",
     content: [
-      { type: "text", text: "This is what the editor draws now. Look at it, and say what is wrong." },
+      { type: "text", text: captionOf(result) },
       ...urls.map((url) => ({ type: "image_url" as const, image_url: { url } })),
     ],
   });
@@ -366,6 +411,8 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
   const tools: ToolSpec[] = [
     ...options.tools,
     ...(given.has(PLAN_WORK) ? [] : [PLAN_WORK_SPEC]),
+    ...(given.has(NOTES) ? [] : [NOTES_SPEC]),
+    ...(options.skills?.length && !given.has(READ_SKILL) ? [READ_SKILL_SPEC] : []),
     ...(options.loop?.ask && !given.has(ASK_USER) ? [ASK_USER_SPEC] : []),
   ];
   const known = new Set(tools.map((t) => t.name));
@@ -373,6 +420,12 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
   const messages: ChatMessage[] = [...(options.history ?? []), { role: "user", content: options.task }];
   const usage: Usage = { promptTokens: 0, completionTokens: 0 };
   let plan: PlanItem[] = [...(options.loop?.plan ?? [])];
+  // Whether this run has written a plan of its own. Until it has, the plan above is somebody else's
+  // -- an earlier run's, possibly a stopped one -- and neither the gate nor plan_work's invariant
+  // holds the model to it. A real run was told to carry on furnishing an office that a different
+  // message had asked for, and spent three steps failing to drop the items (ADR-027 D5).
+  let planTouched = false;
+  let notes = options.loop?.notes ?? "";
   const released = new Set<string>(options.released ?? []);
   let gates: GateState = newGateState();
   const mutating = options.mutatingTools ?? new Set<string>();
@@ -388,12 +441,12 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
   // What every prompt costs before a word of conversation: the system prompt and the tool schemas,
   // re-sent on every step. Measured at 48% of a 32,768-token window, which is why the floor
   // compaction can reach is an absolute number and not a share (ADR-025).
+  const pinned = () => `${planForPrompt(plan)}${notesForPrompt(notes)}`;
+  const fixedTokens = () =>
+    estimateTokens(options.system) + estimateTokens(JSON.stringify(tools)) + estimateTokens(pinned());
   const budget: Budget = {
     contextTokens: options.provider.profile.contextTokens,
-    fixedTokens:
-      estimateTokens(options.system) +
-      estimateTokens(JSON.stringify(tools)) +
-      estimateTokens(planForPrompt(plan)),
+    fixedTokens: fixedTokens(),
     ...(options.compaction?.reserve !== undefined ? { reserve: options.compaction.reserve } : {}),
   };
   const compaction = options.compaction?.enabled === false ? null : (options.compaction ?? {});
@@ -408,6 +461,8 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
   const recent: string[] = [];
   let lastPromptTokens = 0;
   let warnedTruncation = false;
+  // Replies the server could not read, answered by telling the model so (see below).
+  let unreadable = 0;
   let warnedCramped = false;
   let stall: string | null = null;
   // The person said "leave all my work alone": every later consent question is answered for them.
@@ -439,11 +494,17 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
       error,
       events,
       messages,
-      plan,
+      // A stopped run leaves nothing "doing": the next run inherits the list, not the pretence that
+      // somebody is still on it.
+      plan:
+        reason === "aborted"
+          ? plan.map((i) => (i.status === "doing" ? { ...i, status: "pending" } : i))
+          : plan,
+      notes,
     };
   };
 
-  while (steps < maxSteps) {
+  step: while (steps < maxSteps) {
     if (options.signal?.aborted) return finish("aborted");
     // A window that cannot hold the prompt is not a compaction problem: none of what overflows it
     // is conversation, so there is nothing to remove and no amount of cleverness helps. Said once,
@@ -504,9 +565,9 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
     while (!completion) {
       attempts += 1;
       const request = {
-        // The plan rides on the system prompt rather than in the conversation, so it survives
-        // whatever is later done to the conversation to make it fit.
-        system: `${options.system}${planForPrompt(plan)}`,
+        // The plan and the notes ride on the system prompt rather than in the conversation, so they
+        // survive whatever is later done to the conversation to make it fit.
+        system: `${options.system}${pinned()}`,
         messages,
         tools,
         temperature: 0,
@@ -530,6 +591,34 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
       } catch (e) {
         if (options.signal?.aborted) return finish("aborted");
         const message = e instanceof Error ? e.message : String(e);
+        // The server accepted the request and then could not read what the model wrote: a tool call
+        // cut off mid-JSON, reported inside a stream that had already said 200. Sending the same
+        // prompt again at temperature 0 writes the same broken reply, so the model is told instead,
+        // which changes the prompt and so the answer. A real run of 39 steps ended here on one bad
+        // plan_work, with the building built and furnished and nothing wrong with the model.
+        // The same failure also arrives as an HTTP 500 whose body names it, and a 500 is otherwise
+        // retried unchanged -- which at temperature 0 writes the same broken reply twice more. A run
+        // of 29 steps ended that way; what the server says it could not read decides, not the status.
+        const unreadableText = /invalid tool call arguments|unexpected end of json/i.test(message);
+        if (
+          e instanceof ProviderError &&
+          e.status !== null &&
+          ((e.status >= 200 && e.status < 300) || unreadableText)
+        ) {
+          unreadable += 1;
+          if (unreadable > UNREADABLE_REPLIES) return finish("provider-error", null, message);
+          emit({
+            type: "warning",
+            step: steps,
+            at: now(),
+            message: `the reply could not be read: ${message}`,
+          });
+          messages.push({
+            role: "user",
+            content: `Your last reply could not be read (${message.replace(/^[^:]*:\s*/, "")}), so nothing in it was done. Send it again, whole; if it was a long list, send a shorter one.`,
+          });
+          continue step;
+        }
         const transient =
           e instanceof ProviderError && (e.status === null || e.status === 429 || e.status >= 500);
         if (!transient || attempts > retries) return finish("provider-error", null, message);
@@ -588,7 +677,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
     if (calls.length === 0) {
       // The model thinks it is finished. A gate may disagree, in which case it says why and the run
       // carries on; each one is bounded, so a model that means it is believed.
-      const gate = gateFor(gates, plan, options.gates ?? {});
+      const gate = gateFor(gates, planTouched ? plan : [], options.gates ?? {});
       if (gate) {
         gates = afterGate(gates, gate.gate);
         emit({ type: "reminder", step: steps, at: now(), gate: gate.gate, text: gate.text });
@@ -617,10 +706,13 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
           warnings: [],
         };
       } else if (call.name === PLAN_WORK) {
-        // The plan is the loop's own, so it is kept here and never reaches the project.
-        const applied = applyPlan(plan, parsed.value);
+        // The plan is the loop's own, so it is kept here and never reaches the project. An inherited
+        // plan is not held against the new list: what this run has not written, it may drop.
+        const applied = applyPlan(planTouched ? plan : [], parsed.value);
         if (applied.ok) {
           plan = applied.items;
+          planTouched = true;
+          budget.fixedTokens = fixedTokens();
           emit({ type: "plan.updated", step: steps, at: now(), items: plan });
           result = { ok: true, result: { plan: plan.length, summary: applied.summary }, warnings: [] };
         } else {
@@ -630,6 +722,22 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
             warnings: [],
           };
         }
+      } else if (call.name === NOTES) {
+        const applied = applyNotes(parsed.value);
+        if (applied.ok) {
+          notes = applied.text;
+          budget.fixedTokens = fixedTokens();
+          emit({ type: "notes.updated", step: steps, at: now(), text: notes });
+          result = { ok: true, result: { chars: notes.length }, warnings: [] };
+        } else {
+          result = {
+            ok: false,
+            error: { code: "notes.invalid", message: applied.error, entityId: null, hint: applied.hint },
+            warnings: [],
+          };
+        }
+      } else if (call.name === READ_SKILL && options.skills?.length) {
+        result = readSkill(options.skills, parsed.value);
       } else if (call.name === ASK_USER && options.loop?.ask) {
         const asked = parseAsk(parsed.value, call.id);
         if (asked.ok && asked.request.kind === "consent" && consentWithheld) {
@@ -695,7 +803,9 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
       });
       messages.push({ role: "tool", toolCallId: call.id, content: toolResultText(result, maxChars) });
       if (liftRenders && ok) liftImages(messages, result, maxImages);
-      const key = `${call.name}:${call.arguments}`;
+      // The same call is the same content, not the same text: a model re-sent one design four
+      // times with its keys in a different order each time, and the breaker saw four calls.
+      const key = `${call.name}:${canonical(parsed.ok ? parsed.value : call.arguments)}`;
       recent.push(key);
       if (!ok) {
         const count = (failures.get(key) ?? 0) + 1;

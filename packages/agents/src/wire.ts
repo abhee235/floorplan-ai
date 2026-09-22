@@ -33,12 +33,22 @@ export function providerFor(
       // that happens to be there. A profile that names one is a person's decision and is obeyed;
       // otherwise the model is asked what it was built with, and what comes back is capped, because
       // the declaration is what a model was trained for and not what will fit beside its weights.
-      const named = config.profile?.contextTokens;
-      const limits = named ? null : await probeModel(config.baseUrl, config.model, fetchFn);
-      const withContext = limits
-        ? { ...config, profile: { ...config.profile, contextTokens: limits.contextTokens } }
-        : config;
-      return ollamaNative(withContext, fetchFn);
+      // Always asked, even when the context was named, because the probe answers a second question
+      // the context does not: whether the model can see. The agent's default profile says no, and
+      // that default was reaching a model whose server reported vision, so every render it might
+      // have looked at was stripped to a caption first. A profile that says either thing on purpose
+      // is obeyed; the probe fills in only what was left unsaid.
+      const limits = await probeModel(config.baseUrl, config.model, fetchFn);
+      const profile = {
+        ...config.profile,
+        ...(config.profile?.contextTokens === undefined && limits
+          ? { contextTokens: limits.contextTokens }
+          : {}),
+        ...(config.profile?.vision === undefined && limits
+          ? { vision: limits.capabilities.includes("vision") }
+          : {}),
+      };
+      return ollamaNative({ ...config, profile }, fetchFn);
     })().then((provider) => {
       settled = provider;
       return provider;

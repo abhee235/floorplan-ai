@@ -361,13 +361,45 @@ describe("choosing a wire", () => {
   });
 
   it("does not second-guess a context somebody configured on purpose", async () => {
-    const { fetch, seen } = fakeFetch({ "/api/version": version, "/api/chat": chat });
-    await providerFor({ ...config, profile: { contextTokens: 8192 } }, fetch as never).complete({
-      messages: [{ role: "user", content: "hi" }],
+    const { fetch, seen } = fakeFetch({
+      "/api/version": version,
+      "/api/show": json({ parameters: "num_ctx 32768", capabilities: ["tools", "vision"] }),
+      "/api/chat": chat,
     });
-    // No /api/show at all: there is nothing to ask, because the answer was given.
-    expect(seen.map((s) => new URL(s.url).pathname)).toEqual(["/api/version", "/api/chat"]);
-    expect((seen[1]?.body as { options: { num_ctx: number } }).options.num_ctx).toBe(8192);
+    const provider = providerFor({ ...config, profile: { contextTokens: 8192 } }, fetch as never);
+    await provider.complete({ messages: [{ role: "user", content: "hi" }] });
+    // The model is still asked, because the probe answers a second question the context does not:
+    // whether it can see. But the context it named is the one sent, not the one the model said.
+    expect((seen.at(-1)?.body as { options: { num_ctx: number } }).options.num_ctx).toBe(8192);
+    expect(provider.profile.contextTokens).toBe(8192);
+    expect(provider.profile.vision).toBe(true);
+  });
+
+  it("learns that the model can see from the server, unless told otherwise", async () => {
+    // The default profile says a model cannot see, and that default was reaching a model whose
+    // server reported vision, so every render it might have looked at was stripped to a caption.
+    const sighted = fakeFetch({
+      "/api/version": version,
+      "/api/show": json({ capabilities: ["tools", "vision"] }),
+      "/api/chat": chat,
+    });
+    const p1 = providerFor(config, sighted.fetch as never);
+    await p1.ready?.();
+    expect(p1.profile.vision).toBe(true);
+
+    const blind = fakeFetch({
+      "/api/version": version,
+      "/api/show": json({ capabilities: ["tools"] }),
+      "/api/chat": chat,
+    });
+    const p2 = providerFor(config, blind.fetch as never);
+    await p2.ready?.();
+    expect(p2.profile.vision).toBe(false);
+
+    // A person who said the model cannot see is believed over the server.
+    const told = providerFor({ ...config, profile: { vision: false } }, sighted.fetch as never);
+    await told.ready?.();
+    expect(told.profile.vision).toBe(false);
   });
 
   it("leaves everything else exactly where it was", async () => {

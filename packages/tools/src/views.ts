@@ -251,6 +251,28 @@ export function roomWallInterval(w: Wall, r: Room): { fromMm: number; toMm: numb
   return run ? { fromMm: r1(run.fromMm), toMm: r1(run.toMm) } : { fromMm: 0, toMm: r1(len) };
 }
 
+/**
+ * The openings in a room's own stretch of its walls.
+ *
+ * Not every opening on every wall it touches. An exterior wall can run the length of the building,
+ * and a real run asked for the server room's openings, was told of all seven windows on the two
+ * walls that corner room shared with half the building, and deleted every window there was.
+ */
+export function roomOpenings(
+  p: Project,
+  r: Room,
+  walls: readonly Wall[] = roomWalls(p, r),
+): Project["openings"] {
+  const byId = new Map(walls.map((w) => [w.id, w]));
+  return p.openings.filter((o) => {
+    const w = byId.get(o.wallId);
+    if (!w) return false;
+    const mine = roomWallInterval(w, r);
+    const at = derive.openingAlongInterval(o, w);
+    return at.to > mine.fromMm && at.from < mine.toMm;
+  });
+}
+
 export function roomView(p: Project, r: Room, sizes: derive.SizeSource, stale = false): RoomView {
   const level = derive.levelOf(p, r.levelId);
   const walls = roomWalls(p, r);
@@ -266,7 +288,7 @@ export function roomView(p: Project, r: Room, sizes: derive.SizeSource, stale = 
     perimeterMm: r1(derive.roomPerimeter(r)),
     bounds: { minX: b.minX, minY: b.minY, maxX: b.maxX, maxY: b.maxY },
     walls: walls.map((w) => ({ wallId: w.id, compass: roomWallCompass(p, w, r), ...roomWallInterval(w, r) })),
-    openingIds: p.openings.filter((o) => wallIds.has(o.wallId)).map((o) => o.id),
+    openingIds: roomOpenings(p, r, walls).map((o) => o.id),
     itemIds: p.items
       .filter(
         (i) =>

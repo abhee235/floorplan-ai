@@ -13,9 +13,12 @@ import {
   envelope,
   IDENTITY,
   join,
+  notes,
   order,
   planning,
   reporting,
+  skills,
+  sources,
   theModel,
   type WorldOptions,
   workplaces,
@@ -39,6 +42,9 @@ export function designerSystem(world: WorldOptions = {}): string {
     envelope(world),
     order(world),
     planning(),
+    notes(),
+    skills(world),
+    sources(world),
     designing(),
     dwellings(),
     workplaces(),
@@ -60,14 +66,32 @@ export const DESIGNER_SYSTEM = designerSystem({ rules: true, viewer: true, visio
  * cent of a measured nine-room run, so a role carrying six tools costs a seventh of what one
  * carrying thirty-one costs, every step.
  */
+/**
+ * Tools the designer does not get, because they are the architect's (ADR-022 D1a).
+ *
+ * The prompt has said "call design_layout" since the architect existed, and twice in two runs the
+ * model called plan_rooms itself instead: one programme, no alternatives, no adjacency, and a plot
+ * it made up. A tool that is available gets used, whatever the prompt says. Removing it is not
+ * forbidding it; it is the difference between an instruction and a fact.
+ */
+export const ARCHITECT_ONLY: ReadonlySet<string> = new Set([
+  "plan_rooms",
+  "check_design",
+  "query_design",
+  "revise_design",
+]);
+
 export function registryToolSpecs(
   registry: Registry,
   profile: ToolReliability,
   granted?: ReadonlySet<string>,
+  /** Tools this session cannot use -- the web without a search provider -- and so does not advertise. */
+  omit: ReadonlySet<string> = new Set(),
 ): ToolSpec[] {
   return registry
     .advertised(profile)
-    .filter((def) => !granted || granted.has(def.name))
+    .filter((def) => (granted ? granted.has(def.name) : !ARCHITECT_ONLY.has(def.name)))
+    .filter((def) => !omit.has(def.name))
     .map((def) => {
       const schema = zodToJsonSchema(def.input, { $refStrategy: "none", target: "jsonSchema7" }) as Record<
         string,

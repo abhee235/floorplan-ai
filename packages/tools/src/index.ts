@@ -4,11 +4,19 @@ export const PACKAGE = "tools" as const;
 
 import type { ToolContext } from "./context.js";
 import { Registry } from "./registry.js";
-import { buildDesignTool, checkDesignTool, designLayoutTool, planRoomsTool } from "./tools/design.js";
+import {
+  buildDesignTool,
+  checkDesignTool,
+  designLayoutTool,
+  planRoomsTool,
+  queryDesignTool,
+  reviseDesignTool,
+} from "./tools/design.js";
 import { exportTool } from "./tools/export.js";
 import { importPlan } from "./tools/import.js";
 import { describeRoom, getScene, measure, searchCatalog, validateTool } from "./tools/inspect.js";
 import { arrange, finishItem, modifyItem, placeItem } from "./tools/items.js";
+import { lookAt } from "./tools/look.js";
 import { createRoomFromBrief, furnishRoom } from "./tools/semantic.js";
 import { batch, getBom, history, project, render, verifyProduct } from "./tools/session.js";
 import {
@@ -23,6 +31,7 @@ import {
   modifyRoom,
   modifyWall,
 } from "./tools/structure.js";
+import { readPage, webSearch } from "./tools/web.js";
 
 /** The 23 tools of the first release (ADR-006 D2) in spec order, then import_plan (phase 2) and
  *  finish_wall (phase 3). */
@@ -60,7 +69,18 @@ export const TOOLS = [
   planRoomsTool,
   checkDesignTool,
   buildDesignTool,
+  queryDesignTool,
+  reviseDesignTool,
+  // What the model reads before it designs (ADR-027): a picture on demand, and the web when the
+  // host has a search provider.
+  lookAt,
+  webSearch,
+  readPage,
 ] as const;
+
+/** Tools that only make sense with something the session may not have; the host advertises them or not. */
+export const NEEDS_WEB: ReadonlySet<string> = new Set(["web_search", "read_page"]);
+export const NEEDS_SIGHT: ReadonlySet<string> = new Set(["look_at"]);
 
 export function createRegistry(ctx: ToolContext): Registry {
   const r = new Registry(ctx);
@@ -99,6 +119,7 @@ export {
   type TranscriptEntry,
   type TranscriptRecorder,
   type ViewerRenderer,
+  type WebAccess,
 } from "./context.js";
 export * from "./envelope.js";
 export {

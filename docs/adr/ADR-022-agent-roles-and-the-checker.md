@@ -193,6 +193,10 @@ registry will refuse is a tool not worth advertising.
 
 ### D2. The design is an artefact, not a paragraph
 
+*Amended by ADR-028: the architect writes the design itself; `plan_rooms` is an
+optional first draft; a room says what encloses it and the shell which sides
+are glazed.*
+
 The architect's output is a JSON design the checker can measure:
 
 ```ts
@@ -325,6 +329,10 @@ orientation and daylight, a core of stacked services, and an open field broken
 up by anything other than walls.
 
 ### D3. The checker is code; the critic is a bounded model pass
+
+*Amended by ADR-028 D2 and D8: the checker keeps errors only for what cannot be
+built or used, and the model asks its own questions of a design through
+`query_design`.*
 
 The checker runs as a tool, `check_design`, and again inside `validate` once
 the drawing exists. Its checks, each with a number in the message:

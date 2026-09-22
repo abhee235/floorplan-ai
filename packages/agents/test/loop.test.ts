@@ -100,6 +100,23 @@ describe("the plan a model keeps", () => {
     expect(said.ok).toBe(true);
   });
 
+  it("knows an item by its text when the id was left off, so a re-sent list is not a dropped job", () => {
+    const current = [
+      item("a", "walls", "done"),
+      item("b", "furnish the office", "doing"),
+      item("c", "validate", "pending"),
+    ];
+    const r = applyPlan(current, {
+      items: [
+        { id: "a", text: "walls", status: "done" },
+        { text: "Furnish the office", status: "done" },
+        { text: "validate", status: "doing" },
+      ],
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.items.map((i) => i.id)).toEqual(["a", "b", "c"]);
+  });
+
   it("refuses two jobs in hand at once, and an item with no text", () => {
     const two = applyPlan([], {
       items: [
@@ -321,7 +338,7 @@ describe("the loop with its tools", () => {
   it("offers ask_user only when there is someone to ask", async () => {
     const withNobody = scripted([() => reply("Done.")]);
     await runAgent({ ...base, provider: withNobody });
-    expect(withNobody.requests[0]?.tools?.map((t) => t.name)).toEqual(["create_walls", "plan_work"]);
+    expect(withNobody.requests[0]?.tools?.map((t) => t.name)).toEqual(["create_walls", "plan_work", "notes"]);
 
     const withSomeone = scripted([() => reply("Done.")]);
     await runAgent({ ...base, provider: withSomeone, loop: { ask: async () => ({}) } });

@@ -318,7 +318,11 @@ function packZoned(
     (n, r) => Math.max(n, MIN_SIDE[r.purpose] ?? MIN_SIDE_FALLBACK),
     1800,
   );
-  const depth = round100(Math.max(minDepth, Math.sqrt((bigM2 * 1e6) / IDEAL_DEPTH_RATIO)));
+  const linkMm = corridorMm;
+  // A plot that was given decides the depth; otherwise the big room does, because it is the one
+  // with no freedom: a bay on its own, its width is its area over the depth.
+  const givenDepth = programme.shell ? programme.shell.d - linkMm - interiorWallMm - 2 * wallMm : null;
+  const depth = round100(Math.max(minDepth, givenDepth ?? Math.sqrt((bigM2 * 1e6) / IDEAL_DEPTH_RATIO)));
 
   // How many bays the cells need to come out square at that depth, and which cell goes in which.
   //
@@ -352,7 +356,6 @@ function packZoned(
     return round100(Math.max(byArea, byRoom));
   });
 
-  const linkMm = corridorMm;
   const shellD = round100(depth + linkMm + interiorWallMm + 2 * wallMm);
   const shellW = round100(
     widths.reduce((a, b) => a + b, 0) +
@@ -363,6 +366,10 @@ function packZoned(
   notes.push(
     `${big[0]?.name ?? "one room"} is ${Math.round((bigM2 / (bigM2 + cellsM2)) * 100)}% of the floor, so it has a bay of its own and the rest are in ${stripCount} more; the building is ${(shellW / 1000).toFixed(1)} by ${(shellD / 1000).toFixed(1)} m`,
   );
+  if (programme.shell && Math.abs(programme.shell.w - shellW) > 1000)
+    notes.push(
+      `the plot given was ${(programme.shell.w / 1000).toFixed(1)} m wide and these rooms in bays need ${(shellW / 1000).toFixed(1)}; the building is drawn at the width the rooms need`,
+    );
 
   const rooms: NonNullable<DesignInput["rooms"]> = [];
   const linkKey = "link";
@@ -431,6 +438,7 @@ function packZoned(
         // plan and the checker was right to refuse them.
         window: (room.window ?? HABITABLE.has(room.purpose)) && (outermost || i === 0),
         glazed: GLAZED.has(room.purpose),
+        enclosure: GLAZED.has(room.purpose) ? "glass" : "walled",
       });
       y += h + interiorWallMm;
     });
@@ -529,12 +537,17 @@ export function packProgramme(programme: Programme): PackResult {
 
   // One room big enough to need a bay of its own gets the zoned layout instead; everything else
   // keeps the strips, which the six briefs say are right for it.
-  if (!programme.shell) {
+  {
     const big = given.filter((r) => (areas.get(r.key) as number) / roomsM2 >= DOMINANT_SHARE);
     const cells = given.filter((r) => !big.includes(r));
     // Enough small rooms to need bays of their own. A flat whose living room is 42 per cent of it
     // has a dominant room by the arithmetic and does not have this problem: three other rooms fit
     // beside it perfectly well, and the zoned layout gave it two hallways and no improvement.
+    //
+    // Whether or not a plot was given. This used to run only when none was, and a model invented a
+    // 60 by 40 plot for an office nobody had given a plot for, which switched the bays off and
+    // brought the comb straight back. A given plot fixes the depth below; the width is what the
+    // bays need, and if that is not the plot's width it is said rather than silently traded away.
     if (big.length > 0 && cells.length >= MIN_CELLS_FOR_BAYS) {
       const zoned = packZoned(programme, big, cells, areas, wallMm, interiorWallMm, corridorMm);
       if (zoned) return zoned;
@@ -735,6 +748,7 @@ export function packProgramme(programme: Programme): PackResult {
         doorsTo: room.purpose === "foyer" ? ["outside", corridorKey] : [corridorKey],
         window: room.window ?? HABITABLE.has(room.purpose),
         glazed: isWorkplace && GLAZED.has(room.purpose),
+        enclosure: isWorkplace && GLAZED.has(room.purpose) ? "glass" : "walled",
       });
       u += w + interiorWallMm;
     });
@@ -789,9 +803,15 @@ function emptyDesign(programme: Programme, wallMm: number, interiorWallMm: numbe
 
 /** The rooms a building of this kind has to have, for a programme that forgot one. */
 export function missingFromProgramme(programme: Programme): string[] {
-  if (programme.kind === "workplace") return [];
   const purposes = new Set(programme.rooms.map((r) => r.purpose));
   const out: string[] = [];
+  if (programme.kind === "workplace") {
+    // The same line the checker draws: a workplace for twenty or more has toilets.
+    const people = programme.rooms.reduce((n, r) => n + (r.capacity ?? 0), 0);
+    if (people >= 20 && !["restroom", "toilet", "bathroom"].some((p) => purposes.has(p)))
+      out.push("restroom");
+    return out;
+  }
   if (!purposes.has("kitchen")) out.push("kitchen");
   if (!purposes.has("bathroom") && !purposes.has("toilet")) out.push("bathroom");
   if (!purposes.has("living")) out.push("living");

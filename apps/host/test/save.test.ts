@@ -263,14 +263,18 @@ describe("project files: open, integrity, recovery (ADR-012 D4, D6, D7)", () => 
         recoveryAvailable: null,
       });
     store.apply({ type: "wall.move", payload: { wallIds: ["wall_000004"], dx: 0, dy: 100 } }, "editor");
-    const fresh = await registry.call("project", { op: "new", name: "Blank" });
+    const fresh = await registry.call("project", { op: "new", name: "Blank" }, { origin: "editor" });
     expect(fresh.ok).toBe(true);
     expect(store.project.walls).toHaveLength(0);
-    const opened = await registry.call("project", { op: "open", path: dir });
+    const opened = await registry.call("project", { op: "open", path: dir }, { origin: "editor" });
     expect(opened.ok).toBe(true);
     expect(store.project.walls).toHaveLength(6);
     expect(store.project.walls[3]?.start.y).toBe(3000); // the saved state, not the moved one
-    const missing = await registry.call("project", { op: "open", path: join(dir, "nowhere") });
+    const missing = await registry.call(
+      "project",
+      { op: "open", path: join(dir, "nowhere") },
+      { origin: "editor" },
+    );
     expect(missing.ok).toBe(false);
     if (!missing.ok) expect(missing.error.code).toBe("file.missing");
   });

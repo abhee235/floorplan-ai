@@ -91,6 +91,46 @@ Input: `{ kind: "product" | "recipe", query: string, category?: Category, limit?
 Output: `{ hits: [{ id, name, make, model, category, dims, verified: boolean, price?, status?, matchedBy? }], total: number, cursor: string | null }`
 An empty query browses: a category's products by name, or with no category every product by category and name, a page at a time. The editor's catalog tab (P3-5) searches through this tool.
 
+A category that matches nothing, when the same query matches elsewhere, is answered with a warning
+naming the categories that do and how many each (ADR-027 D6): a real run searched "desk" under
+`table` twice and never found the three desks filed under `desk`.
+
+## 2a. Reading tools (ADR-027; tier: both, non-mutating)
+
+### look_at
+Description: a picture on demand: an attachment by id, or a picture on the web by url. For a line
+drawing to be traced into walls, `import_plan`; for a photograph, an illustration, a sketch or a logo,
+this.
+Input: `{ attachmentId?: string, url?: string, question?: string }` (one of the first two)
+Output: `{ name, mime, bytes, width, height, caption, images: [{ name, mime, pngBase64, width, height }] }`
+The runner lifts `images` into the conversation for a model that can see, introduced by `caption`;
+the chat shows it on the card. A url comes through the verifier's guarded fetcher (private addresses
+refused, 8 MB cap). Advertised only to a model that can see, and only when something is attached or
+the session has the web; the architect is granted it too.
+
+### web_search
+Description: pages (title, url, snippet) or, with `kind: "images"`, pictures to `look_at`. For what
+no skill covers; not on every run.
+Input: `{ query: string, kind?: "web" | "images", limit?: number (≤ 10, default 5) }`
+Output: `{ kind, hits: [{ title, url, snippet?, source?, thumbnail? }] }`
+
+### read_page
+Description: a page as text, up to `maxChars` (default 8,000), through `htmlToText`; private
+addresses refused.
+Input: `{ url: string, maxChars?: number }`
+Output: `{ url, status, title: string | null, text, truncated }`
+
+Both web tools live behind `ToolContext.web`, which the host fills from the same search
+configuration the product verifier uses (`FPV_SEARCH`, `FPV_SEARCH_URL`; a URL alone means
+SearXNG). Without it they are not advertised and refuse with the variables to set.
+
+### read_skill and notes (the loop's own)
+`read_skill { name, file? }` returns a skill's body, or a reference document inside it, from the
+skills the host loaded (`apps/host/skills/`, then `<data>/skills`); a wrong name answers with the
+names that exist. `notes { text }` replaces the model's notes, up to 3,000 characters; they ride on
+the system prompt after the plan and are handed to the architect. Neither reaches the registry;
+both are answered inside the loop like `plan_work` and `ask_user` (spec 06 B2, ADR-027 D2).
+
 ## 3. Render (tier: both)
 
 ### render
@@ -145,6 +185,11 @@ Input: `{ itemId: string, x?, y?, rotation?, elevation?, size?: Size3 | null, pa
 Output: `{ item: ItemView, descendants: ItemView[] }`
 
 ### arrange (tier: both)
+Patterns are `grid`, `rows` and `bench` (rows in back-to-back pairs), each placing ONE product;
+the description says so and points at `furnish_room` for desks with their chairs (`open-office`)
+or chairs around a table (`meeting`, `boardroom`, `huddle`), and at `replace: true` with a
+`zoneId` for redoing a zone. The `boardroom`, `u-shape` and `classroom` patterns the first draft
+promised were never implemented and are no longer advertised (ADR-027 D6).
 Description: "Fill a room or zone with a pattern: 'grid', 'rows', 'bench' (desks back to back), 'boardroom' (one table, chairs around), 'u-shape', 'classroom'. count is the number of items requested; the result says how many fit."
 Input: `{ roomId?: string, zoneId?: string, pattern: string, productId?: string, recipe?: PrimitiveRecipe, count: number, spacingMm?: number, facing?: "north" | "south" | "east" | "west", replace?: boolean }`
 Output: `{ zoneId: string, placed: number, requested: number, items: ItemView[] }`
@@ -191,6 +236,13 @@ side of a hallway, and checks its own work. Every room runs the full depth of
 its strip, which gives one long side on the hallway for the door and the other
 on the outside of the building for the window.
 
+**Optional since ADR-028 D1.** It is a helper for a quick first draft and it
+makes one shape only; it cannot make an open floor, rooms around a courtyard or
+a copy of a picture. The architect is told to write the design itself and give
+it to `check_design`, and to use `plan_rooms` only for a start it then moves.
+Its output carries `quality` beside `score`, and alternatives are ranked on
+the mean of the two, so a sliver the checker cannot see still loses.
+
 `alternatives` (ADR-024 D5) are other ways of arranging the same brief, each
 with a `note` saying what is different. All of them are packed and checked, and
 the best is kept: fewest errors, then the higher score, then fewer unplaced
@@ -204,7 +256,48 @@ answer is to change the programme, never to place the room by hand.
 ### check_design (tier: both, non-mutating)
 Input: `{ design: Design }` — the artefact of spec 01 section 4.3b: a shell
 rectangle, a list of room rectangles with purposes and `doorsTo`, circulation
-keys and assumptions.
+keys and assumptions. Since ADR-028 D3 a room also carries `enclosure`
+(`walled`, `glass` or `open`; the older `glazed: true` reads as `glass`) and the
+shell a `facade` per side (`windows` or `glazed`). An open room needs no door
+and is circulation for every open room it touches; a room on a glazed side has
+daylight without a window; restrooms, toilets, bathrooms, utility, storage,
+laundry and garages are walled whatever the design says.
+
+The checker judges whether a plan can be built and used, never its shape
+(ADR-028 D2): errors are rooms overlapping or outside the shell, a door with no
+shared wall or to nowhere, a room nobody can reach, a room too small for its
+purpose or its seats, a missing toilet or kitchen, a corridor under the escape
+width, a window on an inside wall, a way in through the wrong room, a duplicate
+key. `too-large` is a warning. An open office is held to 6 m² a desk.
+
+### revise_design (tier: both, non-mutating; ADR-028 D10)
+Input: `{ designId, rooms?: [{ key, ...fields }], add?: DesignRoom[], remove?: string[], shell?: Partial<shell>, circulation? }`
+Output: as `check_design`.
+
+A checked design changed a little and checked again. The whole design is never
+sent back: a real run re-sent an 18-room design six times, each time saying it
+was adding `doorsTo`, and each time the JSON came back without it -- a page
+regenerated from context loses the edit that was meant, while a patch of a few
+lines carries it. Counts as a round for the architect, like `check_design`.
+
+Both `check_design` and `revise_design` give an enclosed room that lists no
+doors at all a door onto the corridor, foyer or open room it shares the longest
+wall with (at least a metre), and say which in a warning. Which door a meeting
+room off a corridor has is not a design decision; a room that touches no
+circulation is left for the checker to name.
+
+### query_design (tier: both, non-mutating; ADR-028 D8)
+Input: `{ designId, where?: string, select?: string[], limit?: number }`
+Output: `{ count, rows: [{ key, name, values }], errors: string[] }`
+
+The architect's own questions of a checked design, in the rules expression
+language (spec 07 section 2): `where` is a condition over each room, `select`
+the values to report. Names: `key, name, purpose, area, w, d, x, y, capacity,
+window, enclosure, onOutside, gapNorth, gapSouth, gapEast, gapWest, touches,
+doors, shellW, shellD, rooms`. `touches` and `doors` are comma-separated keys
+for `has(...)`. An unknown name is an error naming the names. This is the
+dynamic half of verification: the checker knows what cannot be built, the model
+knows what it meant, and a query is how it compares the two.
 Output: `{ designId, buildable, score, totals: { shellM2, roomsM2,
 unaccountedM2, rooms, byPurpose }, errors: Problem[], warnings: Problem[] }`
 
@@ -233,6 +326,13 @@ them without touching code. The maxima — a toilet over 4 m², a bathroom over
 mistake in the design rather than a matter of local standards.
 
 ### build_design (tier: semantic, mutating)
+Since ADR-028 D3 and D4 the builder draws the design exactly as it is: a glazed
+side is one glass wall the length of it with no windows punched in; the wall
+between two rooms is decided by rule, not by list order (solid if either must
+be, else glass if either is glass, none if both are open, else solid), and an
+edge facing several rooms is several walls, each of its own kind; a room with an
+entrance and a window on one side gets them side by side, and a side too short
+for both keeps the door and says so.
 Input: `{ designId, levelId? }`
 Output: `{ walls, doors, windows, rooms: RoomView[], unplaced: string[] }`
 
@@ -274,9 +374,14 @@ Input: `{ op: "checkpoint" | "undo" | "redo" | "list" | "restore", label?: strin
 Output: `{ position: number, entries?: [{ label, at }], checkpointId?: string, changed?: ChangeSet }`
 
 ### batch
-Description: "Apply several commands atomically; if any fails, none apply. Use for a whole room's items. Max 50."
-Input: `{ label?: string, commands: Command[] }`
-Output: `{ applied: number, changed: ChangeSet }`
+Description: "Run several tool calls as one step: calls is a list of { name, args } with the same arguments you would give each tool, up to 200. If one fails, everything the earlier ones did is undone and the error names which."
+Input: `{ label?: string, calls?: [{ name, args }], commands?: Command[] }` (one of the two)
+Output: `{ applied: number, changed: ChangeSet | null, results?: unknown[] }`
+
+`calls` is what a model sends: the arguments it already knows, run through the registry as the
+batch itself was called (same origin, consent and grant), atomic by undoing back to where the
+history stood when the first call fails (ADR-027 D6). `commands` stays for callers that speak spec
+03, in one store transaction. A batch inside a batch is refused.
 
 ### project
 Input: `{ op: "new" | "open" | "save" | "info", path?: string, name?: string }`
@@ -337,7 +442,12 @@ plan reader.
 |---|---|
 | high | all |
 | medium | all except `modify_wall`, `delete` of walls (still callable) |
-| low | `get_scene`, `describe_room`, `validate`, `render`, `search_catalog`, `create_room_from_brief`, `furnish_room`, `place_item` (anchor form only), `arrange`, `get_bom`, `history`, `batch`, `project`, `export`, `add_level`, `import_plan`, `finish_opening`, `finish_wall` |
+| low | `get_scene`, `describe_room`, `validate`, `render`, `search_catalog`, `create_room_from_brief`, `furnish_room`, `place_item` (anchor form only), `arrange`, `get_bom`, `history`, `batch`, `project`, `export`, `add_level`, `import_plan`, `finish_opening`, `finish_wall`, the design tools, `look_at`, `web_search`, `read_page` |
+
+The three reading tools are in every profile (ADR-027): simple, non-mutating, and a weak model with a
+picture attached needs `look_at` as much as a strong one. Whatever the profile, the host leaves out
+what the session cannot use: the web tools without a search provider, `look_at` for a model that
+cannot see or a conversation with nothing attached.
 
 A weak model is offered fewer ways to do a thing, never fewer things it can say. `add_level`,
 `import_plan` and the two finish tools were added to the low profile in phase 4: a storey, a plan to

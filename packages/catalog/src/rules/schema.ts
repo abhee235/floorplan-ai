@@ -112,6 +112,16 @@ const RecipeStep = z.discriminatedUnion("op", [
     spacingMm: z.number(),
     /** Chairs placed behind each arranged table, facing the display wall. */
     seatsEach: z.number().int().min(0).default(0),
+    /** Chairs on one side of each table (1), or on both (2), as a cafeteria table has. */
+    sides: z.union([z.literal(1), z.literal(2)]).default(1),
+    /**
+     * Tables grouped this many to a cluster across the room, with `aisleMm` between one cluster and
+     * the next; 0 is one unbroken run. With `pattern: "bench"` the rows come in back-to-back pairs,
+     * the chairs on the outside and the aisle between one pair and the next, which is what an open
+     * office is: benches of six in neighbourhoods, not a classroom of a hundred desks facing a wall.
+     */
+    perCluster: z.number().int().min(0).default(0),
+    aisleMm: z.number().int().min(0).default(1500),
   }),
   z.object({ op: z.literal("whiteboard"), wall: z.enum(["auto", "opposite-display"]) }),
   /**
@@ -140,6 +150,12 @@ const RecipeStep = z.discriminatedUnion("op", [
     align: z.enum(["start", "centre", "end"]).default("centre"),
     /** Floor space the item needs in front of it, for the fit check. */
     clearanceMm: z.number().min(0).default(600),
+    /**
+     * May stand in front of a window although it is taller than the sill. A wardrobe may not; a
+     * reception desk with its back to the window is the ordinary thing, and refusing it left a
+     * real reception with two sofas and nowhere to be received.
+     */
+    beforeWindow: z.boolean().default(false),
   }),
 ]);
 

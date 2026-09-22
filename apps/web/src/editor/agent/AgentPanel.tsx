@@ -221,6 +221,16 @@ function Card({
     case "tool":
       return <ToolCard item={item} onShow={onShow} />;
 
+    case "notes":
+      return (
+        <details className="rounded-md border bg-muted/30 p-2" open>
+          <summary className="cursor-pointer font-medium text-muted-foreground text-xs">
+            Notes · {item.text.length} characters
+          </summary>
+          <pre className="mt-1 whitespace-pre-wrap font-sans text-sm">{item.text}</pre>
+        </details>
+      );
+
     case "plan":
       return (
         <div className="rounded-md border bg-muted/30 p-2">

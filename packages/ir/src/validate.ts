@@ -321,7 +321,9 @@ export function validate(project: Project, options: ValidateOptions = {}): Probl
     // Is the room fenced in? A room is a polygon, not an enclosure, so one can be drawn over open
     // floor and look right in a list of rooms while having no wall along one of its sides. A flat
     // drawn by an agent had five such rooms, and a bed standing against nothing.
-    const bare = bareEdges(project, r);
+    // A zone a design declared open has no walls on purpose (ADR-028 D3): the desks, the cafe, a
+    // corridor that is floor. A room somebody drew and forgot to close still gets the warning.
+    const bare = r.properties.enclosure === "open" ? [] : bareEdges(project, r);
     if (bare.length > 0) {
       const worst = bare.reduce((a, b) => (a.gapMm >= b.gapMm ? a : b));
       warn(

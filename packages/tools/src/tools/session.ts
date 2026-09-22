@@ -95,19 +95,57 @@ export const history = defineTool({
 export const batch = defineTool({
   name: "batch",
   description:
-    "Apply several commands atomically; if any fails, none apply. Use for a whole room's items, or for anything repeated across many rooms. Max 200.",
+    "Run several tool calls as one step: calls is a list of { name, args } with the same arguments you would give each tool, e.g. [{ name: 'place_item', args: {...} }, ...], up to 200. If one fails, everything the earlier ones did is undone and the error names which. Use it for a room's items or for the same call across many rooms.",
   tier: "both",
   mutating: true,
   input: z.object({
     label: z.string().optional(),
+    calls: z
+      .array(z.object({ name: z.string(), args: z.unknown().optional() }))
+      .min(1)
+      .max(200)
+      .optional()
+      .describe("tool calls, in order: [{ name: 'place_item', args: { roomId, productId, anchor } }, ...]"),
     commands: z
       .array(z.object({ type: z.string(), payload: z.unknown() }))
       .min(1)
       .max(200)
-      .describe("commands as data, e.g. { type: 'item.place', payload: {...} }; see spec 03"),
+      .optional()
+      .describe("raw store commands as data, for callers that speak spec 03; most callers want calls"),
   }),
-  output: z.object({ applied: z.number(), changed: ChangeSetS.nullable() }),
-  run(args, call) {
+  output: z.object({
+    applied: z.number(),
+    changed: ChangeSetS.nullable(),
+    results: z.array(z.unknown()).optional(),
+  }),
+  async run(args, call) {
+    if (args.calls) {
+      if (args.commands) throw invalidArg("commands", "give calls or commands, not both");
+      // Atomic the way the registry makes a refused call atomic: remember where the history was,
+      // and undo back to it when a call fails. A real run sent batch the arguments of place_item
+      // twice and was refused twice for a field it had never heard of (ADR-027 D6).
+      const store = call.ctx.store;
+      const before = store.historyPosition;
+      const results: unknown[] = [];
+      for (const [i, c] of args.calls.entries()) {
+        if (c.name === "batch") throw invalidArg("calls", `call ${i + 1} is a batch inside a batch`);
+        const r = await call.tools.call(c.name, c.args ?? {});
+        for (const w of r.warnings) call.warn(`call ${i + 1} (${c.name}): ${w}`);
+        if (!r.ok) {
+          while (store.historyPosition > before) store.undo();
+          throw new ToolError(
+            r.error.code,
+            `call ${i + 1} of ${args.calls.length} (${c.name}) failed and the ${i} before it were undone: ${r.error.message}`,
+            r.error.entityId,
+            r.error.hint,
+          );
+        }
+        results.push(r.result);
+      }
+      call.changed(null);
+      return { applied: args.calls.length, changed: null, results };
+    }
+    if (!args.commands) throw invalidArg("calls", "give calls: [{ name, args }, ...]");
     const t = call.ctx.store.transaction(args.label ?? "batch", args.commands, call.origin);
     if (!t.ok)
       throw new ToolError(
@@ -154,6 +192,15 @@ export const project = defineTool({
       recoveryAvailable: files?.recoveryAt() ?? null,
       modifiedOutside,
     });
+    // The agent works in the project it was asked in. A model that "starts a new project" swaps the
+    // session's project for a blank one with a new id and no folder, so everything it then builds is
+    // watched by the tab and saved nowhere; two real runs did exactly that on an empty project.
+    if (call.origin === "agent" && (args.op === "new" || args.op === "open"))
+      throw unavailable(
+        "project",
+        `the agent may not ${args.op} a project: the one it was asked in is the one to build in`,
+        "call get_scene and build here; a person starts or opens a project from the editor",
+      );
     switch (args.op) {
       case "info":
         return info();

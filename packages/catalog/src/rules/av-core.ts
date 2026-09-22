@@ -21,6 +21,14 @@ export const AV_CORE_INPUT: RulesPackInput = {
     chairClearanceMm: 900,
     displayCentreHeightMm: 1400,
     displayCentreToleranceMm: 150,
+    // The numbers the office recipes are built on (ADR-026 D1: numbers go to the pack). A desk is
+    // 1600 x 800; a bench aisle is 1,500 so two people pass; a cafeteria seat is 1.3 m² of floor
+    // and a meeting seat about 2.
+    deskWidthMm: 1600,
+    deskDepthMm: 800,
+    benchAisleMm: 1500,
+    cafeteriaM2PerSeat: 1.3,
+    meetingM2PerSeat: 2,
   },
   bomRules: [
     {
@@ -277,6 +285,122 @@ export const AV_CORE_INPUT: RulesPackInput = {
         { category: "display", constraint: "diagonalIn >= neededDiagonalIn", preferMake: [] },
         { category: "video-bar", constraint: "maxRoomDepthMm >= seatDistanceMm", preferMake: [] },
       ],
+    },
+    // The four below are what a real run asked for by name and was refused (ADR-027 D7). A pack
+    // with huddle, boardroom and training furnished a six-seat meeting room as a boardroom, a
+    // cafeteria as one dinner table for twelve, a reception with nothing, and a hundred desks as
+    // two grids laid over each other.
+    {
+      // A meeting room is a boardroom that is not trying to impress anybody: the same table,
+      // chairs, display and bar, at the clearance a working room needs, for the four-to-twelve-seat
+      // rooms an office has most of.
+      id: "meeting",
+      purpose: "meeting",
+      capacityRange: [4, 12],
+      steps: [
+        { op: "table", shape: "rect", seatsExpr: "room.capacity", clearanceMm: 900 },
+        { op: "chairs", around: "table", pitchMm: 700 },
+        {
+          op: "display",
+          wall: "auto",
+          diagonalExpr: "max(65, ceil(seatDistanceMm / 25.4 / viewerRatioDetail))",
+          centreHeightMm: 1400,
+          countExpr: "1",
+        },
+        { op: "video-bar", under: "display" },
+        { op: "by-door", category: "scheduler", heightMm: 1400, side: "inside" },
+      ],
+      productPreferences: [
+        { category: "table", constraint: "seats >= neededSeats and shape == 'rect'", preferMake: [] },
+        { category: "display", constraint: "diagonalIn >= neededDiagonalIn", preferMake: [] },
+        { category: "video-bar", constraint: "maxRoomDepthMm >= seatDistanceMm", preferMake: [] },
+      ],
+    },
+    {
+      // Benches of six: three desks in a row, three more back to back with them, a chair on the
+      // outside of each, and an aisle a person can pass another in between one bench and the next.
+      // Every desk gets its chair from the same step, which is the whole difference between this
+      // and the two grids.
+      id: "open-office",
+      purpose: "open-office",
+      capacityRange: [4, 400],
+      steps: [
+        {
+          op: "arrange",
+          pattern: "bench",
+          category: "desk",
+          countExpr: "room.capacity",
+          spacingMm: 1500,
+          seatsEach: 1,
+          sides: 1,
+          perCluster: 3,
+          aisleMm: 1500,
+        },
+      ],
+      productPreferences: [
+        { category: "desk", constraint: "w >= 1400 and w <= 1800 and d >= 700 and d <= 900", preferMake: [] },
+      ],
+    },
+    {
+      // Small tables with chairs on both sides, in rows with room to carry a tray between them: one
+      // four-seat table for every four the room is said to hold.
+      id: "cafeteria",
+      purpose: "cafeteria",
+      capacityRange: [4, 200],
+      steps: [
+        {
+          op: "arrange",
+          pattern: "rows",
+          category: "table",
+          countExpr: "ceil(room.capacity / 4)",
+          spacingMm: 900,
+          seatsEach: 2,
+          sides: 2,
+          perCluster: 0,
+          aisleMm: 1500,
+        },
+      ],
+      productPreferences: [
+        { category: "table", constraint: "seats <= 4 and w <= 1400", preferMake: [] },
+        { category: "chair", constraint: "w <= 500", preferMake: [] },
+      ],
+    },
+    {
+      // A desk with its back to the wall facing the door, and somewhere to wait along a wall beside
+      // it. The "auto" wall is the one opposite the door, which is where a reception desk goes.
+      id: "reception",
+      purpose: "reception",
+      capacityRange: [0, 40],
+      steps: [
+        {
+          op: "along-wall",
+          category: "desk",
+          wall: "auto",
+          countExpr: "1",
+          where: null,
+          shape: "box",
+          sizeMm: { w: 2400, d: 800, h: 1100 },
+          label: "Reception desk",
+          spacingMm: 0,
+          align: "centre",
+          clearanceMm: 1200,
+          beforeWindow: true,
+        },
+        {
+          op: "along-wall",
+          category: "sofa",
+          wall: "beside-display",
+          countExpr: "ceil(room.capacity / 4)",
+          where: null,
+          shape: "sofa",
+          sizeMm: { w: 1800, d: 900, h: 850 },
+          label: "Waiting sofa",
+          spacingMm: 300,
+          align: "start",
+          clearanceMm: 900,
+        },
+      ],
+      productPreferences: [{ category: "desk", constraint: "w >= 1800", preferMake: [] }],
     },
   ],
 };

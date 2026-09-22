@@ -357,3 +357,24 @@ describe("the store around it", () => {
     expect(store.state.model).toBe("gpt");
   });
 });
+
+describe("the notes card (ADR-027 D2)", () => {
+  it("is one card, updated where it stands", () => {
+    const state = fold([
+      started(),
+      {
+        type: "plan.updated",
+        step: 0,
+        items: [{ id: "a", text: "walls", status: "pending" }],
+      },
+      { type: "notes.updated", step: 1, text: "the picture shows a courtyard" },
+      toolStarted("c1", "create_walls", "Drawing"),
+      toolFinished("c1", "create_walls"),
+      { type: "notes.updated", step: 2, text: "the picture shows a courtyard; the client wants glass" },
+    ]);
+    const notes = state.items.filter((i) => i.kind === "notes");
+    expect(notes).toHaveLength(1);
+    expect((notes[0] as { text: string }).text).toContain("wants glass");
+    expect(state.items.findIndex((i) => i.kind === "notes")).toBe(2);
+  });
+});

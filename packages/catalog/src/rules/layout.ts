@@ -17,7 +17,9 @@ import {
   type DesignRoom,
   designRoomArea,
   designShortSide,
+  enclosureOf,
   OUTSIDE,
+  onGlazedSide,
   onOutsideWall,
   type Problem,
   RESIDENTIAL_PURPOSES,
@@ -31,6 +33,9 @@ const PRIVATE: ReadonlySet<string> = new Set(["bedroom", "bathroom", "toilet"]);
 /** Purposes that are circulation whatever the design says. */
 const CIRCULATION: ReadonlySet<string> = new Set(["corridor", "foyer"]);
 /** Rooms a dwelling has to have, however the brief was worded. */
+/** People, summed over the rooms' capacities, from which a workplace without toilets is refused. */
+const WORKPLACE_WC_FROM = 20;
+const WC_PURPOSES: ReadonlySet<string> = new Set(["restroom", "toilet", "bathroom"]);
 const DWELLING_NEEDS: readonly { purposes: readonly string[]; called: string }[] = [
   { purposes: ["kitchen"], called: "a kitchen" },
   { purposes: ["bathroom", "toilet"], called: "a bathroom or a toilet" },
@@ -64,7 +69,9 @@ const SENSIBLE_MAX: Readonly<Record<string, { m2: number; share: number }>> = {
  * nothing refused it because nothing had ever compared a room with the number of people in it.
  */
 const M2_PER_PERSON: Readonly<Record<string, number>> = {
-  "open-office": 8,
+  // The desk zone, not the floor: benched desks with their aisles are 5.5 to 6 m² each. 8 to 12 is a
+  // whole floor's figure with meeting rooms and cafeteria in it, and belongs to the skill (ADR-028 D5).
+  "open-office": 6,
   focus: 4,
   meeting: 1.8,
   boardroom: 2.5,
@@ -144,6 +151,45 @@ export interface LayoutReport {
  * other, a room nobody can reach, a bedroom you walk through to get to another. Warnings are what a
  * person would call poor: a small living room, a long thin hall.
  */
+/**
+ * The smallest move that clears an overlap, as a rectangle the model can paste into revise_design.
+ *
+ * "A and B are on top of each other over 7.5 m²" leaves the arithmetic to the model, and a live run
+ * drawing fifteen rooms by hand made fourteen overlaps and could not work out which way to move
+ * anything. The smaller room moves, along whichever axis needs the shorter move, to the far side of
+ * the other with one inside wall between; shrinking it by the same amount is offered too. It is a
+ * suggestion: the checker does not move anything.
+ */
+function clearOverlap(a: DesignRoom, b: DesignRoom, wallMm: number): string {
+  const [big, small] = a.rect.w * a.rect.d >= b.rect.w * b.rect.d ? [a, b] : [b, a];
+  const B = big.rect;
+  const S = small.rect;
+  const options = [
+    // push the small room off each side of the big one
+    {
+      axis: "y",
+      rect: { ...S, y: B.y + B.d + wallMm },
+      cut: { ...S, y: B.y + B.d + wallMm, d: S.y + S.d - (B.y + B.d + wallMm) },
+    },
+    { axis: "y", rect: { ...S, y: B.y - wallMm - S.d }, cut: { ...S, d: B.y - wallMm - S.y } },
+    {
+      axis: "x",
+      rect: { ...S, x: B.x + B.w + wallMm },
+      cut: { ...S, x: B.x + B.w + wallMm, w: S.x + S.w - (B.x + B.w + wallMm) },
+    },
+    { axis: "x", rect: { ...S, x: B.x - wallMm - S.w }, cut: { ...S, w: B.x - wallMm - S.x } },
+  ].map((o) => ({ ...o, distance: Math.abs(o.rect.x - S.x) + Math.abs(o.rect.y - S.y) }));
+  const best = options.sort((p, q) => p.distance - q.distance)[0] as (typeof options)[number];
+  const r = (x: { x: number; y: number; w: number; d: number }) =>
+    `{ x: ${Math.round(x.x)}, y: ${Math.round(x.y)}, w: ${Math.round(x.w)}, d: ${Math.round(x.d)} }`;
+  const cutOk = best.cut.w >= 1000 && best.cut.d >= 1000;
+  return (
+    `move ${small.key} clear of ${big.key}: revise_design rooms: [{ key: "${small.key}", rect: ${r(best.rect)} }]` +
+    (cutOk ? `, or shrink it instead: rect: ${r(best.cut)}` : "") +
+    "; two rooms may share a wall but not a floor"
+  );
+}
+
 export function checkLayout(design: Design, pack: RulesPack | null = null): LayoutReport {
   const out: Problem[] = [];
   const facts = pack?.facts ?? {};
@@ -200,7 +246,7 @@ export function checkLayout(design: Design, pack: RulesPack | null = null): Layo
             "error",
             a.key,
             `${a.name} and ${b.name} are on top of each other over ${m2(overlap)} m²`,
-            "give them separate rectangles; two rooms may share a wall but not a floor",
+            clearOverlap(a, b, shell.interiorWallMm),
             [b.key],
           ),
         );
@@ -288,8 +334,10 @@ export function checkLayout(design: Design, pack: RulesPack | null = null): Layo
     if (max !== undefined && designRoomArea(r) > max)
       out.push(
         problem(
+          // A warning: a generous room is a choice, and a rule about what to build is not the
+          // checker's to enforce (ADR-028 D2). It stays because a 14 m² toilet is worth a word.
           "too-large",
-          "error",
+          "warning",
           r.key,
           `${r.name} is ${designRoomArea(r).toFixed(1)} m², which is not a generous ${r.purpose} but a mistake; ${max.toFixed(1)} m² is plenty in a building this size`,
           "give the space to the living room or a bedroom",
@@ -333,8 +381,35 @@ export function checkLayout(design: Design, pack: RulesPack | null = null): Layo
             "add it, or say in your answer why this building does without one",
           ),
         );
-  if (design.kind === "dwelling" && !rooms.some((r) => r.doorsTo.includes(OUTSIDE)))
-    out.push(problem("no-way-in", "error", null, "no room has a door to the outside"));
+  // A workplace with people in it has toilets. Twenty is about where a building stops being a room
+  // with a desk in it. A hundred-person office came out of a real run with none: the checker had
+  // listed "restroom" under missing, in a report nobody reads, and the building was built.
+  if (design.kind !== "dwelling") {
+    const people = rooms.reduce((n, r) => n + (r.capacity ?? 0), 0);
+    if (people >= WORKPLACE_WC_FROM && !rooms.some((r) => WC_PURPOSES.has(r.purpose)))
+      out.push(
+        problem(
+          "missing-room",
+          "error",
+          null,
+          `a workplace for ${people} people needs toilets, and this design has none`,
+          "add a restroom of about 12 m² for every fifty people",
+        ),
+      );
+  }
+  // Every building has a way in. This used to be asked of homes only, and a workplace with no
+  // entrance got seventeen rooms "reachable only through a bedroom" and not a word about the door.
+  const wayIn = rooms.some((r) => r.doorsTo.includes(OUTSIDE));
+  if (!wayIn)
+    out.push(
+      problem(
+        "no-way-in",
+        "error",
+        null,
+        "no room has a door to the outside",
+        'give the entrance room doorsTo: ["outside", ...]; every other room is reached from there',
+      ),
+    );
 
   // ---- doors: a door needs a wall, and some doors should not exist ----------
   const gap = shell.interiorWallMm + TOUCH_MM;
@@ -404,10 +479,36 @@ export function checkLayout(design: Design, pack: RulesPack | null = null): Layo
       link(r.key, to);
       link(to, r.key);
     }
+  // An open room has no wall to put a door in: whatever it touches, it opens onto (ADR-028 D2).
+  // The desks, the cafe and the breakout in a modern office are one floor, and the checker used to
+  // say each of them "has no door at all".
+  for (const r of rooms) {
+    if (enclosureOf(r) !== "open") continue;
+    for (const other of rooms) {
+      if (other.key === r.key || enclosureOf(other) !== "open") continue;
+      if (sharedEdge(r.rect, other.rect, gap) >= DOOR_WALL_MM) {
+        link(r.key, other.key);
+        link(other.key, r.key);
+      }
+    }
+  }
+  // Without an entrance, the plan still has to hang together, and saying nothing about it until
+  // the door was added hid ten real errors behind "no room has a door to the outside": a live run
+  // read 0.74 and two errors, added the door, and got twelve. So the walk starts from the room an
+  // entrance would open onto -- a reception, a foyer, else the corridor or open floor with the
+  // most doors -- as if it had one, and no-way-in says the rest.
+  const start: string = wayIn
+    ? OUTSIDE
+    : (rooms.find((r) => r.purpose === "reception" || r.purpose === "foyer")?.key ??
+      [...rooms]
+        .filter((r) => CIRCULATION.has(r.purpose) || enclosureOf(r) === "open")
+        .sort((a, b) => (doors.get(b.key)?.size ?? 0) - (doors.get(a.key)?.size ?? 0))[0]?.key ??
+      rooms[0]?.key ??
+      OUTSIDE);
   /** Rooms reachable from outside without passing THROUGH a private room. */
-  const reachable = new Set<string>();
-  const queue: string[] = [OUTSIDE];
-  const seen = new Set<string>([OUTSIDE]);
+  const reachable = new Set<string>(start === OUTSIDE ? [] : [start]);
+  const queue: string[] = [start];
+  const seen = new Set<string>([start]);
   while (queue.length > 0) {
     const here = queue.shift() as string;
     for (const next of doors.get(here) ?? []) {
@@ -420,19 +521,58 @@ export function checkLayout(design: Design, pack: RulesPack | null = null): Layo
       queue.push(next);
     }
   }
-  for (const r of rooms)
-    if (!reachable.has(r.key))
-      out.push(
-        problem(
-          "unreachable",
-          "error",
-          r.key,
-          doors.has(r.key)
-            ? `${r.name} can only be reached by walking through a bedroom or a bathroom`
-            : `${r.name} has no door at all`,
-          "give it a door onto the hall, a corridor or another shared room",
-        ),
-      );
+  // Reachable at all, through any room: the difference between a room behind a bedroom and a room
+  // cut off from the entrance altogether. The message used to say "only through a bedroom or a
+  // bathroom" for both, and an office with no bedrooms in it was told that about seven rooms.
+  const anyway = new Set<string>(start === OUTSIDE ? [] : [start]);
+  {
+    const q: string[] = [start];
+    const s2 = new Set<string>([start]);
+    while (q.length > 0) {
+      const here = q.shift() as string;
+      for (const next of doors.get(here) ?? []) {
+        if (s2.has(next)) continue;
+        s2.add(next);
+        anyway.add(next);
+        q.push(next);
+      }
+    }
+  }
+  const circulationLike = (x: DesignRoom) => CIRCULATION.has(x.purpose) || enclosureOf(x) === "open";
+  // With no entrance nothing is reachable, and no-way-in has said so once; saying it per room
+  // would be seventeen ways of not naming the door.
+  for (const r of rooms) {
+    if (reachable.has(r.key)) continue;
+    const touching = rooms.filter(
+      (o) => o.key !== r.key && circulationLike(o) && sharedEdge(r.rect, o.rect, gap) >= DOOR_WALL_MM,
+    );
+    let message: string;
+    let hint: string;
+    if (!doors.has(r.key)) {
+      message = `${r.name} has no door at all`;
+      // The field is named, because a model was told "give it a door" twice and sent the same
+      // design twice: it did not know where a door goes in the JSON.
+      hint =
+        touching.length > 0
+          ? `list what it opens onto in doorsTo, e.g. doorsTo: ["${touching[0]?.key}"]; a zone with no walls of its own says enclosure: "open" instead and needs no door`
+          : `it touches no corridor or open room at all: move its rect against one (a door needs ${DOOR_WALL_MM} mm of shared wall), or give it enclosure: "open"`;
+    } else if (anyway.has(r.key)) {
+      message = `${r.name} can only be reached by walking through a bedroom or a bathroom`;
+      hint = 'give it a door onto the hall, a corridor or another shared room: doorsTo: ["corridor"]';
+    } else {
+      const via = [...(doors.get(r.key) ?? [])].filter((k) => k !== OUTSIDE);
+      const from = wayIn ? "the entrance" : (byKey.get(start)?.name ?? "the rest of the plan");
+      message = `${r.name} is cut off from ${from}: it opens onto ${via.join(", ") || "nothing"}, and none of that connects back`;
+      hint =
+        touching.length > 0
+          ? `connect it to what the entrance reaches: a door onto ${touching
+              .map((t) => t.key)
+              .slice(0, 3)
+              .join(" or ")}, or make the rooms between open floor with enclosure: "open"`
+          : "move it against a corridor or an open room the entrance reaches";
+    }
+    out.push(problem("unreachable", "error", r.key, message, hint));
+  }
 
   // ---- windows -------------------------------------------------------------
   const HABITABLE = new Set(["bedroom", "living", "dining", "kitchen", "study", "meeting", "boardroom"]);
@@ -447,7 +587,9 @@ export function checkLayout(design: Design, pack: RulesPack | null = null): Layo
           "move it to an outside wall, or take the window away",
         ),
       );
-    if (!r.window && HABITABLE.has(r.purpose))
+    // A glazed side of the building is daylight without a window (ADR-028 D3), and an open room
+    // borrows the floor's.
+    if (!r.window && HABITABLE.has(r.purpose) && !onGlazedSide(r, shell, gap) && enclosureOf(r) !== "open")
       out.push(
         problem(
           "no-window",

@@ -3,12 +3,20 @@ import { hingeEndFor, parseAnchor, RECIPE_TEMPLATES, TOOLS } from "../src/index.
 import { buildFixtureRoom, harness } from "./helpers.js";
 
 describe("registry conventions (spec 04 section 1, ADR-006 D3, D4)", () => {
-  it("registers the 23 first-release tools, import_plan, the finish tools and the four design tools", () => {
+  it("registers the 23 first-release tools, import_plan, the finish tools, the four design tools and the three reading tools", () => {
     const h = harness();
     const names = h.registry.list().map((t) => t.name);
-    expect(names).toHaveLength(33);
-    expect(new Set(names).size).toBe(33);
-    for (const name of ["design_layout", "plan_rooms", "check_design", "build_design"])
+    expect(names).toHaveLength(38);
+    expect(new Set(names).size).toBe(38);
+    for (const name of [
+      "design_layout",
+      "plan_rooms",
+      "check_design",
+      "build_design",
+      "look_at",
+      "web_search",
+      "read_page",
+    ])
       expect(names, name).toContain(name);
     expect(TOOLS.every((t) => t.description.length > 20)).toBe(true);
   });
@@ -122,10 +130,10 @@ describe("registry conventions (spec 04 section 1, ADR-006 D3, D4)", () => {
 
   it("profiles advertise a subset while every tool stays callable (ADR-006 D6)", async () => {
     const h = harness();
-    expect(h.registry.advertised("high")).toHaveLength(33);
+    expect(h.registry.advertised("high")).toHaveLength(38);
     expect(h.registry.advertised("medium").map((t) => t.name)).not.toContain("modify_wall");
     const low = h.registry.advertised("low").map((t) => t.name);
-    expect(low).toHaveLength(22);
+    expect(low).toHaveLength(27);
     expect(low).not.toContain("create_walls");
     expect(low).toContain("place_item");
     // A weak model is offered fewer ways to do a thing, never fewer things it can say: a storey, a
@@ -226,14 +234,13 @@ describe("registry conventions (spec 04 section 1, ADR-006 D3, D4)", () => {
     expect(() => parseAnchor("near the door")).toThrow(/anchor/);
   });
 
-  it("project new starts a blank project and info reports it", async () => {
+  it("project new starts a blank project and info reports it, for a person at the editor", async () => {
     const h = harness();
     await buildFixtureRoom(h);
-    const fresh = await h.ok<{ name: string; modified: boolean; path: string | null }>("project", {
-      op: "new",
-      name: "Second",
-    });
-    expect(fresh.result).toMatchObject({ name: "Second", path: null });
+    // The agent may not: it builds in the project it was asked in (ADR-027, run 3).
+    const fresh = await h.registry.call("project", { op: "new", name: "Second" }, { origin: "editor" });
+    expect(fresh.ok).toBe(true);
+    if (fresh.ok) expect(fresh.result).toMatchObject({ name: "Second", path: null });
     expect(h.ctx.store.project.walls).toHaveLength(0);
     const info = await h.ok<{ name: string }>("project", { op: "info" });
     expect(info.result.name).toBe("Second");

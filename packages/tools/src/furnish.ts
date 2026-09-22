@@ -87,6 +87,9 @@ export function roomCapacity(room: Room): number {
  * homes, and "no recipe for a bedroom, but this training room seats about the same" is how a
  * bedroom ends up with a lectern in it.
  */
+/** The rooms that are one kind of room at several sizes, and so may stand in for each other. */
+const SEATED: ReadonlySet<string> = new Set(["huddle", "meeting", "boardroom", "training"]);
+
 export function pickRecipe(pack: RulesPack, room: Room, recipeId?: string): RoomRecipe {
   if (recipeId) {
     const r = pack.recipes.find((x) => x.id === recipeId);
@@ -114,10 +117,12 @@ export function pickRecipe(pack: RulesPack, room: Room, recipeId?: string): Room
   const chosen = RESIDENTIAL_PURPOSES.has(room.purpose)
     ? (byPurpose.find((r) => gap(r) === 0) ?? closest(byPurpose))
     : (() => {
-        // A recipe that places nothing stands in for no other: only its own purpose may pick it,
-        // or a corridor's "anything up to 99 people" would furnish every hall in the building with
-        // nothing at all.
-        const work = pack.recipes.filter((r) => !RESIDENTIAL_PURPOSES.has(r.purpose) && r.steps.length > 0);
+        // Only the seated rooms stand in for one another -- a meeting room is a small boardroom is
+        // a big huddle. A recipe that places nothing stands in for no other, or a corridor's
+        // "anything up to 99 people" would furnish every hall with nothing at all; and an open
+        // office, a cafeteria or a reception is its own kind of room, or every unknown purpose for
+        // forty people would come out as benches of desks.
+        const work = pack.recipes.filter((r) => SEATED.has(r.purpose) && r.steps.length > 0);
         return byPurpose.find((r) => gap(r) === 0) ?? work.find((r) => gap(r) === 0) ?? closest(work);
       })();
   if (!chosen)
@@ -256,10 +261,20 @@ export function planFurnishing(
   const displayStep = recipe.steps.find((s): s is Extract<Step, { op: "display" }> => s.op === "display");
   const asPlaced = options.replace ? { ...p, items: p.items.filter((i) => !inRoom.includes(i)) } : p;
   const free = freeSegments(asPlaced, room, sizes);
+  // A room with a screen is laid out from the wall the screen is on. A room of rows and no screen
+  // -- a cafeteria -- is laid out along its length: a real one 4.3 by 17.4 m was framed from its
+  // long wall, so its rows ran across the 4.3 m and not one of them fitted.
+  const rowsWithoutScreen = !displayStep && recipe.steps.some((s) => s.op === "arrange");
+  const longest = (): derive.Compass =>
+    (["north", "east", "south", "west"] as const)
+      .map((c) => ({ c, depth: frameFor(room, compassDir(c, p.meta.north)).depth }))
+      .sort((a, b) => b.depth - a.depth)[0]?.c ?? "north";
   const side: derive.Compass =
     displayStep && displayStep.wall !== "auto"
       ? displayStep.wall
-      : (suggestedDisplayWall(p, room, free) ?? "north");
+      : rowsWithoutScreen
+        ? longest()
+        : (suggestedDisplayWall(p, room, free) ?? "north");
   const frame = frameFor(room, compassDir(side, p.meta.north));
   const span = frame.pMax - frame.pMin;
   const midAcross = (frame.pMin + frame.pMax) / 2;
@@ -600,40 +615,96 @@ export function planFurnishing(
       }
       case "arrange": {
         if (blocked(step.category)) break;
-        if (step.pattern !== "rows") {
-          warnings.push(`arrange pattern "${step.pattern}" is not supported by recipes yet; use rows`);
+        if (step.pattern !== "rows" && step.pattern !== "bench") {
+          warnings.push(`arrange pattern "${step.pattern}" is not supported by recipes; use rows or bench`);
           break;
         }
+        const bench = step.pattern === "bench";
         const want = Math.max(1, Math.ceil(number(step.countExpr, "countExpr", 1)));
         const c = chair();
-        const gap = 600;
-        const r = resolve(
-          step.category,
-          { kind: "table", size: { w: 1600, d: 700, h: 740 }, shape: "rect" },
-          (s) => s.w <= span - 2 * gap,
-        );
-        const perRow = Math.max(1, Math.floor((span - 2 * gap + gap) / (r.size.w + gap)));
-        const rowPitch = r.size.d + CHAIR_GAP_MM + c.size.d + step.spacingMm;
-        const firstFront = Math.max(2500, Math.round(frame.depth * 0.2));
-        let placed = 0;
-        for (let k = 0; placed < want; k += 1) {
-          const along = firstFront + r.size.d / 2 + k * rowPitch;
-          if (along + r.size.d / 2 + CHAIR_GAP_MM + c.size.d + CHAIR_CLEARANCE_MM > frame.depth) break;
-          const inRow = Math.min(perRow, want - placed);
-          const total = inRow * r.size.w + (inRow - 1) * gap;
-          for (let i = 0; i < inRow; i += 1) {
-            const across = midAcross - total / 2 + r.size.w / 2 + i * (r.size.w + gap);
+        // A desk is a table the catalog files under its own name; without one, the pack's desk.
+        const deskW = Number(pack.facts.deskWidthMm ?? 1600);
+        const deskD = Number(pack.facts.deskDepthMm ?? 800);
+        const fallback: PrimitiveRecipe =
+          step.category === "desk"
+            ? { kind: "table", size: { w: deskW, d: deskD, h: 740 }, shape: "rect" }
+            : { kind: "table", size: { w: 1600, d: 700, h: 740 }, shape: "rect" };
+        // Between tables in a row: nothing on a bench (the desks touch), a chair's width elsewhere.
+        const gap = bench ? 0 : 600;
+        const aisle = Math.max(step.aisleMm, gap);
+        const r = resolve(step.category, fallback, (s) => s.w <= span - 2 * CHAIR_CLEARANCE_MM);
+        const reach = CHAIR_GAP_MM + c.size.d;
+        // How the rows are spaced along the room. Chairs sit on `sides` of every table; on a bench
+        // the pair meets back to back, and the aisle is what separates one pair from the next.
+        const chairRows = step.seatsEach > 0 ? step.sides : 0;
+        const rowDepth = r.size.d + chairRows * reach;
+        const pairDepth = bench ? 2 * r.size.d + 2 * (step.seatsEach > 0 ? reach : 0) : rowDepth;
+        // Rows start a viewing distance from a screen, or an aisle from the wall when there is none.
+        const firstFront = displayStep ? Math.max(1200, Math.round(frame.depth * 0.1)) : CHAIR_CLEARANCE_MM;
+        // Across the room: clusters of `perCluster` tables with an aisle between, centred as a block.
+        const cluster = step.perCluster > 0 ? step.perCluster : Number.POSITIVE_INFINITY;
+        const fitsAcross = (n: number) => {
+          const clusters = Math.ceil(n / cluster);
+          return n * r.size.w + (n - clusters) * gap + (clusters - 1) * aisle;
+        };
+        let perRow = 0;
+        while (fitsAcross(perRow + 1) <= span - 2 * CHAIR_CLEARANCE_MM) perRow += 1;
+        perRow = Math.max(1, perRow);
+        const acrossOf = (i: number, n: number) => {
+          const total = fitsAcross(n);
+          const before = i * r.size.w + (i - Math.floor(i / cluster)) * gap + Math.floor(i / cluster) * aisle;
+          return midAcross - total / 2 + before + r.size.w / 2;
+        };
+        const seat = (along: number, across: number, front: Point) => {
+          place("chair", c, at(frame, along, across), facing(front), 0, floor);
+          seatsAt.push({ along, across });
+        };
+        // One row of tables, its chairs on the far side (+1, away from the display wall) or the
+        // near side (-1); a bench's second row is the first turned round.
+        const row = (along: number, n: number, chairSides: readonly (1 | -1)[]) => {
+          for (let i = 0; i < n; i += 1) {
+            const across = acrossOf(i, n);
             place(step.category, r, at(frame, along, across), axisAlong(frame.p), 0, floor);
-            for (let j = 0; j < step.seatsEach; j += 1) {
-              const ca = along + r.size.d / 2 + CHAIR_GAP_MM + c.size.d / 2;
-              const cx = across - r.size.w / 2 + ((j + 0.5) * r.size.w) / step.seatsEach;
-              place("chair", c, at(frame, ca, cx), facing(frame.o), 0, floor);
-              seatsAt.push({ along: ca, across: cx });
-            }
+            for (const side of chairSides)
+              for (let j = 0; j < step.seatsEach; j += 1) {
+                const ca = along + side * (r.size.d / 2 + CHAIR_GAP_MM + c.size.d / 2);
+                const cx = across - r.size.w / 2 + ((j + 0.5) * r.size.w) / step.seatsEach;
+                seat(ca, cx, dir(frame, -side, 0));
+              }
           }
-          placed += inRow;
+        };
+        let placed = 0;
+        let front = firstFront;
+        while (placed < want) {
+          if (bench) {
+            // the pair: tables back to back, chairs on the outside of both
+            const need = pairDepth + CHAIR_CLEARANCE_MM;
+            if (front + need > frame.depth) break;
+            const n1 = Math.min(perRow, want - placed);
+            const nearAlong = front + (step.seatsEach > 0 ? reach : 0) + r.size.d / 2;
+            row(nearAlong, n1, step.seatsEach > 0 ? [-1] : []);
+            placed += n1;
+            if (placed < want) {
+              const n2 = Math.min(perRow, want - placed);
+              row(nearAlong + r.size.d, n2, step.seatsEach > 0 ? [1] : []);
+              placed += n2;
+            }
+            front += pairDepth + step.spacingMm;
+          } else {
+            const need = rowDepth + CHAIR_CLEARANCE_MM;
+            if (front + need > frame.depth) break;
+            const n = Math.min(perRow, want - placed);
+            const sides: (1 | -1)[] = step.seatsEach === 0 ? [] : step.sides === 2 ? [-1, 1] : [1];
+            const along = front + (step.sides === 2 && step.seatsEach > 0 ? reach : 0) + r.size.d / 2;
+            row(along, n, sides);
+            placed += n;
+            front += rowDepth + step.spacingMm;
+          }
         }
-        if (placed < want) warnings.push(`only ${placed} of ${want} ${step.category} items fit in rows`);
+        if (placed < want)
+          warnings.push(
+            `only ${placed} of ${want} ${step.category} items fit in ${bench ? "benches" : "rows"}; the room is ${Math.round(frame.depth)} deep and ${Math.round(span)} across`,
+          );
         break;
       }
       case "display": {
@@ -808,7 +879,7 @@ export function planFurnishing(
         // centred bed to one side of it rather than on top of it.
         // Anything taller than a window's sill may not stand in front of it, so for those the runs
         // are cut at every window; a bed or a kitchen run, which are not, uses the wall whole.
-        const tall = windows.filter((pane) => r.size.h > pane.sill);
+        const tall = step.beforeWindow ? [] : windows.filter((pane) => r.size.h > pane.sill);
         const candidates = tall.length === 0 ? open : splitAround(open, tall);
         const usable = candidates.filter((run) => holds(run) > 0);
         if (usable.length === 0) {

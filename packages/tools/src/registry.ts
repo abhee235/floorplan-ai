@@ -31,6 +31,11 @@ export interface ToolCall {
    * person did, which is the one question a log of this kind exists to answer (ADR-019 D2).
    */
   origin: Origin;
+  /**
+   * Another tool, called as this one was: the same origin, the same consent, the same grant. This
+   * is how batch runs a list of tool calls without knowing what any of them does.
+   */
+  tools: { call(name: string, args: unknown): Promise<ToolResult> };
 }
 
 export type AnyObjectSchema = z.ZodObject<z.ZodRawShape>;
@@ -125,6 +130,13 @@ const LOW_PROFILE = new Set([
   "plan_rooms",
   "check_design",
   "build_design",
+  "query_design",
+  "revise_design",
+  // What the model reads before it designs (ADR-027): simple, non-mutating, and a weak model with a
+  // picture attached needs the first as much as a strong one.
+  "look_at",
+  "web_search",
+  "read_page",
 ]);
 const MEDIUM_HIDDEN = new Set(["modify_wall"]);
 
@@ -189,7 +201,7 @@ export class Registry {
             },
             [],
           )
-        : await this.invoke(name, rawArgs, origin);
+        : await this.invoke(name, rawArgs, origin, options);
     if (result.ok && origin === "agent") {
       const trespass = this.trespass(was, result.changed, options.released);
       if (trespass) {
@@ -211,7 +223,12 @@ export class Registry {
     return result;
   }
 
-  private async invoke(name: string, rawArgs: unknown, origin: Origin): Promise<ToolResult> {
+  private async invoke(
+    name: string,
+    rawArgs: unknown,
+    origin: Origin,
+    options: CallOptions,
+  ): Promise<ToolResult> {
     const warnings: string[] = [];
     const def = this.tools.get(name);
     if (!def) {
@@ -256,6 +273,7 @@ export class Registry {
         changed = cs;
       },
       origin,
+      tools: { call: (inner, args) => this.call(inner, args, options) },
     };
     try {
       const value = await withTimeout(Promise.resolve(def.run(parsed.data, call)), def.timeoutMs, name);

@@ -172,6 +172,8 @@ export const RoomCreate = z.object({
   purpose: RoomPurpose.optional(),
   capacity: z.number().int().min(0).nullable().optional(),
   gapToleranceMm: MmNonNegative.optional(),
+  /** Free-form properties, e.g. `enclosure: "open"` for a zone a design meant to leave unwalled. */
+  properties: z.record(z.string()).optional(),
 });
 
 export const RoomDetectAll = z.object({
