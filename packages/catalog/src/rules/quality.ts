@@ -11,7 +11,7 @@
 // refuses a design. It scores one, and the score is for us, not for the model: what a model needs
 // is the list of what is wrong, which the checker already gives it.
 
-import { type Design, type DesignRoom, designRoomArea, onOutsideWall, sharedEdge } from "@fpv/ir";
+import { canBeDaylit, type Design, type DesignRoom, designRoomArea, sharedEdge } from "@fpv/ir";
 
 /** Longer than this against its own width and a room has stopped being a room. */
 export const MAX_ASPECT = 2.5;
@@ -98,7 +98,8 @@ export function layoutQuality(design: Design, context: QualityContext = {}): Lay
   const proportion = scored.length === 0 ? 1 : 1 - slivers.length / scored.length;
 
   const wantDaylight = scored.filter((r) => r.window || HABITABLE.has(r.purpose));
-  const lit = wantDaylight.filter((r) => onOutsideWall(r, design.shell, touchMm));
+  // Daylight is a side that lets it in: a solid side is outside and dark (ADR-028 D12).
+  const lit = wantDaylight.filter((r) => canBeDaylit(r, design.shell, touchMm));
   const daylight = wantDaylight.length === 0 ? 1 : lit.length / wantDaylight.length;
 
   const floor = rooms.reduce((n, r) => n + designRoomArea(r), 0);

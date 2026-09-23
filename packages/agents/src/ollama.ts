@@ -217,7 +217,7 @@ export function ollamaNative(
     const options: Record<string, unknown> = {
       // The whole reason this wire exists.
       num_ctx: profile.contextTokens,
-      temperature: req.temperature ?? 0,
+      temperature: req.temperature ?? config.temperature ?? 0,
     };
     const cap = req.maxTokens ?? config.maxTokens;
     if (cap) options.num_predict = cap;

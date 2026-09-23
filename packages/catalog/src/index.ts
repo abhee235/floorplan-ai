@@ -59,7 +59,13 @@ export {
   recipeKey,
 } from "./rules/facts.js";
 export { CORE_RULES, HOME_CORE, HOME_CORE_INPUT } from "./rules/home-core.js";
-export { checkLayout, HOME_PURPOSES, type LayoutReport, layoutIsBuildable } from "./rules/layout.js";
+export {
+  checkLayout,
+  doorGraph,
+  HOME_PURPOSES,
+  type LayoutReport,
+  layoutIsBuildable,
+} from "./rules/layout.js";
 export {
   corridorFor,
   isResidential,
@@ -90,6 +96,7 @@ export {
   ScopeRule,
   validatePack,
 } from "./rules/schema.js";
+export { type DesignWalk, type WalkSide, walkDesign } from "./rules/walk.js";
 export {
   CATEGORIES,
   Category,

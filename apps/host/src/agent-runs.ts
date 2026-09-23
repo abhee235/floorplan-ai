@@ -33,6 +33,10 @@ import {
 import { type AgentEventMsg, type AgentStateMsg, type AgentWireEvent, type ChangeSet } from "@fpv/commands";
 import type { Attachment, ToolReliability } from "@fpv/tools";
 import { NEEDS_SIGHT, NEEDS_WEB } from "@fpv/tools";
+
+/** Pictures the designer may take in one run (ADR-028 D11). */
+const DESIGNER_PICTURES = 4;
+
 import type { Held, Workspace } from "./workspace.js";
 
 /** Text deltas are gathered for this long before a frame goes out, so a fast model is not a flood. */
@@ -324,8 +328,12 @@ export class AgentRuns {
     // a picture for a model that cannot see or a conversation with nothing attached.
     const omit = new Set<string>([
       ...(session.ctx.web ? [] : NEEDS_WEB),
-      ...(canSee && mine.attachments.size ? [] : NEEDS_SIGHT),
+      // look_at needs a picture to look at; preview_design only needs eyes (ADR-028 D11)
+      ...(canSee ? (mine.attachments.size ? [] : ["look_at"]) : NEEDS_SIGHT),
     ]);
+    let pictures = 0;
+    /** What the designer built and whether it has looked at it since (ADR-028 D11 D5). */
+    const builder = { built: false, looked: false, asked: 0 };
     session.ctx.subagent = {
       run: (request) =>
         runArchitect(req.provider, registry, request, {
@@ -354,7 +362,35 @@ export class AgentRuns {
         provider: req.provider,
         tools: registryToolSpecs(registry, req.reliability, undefined, omit),
         skills,
-        callTool: (name, args, released) => registry.call(name, args, { origin: "agent", released }),
+        callTool: (name, args, released) => {
+          // Four pictures a run for the designer: each is real prefill for a local model (ADR-028 D11).
+          if (name === "preview_design" && ++pictures > DESIGNER_PICTURES)
+            return Promise.resolve({
+              ok: false,
+              error: {
+                code: "design.look-refused",
+                message: `you have looked at ${DESIGNER_PICTURES} pictures in this run; there are no more`,
+                entityId: null,
+                hint: "judge from validate and describe_room, and finish",
+              },
+              warnings: [],
+            });
+          if (name === "preview_design") builder.looked = true;
+          return registry.call(name, args, { origin: "agent", released }).then((r) => {
+            if (name === "build_design" && r.ok) {
+              builder.built = true;
+              builder.looked = false;
+            }
+            return r;
+          });
+        },
+        // Built and never looked at. Two live runs furnished a whole office and reached for render,
+        // which needs a tab, then answered without ever seeing the plan they drew (ADR-028 D11).
+        beforeFinish: () => {
+          if (!canSee || !builder.built || builder.looked || builder.asked >= 1) return null;
+          builder.asked += 1;
+          return "You built this and have not looked at it. Call preview_design with no designId: it draws the plan as it stands, furniture and screens included, and needs no tab open. Say what is wrong with what you see, fix what you can, and then answer.";
+        },
         // The prompt is built for this session, not for every session: a model that cannot see is
         // never told to look at a render, and a session without a rules pack is never told to
         // furnish a room from one.
@@ -567,6 +603,17 @@ export class AgentRuns {
         return { type: "retry", step: event.step, error: event.error, waitMs: event.waitMs };
       case "warning":
         return { type: "warning", step: event.step, message: event.message };
+      case "done":
+        // A sub-run that died says so. The parent's own end is run.finished, made where it is
+        // decided; a sub-run had no end at all, and an architect killed by a provider error read in
+        // the chat as one that had simply said nothing (ADR-028 D11).
+        return role && event.reason !== "done"
+          ? {
+              type: "warning",
+              step: event.steps,
+              message: `the ${role} stopped: ${event.reason}${event.error ? `: ${event.error}` : ""}`,
+            }
+          : null;
       default:
         // question, question.answered and done are emitted where they are decided, so the status they
         // carry and the event stay in step.
@@ -826,6 +873,8 @@ export function summarise(name: string, args: unknown): string {
       return a.confirm ? "Committing the plan" : "Reading the plan";
     case "read_skill":
       return a.file ? `Reading ${String(a.name)}: ${String(a.file)}` : `Reading the ${String(a.name)} skill`;
+    case "preview_design":
+      return a.designId ? `Looking at ${String(a.designId)}` : "Looking at what was built";
     case "look_at":
       return a.url ? "Looking at a picture from the web" : `Looking at attachment ${String(a.attachmentId)}`;
     case "web_search":

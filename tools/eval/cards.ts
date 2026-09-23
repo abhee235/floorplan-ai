@@ -14,6 +14,8 @@ export const CARDS_DIR = fileURLToPath(new URL("./cards/", import.meta.url));
 export interface ExpectedRoom {
   name?: string;
   purpose?: string;
+  /** Any of these purposes: a meeting room of four is as often a huddle, toilets a restroom. */
+  purposeIn?: string[];
   minCapacity?: number;
   /** Inclusive range in square metres. */
   areaM2?: [number, number];
@@ -48,6 +50,8 @@ export interface TaskCard {
      */
     calls?: { must?: string[]; never?: string[] };
   };
+  /** For the live loop (tools/eval/live.ts, ADR-028 D11): how blank a side of the building may be. */
+  look?: { maxEmptySide?: number };
 }
 
 export function loadCards(ids?: readonly string[]): TaskCard[] {
@@ -110,11 +114,12 @@ export interface ScoreMeta {
   transcript: string | null;
 }
 
-function roomMatches(project: Project, want: ExpectedRoom, taken: Set<string>): string | null {
+export function roomMatches(project: Project, want: ExpectedRoom, taken: Set<string>): string | null {
   const hit = project.rooms.find((r) => {
     if (taken.has(r.id)) return false;
     if (want.name && (r.name ?? "").trim().toLowerCase() !== want.name.toLowerCase()) return false;
     if (want.purpose && r.purpose !== want.purpose) return false;
+    if (want.purposeIn && !want.purposeIn.includes(r.purpose)) return false;
     if (want.minCapacity !== undefined && (r.capacity ?? 0) < want.minCapacity) return false;
     if (want.areaM2) {
       const a = derive.roomArea(r) / 1e6;
@@ -125,10 +130,10 @@ function roomMatches(project: Project, want: ExpectedRoom, taken: Set<string>): 
   return hit?.id ?? null;
 }
 
-const describeRoom = (w: ExpectedRoom) =>
+export const describeRoom = (w: ExpectedRoom) =>
   [
     w.name ? `"${w.name}"` : null,
-    w.purpose ?? null,
+    w.purpose ?? (w.purposeIn ? w.purposeIn.join(" or ") : null),
     w.minCapacity !== undefined ? `${w.minCapacity}+ seats` : null,
     w.areaM2 ? `${w.areaM2[0]}-${w.areaM2[1]} m2` : null,
   ]

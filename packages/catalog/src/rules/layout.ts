@@ -13,11 +13,13 @@
 // project that has been DRAWN, against the pack's per-room design rules. `checkLayout` here checks a
 // design that has only been PROPOSED. The tool a model calls is `check_design`; both feed it.
 import {
+  canBeDaylit,
   type Design,
   type DesignRoom,
   designRoomArea,
   designShortSide,
   enclosureOf,
+  mustBeWalled,
   OUTSIDE,
   onGlazedSide,
   onOutsideWall,
@@ -25,6 +27,7 @@ import {
   RESIDENTIAL_PURPOSES,
   rectOverlap,
   sharedEdge,
+  windowSides,
 } from "@fpv/ir";
 import type { RulesPack } from "./schema.js";
 
@@ -186,8 +189,102 @@ function clearOverlap(a: DesignRoom, b: DesignRoom, wallMm: number): string {
   return (
     `move ${small.key} clear of ${big.key}: revise_design rooms: [{ key: "${small.key}", rect: ${r(best.rect)} }]` +
     (cutOk ? `, or shrink it instead: rect: ${r(best.cut)}` : "") +
-    "; two rooms may share a wall but not a floor"
+    // The tool that does this arithmetic, named where the arithmetic is failing: a live architect
+    // spent six rounds on one overlap with tidy_design sitting unused in its prompt (ADR-028 D10).
+    "; or tidy_design with this design's id moves them apart for you. Two rooms may share a wall but not a floor"
   );
+}
+
+/**
+ * The nearest way to make a room touch shared floor, as the two edits that would do it: the room
+ * moved against the nearest corridor or open room, or that room stretched to meet it.
+ *
+ * "It touches no corridor or open room: move its rect against one" was true and no use. A live
+ * architect left a band of meeting rooms five metres from the open floor, was told that for ten
+ * rounds, and never found the number; this gives it.
+ */
+function meetHint(room: DesignRoom, shared: readonly DesignRoom[], wallMm: number): string | null {
+  const r = room.rect;
+  const ro = (a: number, b: number, c: number, d: number) => Math.min(b, d) - Math.max(a, c);
+  const options: {
+    distance: number;
+    other: DesignRoom;
+    move: DesignRoom["rect"];
+    stretch: DesignRoom["rect"];
+  }[] = [];
+  for (const o of shared) {
+    const q = o.rect;
+    if (ro(r.x, r.x + r.w, q.x, q.x + q.w) >= DOOR_WALL_MM) {
+      if (r.y >= q.y + q.d)
+        options.push({
+          distance: r.y - (q.y + q.d + wallMm),
+          other: o,
+          move: { ...r, y: q.y + q.d + wallMm },
+          stretch: { ...q, d: r.y - wallMm - q.y },
+        });
+      else if (r.y + r.d <= q.y)
+        options.push({
+          distance: q.y - wallMm - (r.y + r.d),
+          other: o,
+          move: { ...r, y: q.y - wallMm - r.d },
+          stretch: { ...q, y: r.y + r.d + wallMm, d: q.y + q.d - (r.y + r.d + wallMm) },
+        });
+    }
+    if (ro(r.y, r.y + r.d, q.y, q.y + q.d) >= DOOR_WALL_MM) {
+      if (r.x >= q.x + q.w)
+        options.push({
+          distance: r.x - (q.x + q.w + wallMm),
+          other: o,
+          move: { ...r, x: q.x + q.w + wallMm },
+          stretch: { ...q, w: r.x - wallMm - q.x },
+        });
+      else if (r.x + r.w <= q.x)
+        options.push({
+          distance: q.x - wallMm - (r.x + r.w),
+          other: o,
+          move: { ...r, x: q.x - wallMm - r.w },
+          stretch: { ...q, x: r.x + r.w + wallMm, w: q.x + q.w - (r.x + r.w + wallMm) },
+        });
+    }
+  }
+  const best = options.filter((o) => o.distance > 0).sort((a, b) => a.distance - b.distance)[0];
+  if (!best) return null;
+  const txt = (x: DesignRoom["rect"]) =>
+    `{ x: ${Math.round(x.x)}, y: ${Math.round(x.y)}, w: ${Math.round(x.w)}, d: ${Math.round(x.d)} }`;
+  return `it is ${Math.round(best.distance)} mm from ${best.other.key}. Move it to meet it: revise_design rooms: [{ key: "${room.key}", rect: ${txt(best.move)} }], or stretch ${best.other.key} to meet it: [{ key: "${best.other.key}", rect: ${txt(best.stretch)} }]`;
+}
+
+/**
+ * Who opens onto whom: every door the design lists, both ways, and each open room onto the open
+ * rooms it touches, which have no wall between them to hang a door in (ADR-028 D2). The checker's
+ * reachability walks this, and so does the walk a model is shown (D11).
+ */
+export function doorGraph(design: Design): Map<string, Set<string>> {
+  const gap = design.shell.interiorWallMm + TOUCH_MM;
+  const doors = new Map<string, Set<string>>();
+  const link = (a: string, b: string) => {
+    if (!doors.has(a)) doors.set(a, new Set());
+    (doors.get(a) as Set<string>).add(b);
+  };
+  for (const r of design.rooms)
+    for (const to of r.doorsTo) {
+      link(r.key, to);
+      link(to, r.key);
+    }
+  // An open room has no wall to put a door in: whatever it touches, it opens onto (ADR-028 D2).
+  // The desks, the cafe and the breakout in a modern office are one floor, and the checker used to
+  // say each of them "has no door at all".
+  for (const r of design.rooms) {
+    if (enclosureOf(r) !== "open") continue;
+    for (const other of design.rooms) {
+      if (other.key === r.key || enclosureOf(other) !== "open") continue;
+      if (sharedEdge(r.rect, other.rect, gap) >= DOOR_WALL_MM) {
+        link(r.key, other.key);
+        link(other.key, r.key);
+      }
+    }
+  }
+  return doors;
 }
 
 export function checkLayout(design: Design, pack: RulesPack | null = null): LayoutReport {
@@ -289,7 +386,9 @@ export function checkLayout(design: Design, pack: RulesPack | null = null): Layo
         "error",
         null,
         `the rooms come to ${m2(roomsM2 * 1e6)} m² and the shell holds ${m2(shellM2 * 1e6)} m²`,
-        "the rooms have to fit, with room over for the walls between them",
+        // The size it would have to be, because a live architect chose a 1,470 m² shell for a
+        // 1,604 m² programme and then spent ten rounds on the overlaps that followed from it.
+        `grow the shell to about ${Math.ceil(Math.sqrt((roomsM2 * 1.15 * shell.w) / shell.d) / 100) / 10} by ${Math.ceil(Math.sqrt((roomsM2 * 1.15 * shell.d) / shell.w) / 100) / 10} m, keeping its proportions, or take ${m2((roomsM2 - shellM2) * 1e6)} m² of rooms out; the rooms have to fit with room over for the walls between them`,
       ),
     );
 
@@ -469,29 +568,7 @@ export function checkLayout(design: Design, pack: RulesPack | null = null): Layo
     }
 
   // ---- circulation: can you get there, and what do you walk through --------
-  const doors = new Map<string, Set<string>>();
-  const link = (a: string, b: string) => {
-    if (!doors.has(a)) doors.set(a, new Set());
-    (doors.get(a) as Set<string>).add(b);
-  };
-  for (const r of rooms)
-    for (const to of r.doorsTo) {
-      link(r.key, to);
-      link(to, r.key);
-    }
-  // An open room has no wall to put a door in: whatever it touches, it opens onto (ADR-028 D2).
-  // The desks, the cafe and the breakout in a modern office are one floor, and the checker used to
-  // say each of them "has no door at all".
-  for (const r of rooms) {
-    if (enclosureOf(r) !== "open") continue;
-    for (const other of rooms) {
-      if (other.key === r.key || enclosureOf(other) !== "open") continue;
-      if (sharedEdge(r.rect, other.rect, gap) >= DOOR_WALL_MM) {
-        link(r.key, other.key);
-        link(other.key, r.key);
-      }
-    }
-  }
+  const doors = doorGraph(design);
   // Without an entrance, the plan still has to hang together, and saying nothing about it until
   // the door was added hid ten real errors behind "no room has a door to the outside": a live run
   // read 0.74 and two errors, added the door, and got twelve. So the walk starts from the room an
@@ -539,6 +616,9 @@ export function checkLayout(design: Design, pack: RulesPack | null = null): Layo
     }
   }
   const circulationLike = (x: DesignRoom) => CIRCULATION.has(x.purpose) || enclosureOf(x) === "open";
+  // shared floor the walk reaches, to move an unreached room against; any shared floor if none is
+  const sharedReached = rooms.filter((o) => circulationLike(o) && reachable.has(o.key));
+  const sharedFloor = sharedReached.length > 0 ? sharedReached : rooms.filter(circulationLike);
   // With no entrance nothing is reachable, and no-way-in has said so once; saying it per room
   // would be seventeen ways of not naming the door.
   for (const r of rooms) {
@@ -555,7 +635,8 @@ export function checkLayout(design: Design, pack: RulesPack | null = null): Layo
       hint =
         touching.length > 0
           ? `list what it opens onto in doorsTo, e.g. doorsTo: ["${touching[0]?.key}"]; a zone with no walls of its own says enclosure: "open" instead and needs no door`
-          : `it touches no corridor or open room at all: move its rect against one (a door needs ${DOOR_WALL_MM} mm of shared wall), or give it enclosure: "open"`;
+          : (meetHint(r, sharedFloor, shell.interiorWallMm) ??
+            `it touches no corridor or open room at all: move its rect against one (a door needs ${DOOR_WALL_MM} mm of shared wall), or give it enclosure: "open"`);
     } else if (anyway.has(r.key)) {
       message = `${r.name} can only be reached by walking through a bedroom or a bathroom`;
       hint = 'give it a door onto the hall, a corridor or another shared room: doorsTo: ["corridor"]';
@@ -569,7 +650,8 @@ export function checkLayout(design: Design, pack: RulesPack | null = null): Layo
               .map((t) => t.key)
               .slice(0, 3)
               .join(" or ")}, or make the rooms between open floor with enclosure: "open"`
-          : "move it against a corridor or an open room the entrance reaches";
+          : (meetHint(r, sharedFloor, shell.interiorWallMm) ??
+            "move it against a corridor or an open room the entrance reaches");
     }
     out.push(problem("unreachable", "error", r.key, message, hint));
   }
@@ -587,6 +669,18 @@ export function checkLayout(design: Design, pack: RulesPack | null = null): Layo
           "move it to an outside wall, or take the window away",
         ),
       );
+    else if (r.window && !canBeDaylit(r, shell, gap))
+      out.push(
+        problem(
+          "window-solid",
+          "warning",
+          r.key,
+          mustBeWalled(r)
+            ? `${r.name} wants a window, but it keeps a solid outside wall on a glazed side and its other outside walls take none`
+            : `${r.name} wants a window, but its outside walls are solid`,
+          "move it to a side with windows or glass, or take the window away",
+        ),
+      );
     // A glazed side of the building is daylight without a window (ADR-028 D3), and an open room
     // borrows the floor's.
     if (!r.window && HABITABLE.has(r.purpose) && !onGlazedSide(r, shell, gap) && enclosureOf(r) !== "open")
@@ -596,9 +690,11 @@ export function checkLayout(design: Design, pack: RulesPack | null = null): Layo
           "warning",
           r.key,
           `${r.name} is a room people spend time in and has no window`,
-          onOutsideWall(r, shell, gap)
+          windowSides(r, shell, gap).length > 0
             ? "it has an outside wall; set window: true"
-            : "move it to an outside wall",
+            : onOutsideWall(r, shell, gap)
+              ? "its outside wall is solid; move it to a side with windows or glass"
+              : "move it to an outside wall",
         ),
       );
   }

@@ -67,15 +67,15 @@ describe("what the prompt tells the model", () => {
 
   it("leaves out what this session cannot do", () => {
     const bare = designerSystem({});
-    expect(bare).not.toMatch(/render gives you a picture/);
+    expect(bare).not.toMatch(/preview_design with no designId draws/);
     expect(bare).not.toMatch(/furnish_room lays out a whole room/);
     expect(bare).toMatch(/no rules pack, so there are no recipes/);
 
     const blind = designerSystem({ viewer: true, vision: false });
     expect(blind).toMatch(/you cannot see images in this session/);
-    expect(blind).not.toMatch(/render gives you a picture/);
+    expect(blind).not.toMatch(/preview_design with no designId draws/);
 
-    expect(full).toMatch(/render gives you a picture/);
+    expect(full).toMatch(/preview_design with no designId draws/);
     expect(designerSystem({ sourceImage: true })).toMatch(/A raster plan has no scale/);
     expect(full).not.toMatch(/A raster plan has no scale/);
   });
@@ -92,6 +92,10 @@ describe("what the prompt tells the model", () => {
     // Raised from 2,400 to 2,450 for the notes section (ADR-027 D2): 28 words, about 40 tokens a
     // step, and it is what lets a thing the model learned from a picture or a page outlive
     // compaction. Two runs had thrown that away.
-    expect(words).toBeLessThan(2450);
+    //
+    // Raised again to 2,500 for the look after building and the axes (ADR-028 D11, D12): about 50
+    // words. Measured on the live office card, three runs of the same brief on the same model: 3
+    // checks of 10 passed before it, 6 with the look gate, 13 of 14 with the rest of it.
+    expect(words).toBeLessThan(2500);
   });
 });

@@ -9,8 +9,10 @@ import {
   checkDesignTool,
   designLayoutTool,
   planRoomsTool,
+  previewDesignTool,
   queryDesignTool,
   reviseDesignTool,
+  tidyDesignTool,
 } from "./tools/design.js";
 import { exportTool } from "./tools/export.js";
 import { importPlan } from "./tools/import.js";
@@ -71,6 +73,8 @@ export const TOOLS = [
   buildDesignTool,
   queryDesignTool,
   reviseDesignTool,
+  previewDesignTool,
+  tidyDesignTool,
   // What the model reads before it designs (ADR-027): a picture on demand, and the web when the
   // host has a search provider.
   lookAt,
@@ -80,7 +84,8 @@ export const TOOLS = [
 
 /** Tools that only make sense with something the session may not have; the host advertises them or not. */
 export const NEEDS_WEB: ReadonlySet<string> = new Set(["web_search", "read_page"]);
-export const NEEDS_SIGHT: ReadonlySet<string> = new Set(["look_at"]);
+// A picture is only worth its prefill to a model that can see it (ADR-028 D11).
+export const NEEDS_SIGHT: ReadonlySet<string> = new Set(["look_at", "preview_design"]);
 
 export function createRegistry(ctx: ToolContext): Registry {
   const r = new Registry(ctx);
@@ -139,6 +144,7 @@ export {
   type CommitSkip,
   commitDraft,
 } from "./import.js";
+export { drawLevel, PLAN_KEY, type PlanPicture } from "./plan-picture.js";
 export { blankProject } from "./project.js";
 export { WORKFLOW_PROMPT, WORKFLOW_PROMPT_NAME } from "./prompt.js";
 export {
@@ -152,6 +158,7 @@ export {
   type ToolDef,
   type ToolReliability,
 } from "./registry.js";
+export { LOOK_HEADINGS, lookChecklist, lookMissing, type Walk, walkOf } from "./tools/design.js";
 export { doorSwingWarnings, itemRefFor, parseAnchor } from "./tools/items.js";
 export { hingeEndFor } from "./tools/structure.js";
 export { createTranscript, replay, type Transcript } from "./transcript.js";

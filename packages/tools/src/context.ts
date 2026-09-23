@@ -240,6 +240,15 @@ export interface SubagentResult {
   unresolved: string[];
   /** The last design it checked, passed or not, so a next architect can continue from it. */
   lastDesignId: string | null;
+  /**
+   * Whether the design it answers with was looked at before it was handed on: previewed by a model
+   * that can see, its walk read by one that cannot (ADR-028 D11). Absent from callers that predate it.
+   */
+  looked?: boolean;
+  /** The LOOK verdict it wrote, when it wrote one. */
+  verdict?: string | null;
+  /** What ended the sub-run, when something other than an answer did. */
+  error?: string | null;
   steps: number;
   rounds: number;
   reason: string;

@@ -28,6 +28,10 @@ const ANCHOR_WORDS = new Set([
 /** Parse the anchor string of place_item into the command's anchor union. */
 export function parseAnchor(anchor: string): unknown {
   if (ANCHOR_WORDS.has(anchor)) return anchor;
+  // "east" is what a model writes when it means against the east wall, and a live run lost a batch
+  // of eleven placements to it. A corner still has to be named as one: "east-corner" is two walls.
+  const side = /^(north|south|east|west)(-wall)?$/.exec(anchor);
+  if (side) return `against-${side[1]}-wall`;
   const along = /^along-wall:([a-z0-9_]+)@(\d+)$/.exec(anchor);
   if (along) return { alongWall: along[1], atMm: Number(along[2]) };
   const on = /^on:([a-z0-9_]+)$/.exec(anchor);
@@ -154,6 +158,15 @@ export const placeItem = defineTool({
         anchor: `on:${onto.id}`,
         ...(onto.roomId ? { roomId: args.roomId ?? onto.roomId } : {}),
       };
+    }
+    // A room and nothing else: the middle of it is the obvious place, as a door onto the corridor is
+    // the obvious door. A live run placed a server rack with a room and no anchor four times in one
+    // step, was refused four times, and the run ended stalled with the rack nowhere.
+    if (!hasXY && args.roomId && !args.anchor && !args.mount?.targetId) {
+      args = { ...args, anchor: "center" };
+      call.warn(
+        `no position was given, so it stands in the middle of ${args.roomId}; anchor 'against-north-wall', a corner such as 'north-east-corner', or x and y puts it elsewhere`,
+      );
     }
     if (!hasXY && !(args.roomId && args.anchor))
       throw invalidArg(

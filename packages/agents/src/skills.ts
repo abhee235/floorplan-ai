@@ -18,6 +18,11 @@ export interface Skill {
   name: string;
   description: string;
   whenToUse: string | null;
+  /**
+   * The kind of building it is for, as the design names kinds: dwelling, workplace, mixed. A kind
+   * is added with its rooms, recipes and skill together, never a skill alone (ADR-028 D13).
+   */
+  kind?: string | null;
   body: string;
   /** The file it came from, so a message about a bad skill can say where it lives. */
   source: string;
@@ -26,7 +31,7 @@ export interface Skill {
 }
 
 /** The three lines a skill contributes to the prompt. */
-export type SkillIndexEntry = Pick<Skill, "name" | "description" | "whenToUse">;
+export type SkillIndexEntry = Pick<Skill, "name" | "description" | "whenToUse"> & { kind?: string | null };
 
 /** A leading `---` block of `key: value` lines. Flat strings only: a skill file must never need YAML. */
 export function parseFrontmatter(raw: string): { meta: Record<string, string>; body: string } {
@@ -76,6 +81,7 @@ function parseSkill(dir: string, fallbackName: string): Skill | null {
         .slice(0, 160) ||
       name,
     whenToUse: (meta.whentouse ?? meta.when_to_use ?? "").trim() || null,
+    kind: (meta.kind ?? "").trim() || null,
     body,
     source: file,
     references,
@@ -111,7 +117,10 @@ export function loadSkills(dirs: readonly string[]): Skill[] {
 
 /** One line per skill, for the prompt: the name, what it is, and when to read it. */
 export function skillsIndex(skills: readonly SkillIndexEntry[]): string[] {
-  return skills.map((s) => `  ${s.name}: ${s.description}${s.whenToUse ? ` Read it ${s.whenToUse}.` : ""}`);
+  return skills.map(
+    (s) =>
+      `  ${s.name}${s.kind ? ` (${s.kind})` : ""}: ${s.description}${s.whenToUse ? ` Read it ${s.whenToUse}.` : ""}`,
+  );
 }
 
 export const READ_SKILL_SPEC: ToolSpec = {

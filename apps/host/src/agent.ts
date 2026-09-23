@@ -1,6 +1,6 @@
 // The in-app agent (ADR-007 D3, PRD P1-7): the provider named by roles.designer in <data>/config.json, or
 // FPV_AGENT_BASE_URL and FPV_AGENT_MODEL (with FPV_AGENT_API_KEY, FPV_AGENT_EXTRA_BODY as JSON,
-// FPV_AGENT_RELIABILITY high|medium|low, FPV_AGENT_TIMEOUT_MS, FPV_AGENT_MAX_TOKENS,
+// FPV_AGENT_RELIABILITY high|medium|low, FPV_AGENT_TIMEOUT_MS, FPV_AGENT_MAX_TOKENS, FPV_AGENT_TEMPERATURE,
 // FPV_AGENT_CONTEXT_TOKENS). The runner calls the
 // session's registry
 // in-process; every event is appended to a JSONL transcript as it happens, so a crashed run keeps its record.
@@ -23,10 +23,26 @@ import type { Session } from "./session.js";
 import { HostConfigFile } from "./verifier.js";
 
 /** A tool-calling turn on a local model can take minutes. */
-export const AGENT_TIMEOUT_MS = 300_000;
+/**
+ * How long one model call may take before it is abandoned.
+ *
+ * Fifteen minutes, because the machine this is developed on writes about twenty tokens a second and
+ * an architect's reply is a whole design: twelve thousand tokens is ten minutes of writing. At five
+ * minutes, three of five architect sub-runs in one live run died on their first reply (ADR-028 D11).
+ * A hosted model answers in seconds and never reaches this.
+ */
+export const AGENT_TIMEOUT_MS = 900_000;
 
 const reliabilityOf = (v: string | undefined): ToolReliability | undefined =>
   v === "high" || v === "medium" || v === "low" ? v : undefined;
+
+/** on/true/1 is yes, off/false/0 is no, anything else is unsaid. */
+const flagOf = (v: string | undefined): boolean | undefined => {
+  const t = v?.trim().toLowerCase();
+  if (t === "on" || t === "true" || t === "1" || t === "yes") return true;
+  if (t === "off" || t === "false" || t === "0" || t === "no") return false;
+  return undefined;
+};
 
 export function loadAgentConfig(options: { dataDir: string; env?: NodeJS.ProcessEnv; file?: string }): {
   model: ProviderConfig | null;
@@ -34,6 +50,8 @@ export function loadAgentConfig(options: { dataDir: string; env?: NodeJS.Process
 } {
   const env = options.env ?? process.env;
   const notes: string[] = [];
+  // FPV_AGENT_PROVIDER became a base URL and a key before this ran (env.ts, loadDotEnv).
+  const sees = flagOf(env.FPV_AGENT_VISION);
   if (env.FPV_AGENT_BASE_URL && env.FPV_AGENT_MODEL) {
     let extraBody: Record<string, unknown> | undefined;
     if (env.FPV_AGENT_EXTRA_BODY) {
@@ -55,6 +73,10 @@ export function loadAgentConfig(options: { dataDir: string; env?: NodeJS.Process
         profile: {
           toolCalls: true,
           toolReliability: reliability ?? "medium",
+          // Whether the model can be shown a picture. Ollama is asked; every other server has no way
+          // to say, so it is said here. Unsaid is no, and a model that cannot see is never offered
+          // preview_design or look_at at all (ADR-028 D11).
+          ...(sees === undefined ? {} : { vision: sees }),
           // Named here, nothing is probed and nothing is capped: a number a person typed is a
           // decision, and the app's business is to send it, not to argue. On Ollama it becomes the
           // context the model is loaded with, which is the one setting that decides whether a model
@@ -65,6 +87,12 @@ export function loadAgentConfig(options: { dataDir: string; env?: NodeJS.Process
         },
         timeoutMs: Number(env.FPV_AGENT_TIMEOUT_MS) || AGENT_TIMEOUT_MS,
         ...(Number(env.FPV_AGENT_MAX_TOKENS) > 0 ? { maxTokens: Number(env.FPV_AGENT_MAX_TOKENS) } : {}),
+        // Unset is 0, greedy, as every eval here was measured; see ProviderConfig.temperature.
+        ...(env.FPV_AGENT_TEMPERATURE !== undefined &&
+        env.FPV_AGENT_TEMPERATURE.trim() !== "" &&
+        Number.isFinite(Number(env.FPV_AGENT_TEMPERATURE))
+          ? { temperature: Number(env.FPV_AGENT_TEMPERATURE) }
+          : {}),
         ...(extraBody ? { extraBody } : {}),
       },
       notes,

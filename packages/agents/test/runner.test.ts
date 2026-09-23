@@ -96,7 +96,8 @@ describe("agent runner (ADR-007 D3)", () => {
       ["validate", {}],
     ]);
     const second = provider.requests[1] as CompletionRequest;
-    expect(second.temperature).toBe(0);
+    // greedy is the provider's default, not the runner's to force; it names one only after a repeat
+    expect(second.temperature).toBeUndefined();
     expect(second.system).toBe("sys");
     expect(second.messages.map((m) => [m.role, m.toolCallId ?? null])).toEqual([
       ["user", null],
@@ -308,5 +309,59 @@ describe("agent runner (ADR-007 D3)", () => {
     expect(brief?.parameters).toMatchObject({ type: "object", required: ["brief"] });
     expect(brief?.parameters).not.toHaveProperty("$schema");
     expect(brief?.parameters).not.toHaveProperty("additionalProperties");
+  });
+});
+
+describe("a step that repeats the one before it (ADR-028 D11)", () => {
+  it("has its next reply sampled, once, and says so", async () => {
+    const same = () => reply(null, [call("validate", {}, "v")]);
+    const provider = scripted([
+      same,
+      same,
+      () => reply(null, [call("get_scene", {}, "g")]),
+      () => reply("done"),
+    ]);
+    const events: AgentEvent[] = [];
+    await runAgent({
+      provider,
+      tools,
+      system: "sys",
+      task: "look",
+      callTool: async (name) => ({ ok: true, result: { name }, warnings: [] }),
+      onEvent: (e) => events.push(e),
+    });
+    expect(provider.requests.map((r) => r.temperature)).toEqual([undefined, undefined, 0.7, undefined]);
+    expect(events.some((e) => e.type === "warning" && /repeated its last step/.test(e.message))).toBe(true);
+  });
+});
+
+describe("a reply that outlasted the time allowed (ADR-028 D11)", () => {
+  it("asks for a shorter one twice, then ends the run", async () => {
+    const told: string[] = [];
+    const timeout = () =>
+      new ProviderError("local", null, "the request timed out after 900s while the model was still writing");
+    const provider = scripted([
+      timeout,
+      (req) => {
+        told.push(String(req.messages.at(-1)?.content));
+        return reply(null, [call("validate", {}, "v")]);
+      },
+      timeout,
+      (req) => {
+        told.push(String(req.messages.at(-1)?.content));
+        return reply("done, after being asked for less");
+      },
+    ]);
+    const run = await runAgent({
+      provider,
+      tools,
+      system: "sys",
+      task: "look",
+      callTool: async (name) => ({ ok: true, result: { name }, warnings: [] }),
+      sleep: noSleep,
+    });
+    expect(told[0]).toMatch(/took longer than the time allowed/);
+    expect(told[0]).toMatch(/Write less/);
+    expect(run.reason).toBe("done");
   });
 });

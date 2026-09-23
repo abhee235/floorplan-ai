@@ -238,16 +238,19 @@ each line of a checklist before it may say it is finished. Here the design is th
 checker is the compiler. Ideas only; nothing is taken from its code.
 
 1. **`preview_design { designId }`, for the architect.** A plan drawing of a checked design, made
-   in the host from the builder's own `wallRuns` and `openingsWanted`. The picture is what
-   `build_design` will draw, not a second drawing that could disagree with it.
+   in the host by building the design into a scratch copy of the project, with the builder's own
+   code, and drawing that level. The picture is what `build_design` will draw, not a second drawing
+   that could disagree with it.
    - Walls by kind: outside walls thick black, plaster grey, glass thin blue, no line between two
      open rooms.
-   - Doors as red gaps, the entrance green, windows as cyan ticks, open floor lightly tinted.
+   - Doors as red gaps, the entrance green, windows as cyan ticks, open floor lightly tinted,
+     corridors pale blue, service rooms grey, and floor inside the building that no room covers
+     pink, so a gap is not mistaken for a store.
    - Each room carries a number, and the text result gives the legend (`1 reception, 2 desks-west,
      ...`). Ten digits in a bitmap font are a few hundred bytes; a font for every key is a
      dependency.
-   - PNG through the `encodePng` the assets package already has, with node's zlib passed in by the
-     host. No library, no browser tab, nothing downloaded.
+   - PNG through the `encodePng` the assets package already has, with node's zlib. No library, no
+     browser tab, nothing downloaded.
    - The image rides on the tool result and the runner lifts it for a vision model, as it lifts a
      render. Only the latest picture stays in context; earlier ones are taken away.
 
@@ -256,11 +259,14 @@ checker is the compiler. Ideas only; nothing is taken from its code.
    - the route from the entrance to every room, as the rooms passed through
      (`outside > reception > corridor-n > meeting-3`), and the rooms reached only through a room
      that is not circulation;
-   - every door on an outside wall that is not the entrance;
-   - for each side of the building, how much of its length has a room against it that is neither
-     open floor nor circulation, so "two sides blank" is a number;
-   - anything drawn over something else;
-   - for each room that will hold a display, the wall it will go on and what that wall is.
+   - every room with a door to outside, the entrance first;
+   - for each side of the building, what stands along it in order, how much of its length has a
+     room against it that is neither open floor nor circulation, and how much has no room against
+     it at all, so "two sides blank" is a number;
+   - for each room whose recipe has a screen, the wall it will go on and what that wall is: the
+     furnishing rule itself, run on the scratch build, not a guess at it.
+
+   Anything drawn over something else is already an error, so the walk does not repeat it.
 
    These are facts, not rules. D2 stands: the checker does not decide that a blank side is wrong.
    The model decides, with the facts and the picture in front of it.
@@ -283,9 +289,11 @@ checker is the compiler. Ideas only; nothing is taken from its code.
    ```
 
    The gate is a reminder, not a stop, as the plan gate is. When the architect answers with a
-   design it has not looked at, the runner puts the checklist back in front of it, at most twice. A
-   third answer goes through, and the designer is warned that the design was not looked at. A FIX
-   verdict is a revise round.
+   design that passed and it has not looked at it, or has written no verdict, the runner puts the
+   request back in front of it, at most twice. A third answer goes through; `design_layout` then
+   returns `looked: false` and warns the designer to look at the design itself before building. A
+   FIX verdict is a revise round. The picture comes with the checklist as its caption, so the model
+   is asked for the verdict at the moment it sees what it is judging.
 
 4. **Required with vision, optional without.** The architect's prompt says "call preview_design"
    only when the model's profile has vision, as Cascade's tool refuses a screenshot to a model with
@@ -293,16 +301,36 @@ checker is the compiler. Ideas only; nothing is taken from its code.
    its eyes. The profile comes from the server: `/api/show` reports `vision` for the model on this
    machine, so for it the look is required.
 
-5. **After `build_design`, the designer looks at what was built.** Through `render plan` when a tab
-   is connected; otherwise the same drawing as the preview, made from the level's walls and
-   openings, with item footprints once rooms are furnished, so a display on a window shows. The
-   designer compares it with the preview the architect approved. A difference is a builder fault,
-   reported as one, and never mended by drawing walls by hand. Its final answer carries the
-   architect's verdict and its own line on the comparison.
+5. **After `build_design`, the designer looks at what was built.** `preview_design` with no
+   designId draws the level as it is, furniture included, displays in magenta, so a screen on a
+   window shows. It needs no tab; `render` stays for the 3D views. The designer compares it with the
+   architect's verdict. A difference is a builder fault, reported as one, and never mended by
+   drawing walls by hand. Its final answer carries the architect's verdict.
 
 6. **Budget.** A picture is real prefill for a local model. Six previews per architect run and four
-   pictures per designer run; past the cap the tool refuses and says to use the walk. Never twice
-   in a row without a change between, as Cascade's browser skill says.
+   pictures per designer run; past the cap the tool refuses and says to use the walk. The architect
+   is refused a second look at a design it has already seen: it has to change it first, as
+   Cascade's browser skill says. A model without vision is not offered the tool at all.
+
+7. **Measured by a live loop, not a scripted one.** `tools/eval/live.ts` runs a card through a host
+   over its bridge, exactly as the editor does, saves every picture the agent looked at and a
+   picture of what it built, and checks the result: the run finished, nothing was drawn by hand,
+   the architect looked and wrote a verdict, the designer looked after building, every room can be
+   walked to, no side is blank, no screen is on glass or a window, the brief's rooms and desks are
+   there, and `validate` is clean. The card `office-brief-live` is the owner's own brief, word for
+   word.
+
+8. **What the loop found, and what changed for it.** Each run of `office-brief-live` on this
+   machine's model, and what it taught:
+
+   | Run | Checks | What went wrong | Changed |
+   |---|---|---|---|
+   | 1 | 3 of 10 | The architect drew freehand with overlapping rooms, a room past the shell and a band of meeting rooms 5 m from the floor, then sent one design six times word for word, saying each time it would start again; no round passed. It called y = 40,000 "the south". | A design identical to one already checked is refused (`design.unchanged`), which costs no round and is a failure the stall breaker counts. A step that repeats the last one exactly has its next reply sampled at 0.7, Qwen's own advice against greedy decoding; `FPV_AGENT_TEMPERATURE` sets it for every reply. The axes are said in both prompts and in the schema: y grows north. A room touching no shared floor is told the move that would reach it, as a `revise_design` line. When an error comes back twice, the architect is told to look: overlaps are orange, uncovered floor pink, and a design the builder refuses is still drawn as its rooms. |
+   | 2 | 6 of 10 | The first architect drafted with `plan_rooms` and went silent; the second fixed its one error, looked twice and wrote a verdict that read the picture correctly. But the design was the packer's comb: a walled open office behind one door, a cafe in the middle with no daylight, the reception far from the entrance, none of which the checklist asked about. The designer then placed a server rack with a room and no anchor four times and stalled. | An open office is open floor by default, in the design and in the packer. The checklist asks whether the reception is the first room reached and whether the desks are open floor and the cafe has daylight. The office skill says to draw an office, not to draft it with `plan_rooms`. An empty reply after work is sent back once, and `design_layout` says how the architect's run ended. A room given alone to `place_item` puts the item in its middle, with a warning. |
+   | 3 | 13 of 14 | The architect drew freehand and reached a plan with no corridor at all: an L of open floor, a column of rooms down one side, a row of glass rooms along the glazed south, the reception at the entrance. Every screen landed on plaster, the hundred desks sat centred in the open floor, and validate was clean. It still sent a whole design twice, and revised fields to the values they already had; the designer reached for `render`, which needs a tab, instead of the picture that does not. Two patches of floor belonged to no room. | After the first design, a whole design with the same rooms is refused and the patch is named; a revision whose every field is already what it says is refused too. A room key is read as a key, so "meetA" is not a wasted round. The checklist asks about floor no room covers, and the eval measures it. The designer's prompt names `preview_design` where it used to name `render`. |
+   | 4 | 4 of 14 | Three of five architect sub-runs died on their first reply, each after five minutes: the request timeout, which a 35-billion-parameter model writing a whole design outlasts. Told only that no design passed, the designer drew the building itself -- nine walls, ten rooms, by hand. One architect did pass a design and the designer did not build it. | A timed-out request says so, with the seconds, and the loop asks for a shorter reply twice before the run ends; the default timeout is fifteen minutes, because a local model's reply is minutes long. A sub-run that dies says why, in the chat and to the designer. Six faults a review found in the work above were fixed with it: a passing design re-sent gets its id back instead of a false "it has the same errors"; the look gate stops asking for a picture the budget refuses; a verdict written in a bounced answer is kept; the sampled reply is the next one only; a revision that changes the circulation list is a revision; a service room in the corner of a glazed side no longer leaves a stub of glass. |
+   | 5 | 11 of 15 | With the timeout raised the architect reached a passing plan on its third try and looked at it, and the designer built and furnished it: a hundred and sixty desks, screens on plaster, validate clean. But a seventh of the floor belonged to no room and one side was four fifths empty, and the verdict said neither; the designer reached for `render` again and answered without ever seeing what it built; one wall was drawn by hand. | `tidy_design`: the arithmetic done on request, every room moved the least it can be so nothing overlaps and everything is inside, each move reported, the arrangement untouched. A verdict that skips checklist lines is sent back once, naming them. The designer is asked once, after building, to look at what it built. A bare compass word is read as an anchor, which cost a live batch of eleven placements. |
+   | 6 | 10 of 15 | The architect passed, looked three times and wrote the whole checklist; the designer built and furnished with nothing drawn by hand, and validate was clean. What the verdict still missed: a chain of rooms reached only through the server room, one side half empty, and two glass rooms with no wall for a screen. The run itself died at the end on a reply the server could not read. | Nothing yet: what is left is the model's judgement of its own plan, not a tool that is missing. |
 
 What is not known is whether this model reads a plan drawing well. Cascade's probe had a model of
 the same family read titles and colours off a web page; lines, gaps and room numbers are a
@@ -316,8 +344,10 @@ its prefill if the verdict names both faults.
    in it, and prefers a plaster wall to an outside one. "Opposite the door" stays, as the
    tie-break. A display against a window is backlit, so the far end of the table reads it against
    daylight; a glass wall cannot take a wall mount. Where no wall qualifies, as in a glass room on a
-   glazed side, it returns none with the reason. Furnishing then says so rather than mounting a
-   display on glass.
+   glazed side, it returns none with the reason. Furnishing then says so and stands the display on
+   the floor rather than mounting it on glass. A room with no screen, a reception, keeps the old
+   rule under its own name: its desk faces the door with its back to the window, which for a desk is
+   right.
 
 2. **The facade by kind of building.** A side left unsaid is `glazed` in a workplace and `windows`
    in a dwelling or a mixed building. It is resolved in one place in `design.ts`, so the checker,
@@ -329,6 +359,23 @@ its prefill if the verdict names both faults.
    wall even on a glazed side: a toilet, a store, a server room. Today the builder draws the whole
    side as one glass wall, whatever is behind it. The side is split by the rooms against it, as an
    inside edge already is under D3.
+
+4. **The tool for a fault is named where the fault is reported.** An overlap's hint carries the exact
+   rectangle to move to and now also says `tidy_design` will do it; and after two rounds whose errors
+   are rooms overlapping or outside the building, the architect is told plainly to stop moving them
+   by hand and call it. Three live architects, ten rounds each, pushed rectangles around by hand with
+   that tool sitting unused in their prompt; one of them reached for it once, late.
+
+5. **Glass faces the shared floor; between two rooms it is plaster.** This amends D3's rule. A glass
+   room's wall onto open floor or a corridor is glass; its wall onto another enclosed room, glass or
+   walled, is plaster. D3 made a row of glass meeting rooms glass on every side, so none of them had
+   a wall a screen could hang on, and no meeting room is private from the next through a sheet of
+   glass. Glass is for being seen from the floor.
+
+6. **Found by looking, and fixed with it.** The first preview of the transcribed rendering,
+   furnished, had its ninety desks in the west two thirds of the open floor and a band of empty
+   floor to the east. A room with no screen now has its furniture centred along it as well as
+   across.
 
 ### D13. A skill per kind of building, and a kind of building only with its rooms
 
@@ -350,8 +397,12 @@ its prefill if the verdict names both faults.
    which is which, rather than four skills repeating most of the same text. A separate skill is
    written where the rooms differ, not where the proportions do.
 
-4. **The index says which kind each skill is for,** and the architect's prompt says to read the one
-   for the brief's kind before drawing.
+4. **The index says which kind each skill is for,** from a `kind` line in the skill's front matter,
+   and the architect's prompt says to read the one for the brief's kind before drawing.
+
+As built: the office skill is narrowed to offices, with a first section on which kind of office the
+brief is, its screen advice moved to plaster walls, its glazing advice to "glazed unless you say
+otherwise", and a line on using every side. No new kind of building is added yet.
 
 ## Alternatives considered
 
@@ -397,14 +448,17 @@ and D2 leaves that with the model.
 - `packages/tools/src/tools/design.ts`: `query_design` (D8); the architect is granted it.
 - What D7 leaves to a live run: the model drawing the office brief and copying the rendering,
   scored against the packer's drawing of the same brief.
-- D11: `preview_design` and the walk in `packages/tools/src/tools/design.ts`; a new plan drawing in
-  `packages/tools`, from `wallRuns` and `openingsWanted` or from a level, with its digit font; the
-  host passes zlib in. The architect's prompt gains the look section, with vision and without, and
-  the runner gains the look gate beside the plan gate. The designer's prompt says to look after
-  `build_design`.
-- D12: `suggestedDisplayWall` in `packages/tools/src/views.ts`; the facade default by kind and
-  `solid` in `packages/ir/src/design.ts`; a glazed side split by the rooms against it in
-  `build-design.ts`.
+- D11: `preview_design`, the scratch build and the walk in `packages/tools/src/tools/design.ts`;
+  the drawing in `packages/tools/src/plan-picture.ts`; the walk's routes and sides in
+  `packages/catalog/src/rules/walk.ts`, over the checker's own door graph. The runner gains a
+  `beforeFinish` hook, and the architect's look gate is built on it. The architect's prompt gains
+  the look section, with vision and without; the designer's says to look after furnishing. The
+  host offers `preview_design` only to a model with vision. `tools/eval/live.ts` and the card
+  `office-brief-live` are the loop that measures it, and `docs/eval/office-live.md` keeps the runs.
+- D12: `suggestedDisplayWall` and `wallFacingTheDoor` in `packages/tools/src/views.ts`; the facade
+  default by kind and `solid` in `packages/ir/src/design.ts`; a glazed side split by the rooms
+  against it, and glass only onto the shared floor, in `build-design.ts`; the checker's
+  `window-solid` warning; furniture centred along a room with no screen.
 - D13: the office skill narrowed; the skill index names each skill's kind of building.
 - Tests: the preview's pixels at known points (red where `openingsWanted` puts a door, blue along a
   glazed side); the walk on the transcribed rendering; the gate fires, re-arms and gives up after

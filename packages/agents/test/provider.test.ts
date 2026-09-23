@@ -125,7 +125,7 @@ describe("OpenAI-compatible provider (ADR-007 D1)", () => {
     expect(requests[2]?.body).not.toHaveProperty("max_tokens");
     expect(p.adaptations).toEqual([
       "max_tokens is sent as max_completion_tokens",
-      'reasoning_effort "none" is sent with tools',
+      'this server will not think while it calls tools, so reasoning_effort "none" is sent with them, whatever the configuration asked for',
     ]);
     await p.complete(req);
     expect(requests).toHaveLength(4);
@@ -284,5 +284,58 @@ describe("Catalog Verifier role (ADR-007 D3)", () => {
     expect(i).toBe(2); // the invalid category was sent back once
     expect(prompts[0]).toContain("=== PAGE 1: https://www.samsung.com/qm75c ===");
     expect(verifierPrompt(input)).toContain('"fieldSources"');
+  });
+});
+
+describe("a reply that outlasts the timeout (ADR-028 D11)", () => {
+  it("is named as a timeout, with the seconds, and not as a network fault", async () => {
+    // a server that never answers: the request's own timer is what ends it
+    const hangs = async (_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("The operation was aborted.")));
+      });
+    const p = openAICompatible({ id: "local", baseUrl: "http://x/v1", model: "m", timeoutMs: 20 }, hangs);
+    await expect(p.complete({ messages: [{ role: "user", content: "hi" }] })).rejects.toThrow(
+      /timed out after 0s while the model was still writing/,
+    );
+  });
+});
+
+describe("a configured reasoning effort a server will not take (ADR-007 D1)", () => {
+  it("is replaced by the one it insists on, rather than failing every request", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const fetch = async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      bodies.push(body);
+      if (body.tools && body.reasoning_effort !== "none")
+        return new Response(
+          JSON.stringify({
+            error: {
+              message:
+                "Function tools with reasoning_effort are not supported for m in /v1/chat/completions. To use function tools, use /v1/responses or set reasoning_effort to 'none'.",
+            },
+          }),
+          { status: 400, headers: { "content-type": "application/json" } },
+        );
+      return new Response(
+        JSON.stringify({
+          choices: [{ finish_reason: "stop", message: { content: "ok" } }],
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+    const p = openAICompatible(
+      // what a person writes in FPV_AGENT_EXTRA_BODY when they want it to think less, not none
+      { id: "o", baseUrl: "https://x/v1", model: "m", extraBody: { reasoning_effort: "medium" } },
+      fetch,
+    );
+    const out = await p.complete({
+      messages: [{ role: "user", content: "hi" }],
+      tools: [{ name: "t", description: "t", parameters: { type: "object", properties: {} } }],
+    });
+    expect(out.text).toBe("ok");
+    expect(bodies.map((b) => b.reasoning_effort)).toEqual(["medium", "none"]);
+    expect(p.adaptations?.[0]).toContain("whatever the configuration asked for");
   });
 });

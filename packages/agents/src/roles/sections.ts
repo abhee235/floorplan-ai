@@ -39,7 +39,7 @@ export interface WorldOptions {
   /** The host has a search provider, so web_search and read_page exist. */
   web?: boolean;
   /** The skills the model may read, one line each. */
-  skills?: readonly { name: string; description: string; whenToUse: string | null }[];
+  skills?: readonly { name: string; description: string; whenToUse: string | null; kind?: string | null }[];
 }
 
 export const IDENTITY = [
@@ -51,7 +51,7 @@ export const IDENTITY = [
 export function theModel(): Section {
   return section("# What you are drawing in", [
     "Lengths are millimetres, angles are degrees, areas are square metres. Never use feet, inches or centimetres in a tool call.",
-    "North is +y and east is +x unless the project's meta.north says otherwise; the compass words north, south, east and west follow it.",
+    "North is +y and east is +x. meta.north is north's angle from +x: 90, the default, is +y. Another value turns the compass words, never the axes.",
     "Entities are addressed by id (wall_000007, room_000002), never by name or index. Ids come from what a tool returned or from get_scene; never invent one.",
     "A level is a storey. Everything belongs to exactly one level, and add_level stacks a new one on top.",
     "A wall is a line with a thickness, centred on that line, so a room 3000 wide between 100 mm walls has its wall centres 3100 apart.",
@@ -78,14 +78,16 @@ export function order(o: WorldOptions): Section {
     "1. Read the brief and get_scene with detail summary. Work out what the person asked for before touching anything.",
     "2. Call design_layout with the brief. An architect works the whole plan out and hands back a design that has already passed the checker, along with what it assumed. It draws nothing, so nothing has moved when it answers.",
     "3. Read what it says and tell the person, in your own words, what is about to be built and how big the rooms are.",
-    "4. Build it with build_design and the designId it gave you. Never re-type the design yourself: the id names a plan that has already been measured, and a design copied out of a sentence is a different design that has not been.",
+    "4. Build it with build_design and the designId it gave you. Never re-type the design yourself: the id names a plan that has already been measured, and a design copied out of a sentence is a different design that has not been. A designId belongs to this session: if build_design says it does not know one, call design_layout again rather than giving up.",
     "If it could not reach a design, call design_layout again with the lastDesignId it gave; the next architect finishes that design. Never draw the building wall by wall instead.",
-    "   build_design draws the outside walls, the inside walls with one wall between neighbours, a door in every pair the design joins, a window on every room that asked for one, and the rooms themselves, in one undoable step.",
     o.rules
       ? "5. Furnish: furnish_room for a room with a purpose the pack has a recipe for, place_item for anything else."
       : "5. Furnish with place_item and arrange; this session has no rules pack, so there are no recipes.",
     "6. Check: validate after furnishing, and fix every error before going on. Warnings are advice; say which ones you are leaving.",
-    "7. Finish with a short summary of what you built and what is still wrong with it.",
+    o.vision
+      ? "6a. Look: preview_design draws what you built. Check every screen is on plaster and the doors are where the design put them; never mend a difference by drawing walls."
+      : null,
+    "7. Finish with a short summary of what you built and what is still wrong with it, with the architect's LOOK verdict.",
     "Draw walls yourself only for what build_design cannot express: a change to a building that is already there, an odd shape, one more partition. For a building from a brief, design it and build it.",
   ]);
 }
@@ -174,7 +176,7 @@ export function workplaces(): Section {
   return section("# Sizes for a workplace", [
     "  huddle room 2.5 m² a seat; meeting room 3 m²; boardroom 3.5 m²; training room 2.2 m²; open office 10 m² a person",
     "  desk 1600 x 800 with 1000 clear behind it; corridor 1500 wide; meeting-room door 900",
-    "A meeting room's display wall is the one opposite the door, and the farthest seat should be no more than six display diagonals away.",
+    "A meeting room's screen goes on a plaster wall, never glass or a window; the farthest seat is within six display diagonals.",
     "An office has toilets: about 12 m² per fifty people; the checker refuses a workplace for twenty or more without one.",
     "An open office is benches: furnish_room with recipe open-office puts desks back to back with a chair at each. Two arrange grids, desks and chairs, land on top of each other.",
   ]);
@@ -202,8 +204,8 @@ export function checking(o: WorldOptions): Section {
     o.rules
       ? "It reports geometry (walls that do not meet, items outside their room, blocked doors) and design (a room too small for its purpose, a display too far from its seats). Both matter."
       : "It reports geometry: walls that do not meet, rooms that do not close, items outside the room they belong to, doors blocked by furniture.",
-    o.viewer && o.vision
-      ? "render gives you a picture of what you drew. Look at it after furnishing and say what is wrong with it; a plan that reads badly to you reads badly to everybody."
+    o.vision
+      ? "preview_design with no designId draws what you built, furniture and screens included. Look at it after furnishing and say what is wrong; a plan that reads badly to you reads badly to everybody. render gives 3D views and needs a tab."
       : o.viewer
         ? "render draws the plan, but you cannot see images in this session, so judge from validate and describe_room instead."
         : null,

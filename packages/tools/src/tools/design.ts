@@ -7,6 +7,7 @@
 // a design the checker has not passed, which is the whole point of having a checker.
 import {
   checkLayout,
+  type DesignWalk,
   type ExprScope,
   type ExprValue,
   evalCondition,
@@ -17,8 +18,10 @@ import {
   missingFromProgramme,
   type Programme,
   packProgramme,
+  type RulesPack,
+  walkDesign,
 } from "@fpv/catalog";
-import type { Store } from "@fpv/commands";
+import { createStore, type Store } from "@fpv/commands";
 import {
   Design,
   type DesignRoom,
@@ -26,11 +29,13 @@ import {
   enclosureOf,
   type Opening,
   outsideSides,
+  type Project,
   purposeFromWord,
   type Room,
   RoomPurpose,
   roomKey,
   roomKeys,
+  sequentialIdGenerator,
   sharedEdge,
   type Wall,
 } from "@fpv/ir";
@@ -38,13 +43,44 @@ import { z } from "zod";
 import { openingsWanted, roomPolygon, runPoints, SNAP_MM, wallRuns } from "../build-design.js";
 import { sizesFor } from "../context.js";
 import { invalidArg, ToolError, unavailable } from "../envelope.js";
-import { defineTool, TIMEOUTS } from "../registry.js";
-import { RoomViewS, roomView } from "../views.js";
+import { pickRecipe } from "../furnish.js";
+import { drawLevel, PLAN_KEY, type PlanPicture } from "../plan-picture.js";
+import { defineTool, TIMEOUTS, type ToolCall } from "../registry.js";
+import { tidyDesign } from "../tidy.js";
+import {
+  freeSegments,
+  RoomViewS,
+  roomView,
+  roomWallCompass,
+  roomWalls,
+  suggestedDisplayWall,
+} from "../views.js";
 import { runAll } from "./structure.js";
 
 /** Designs checked in this session, newest last, so build_design can be given an id and not a copy. */
 const CHECKED = new WeakMap<Store, Map<string, Design>>();
-const KEEP = 8;
+/**
+ * How many a session holds.
+ *
+ * Eight was the import drafts' number and it was too few here: an architect has ten rounds and a
+ * design a round, so the id it was told to continue from had already been dropped, and it was
+ * answered with "no design called design_000s was checked in this session" -- which reads as a
+ * mistake it made. A design is a page of JSON; thirty-two of them are nothing beside a run.
+ */
+const KEEP = 32;
+
+/** The first error of a design, as the sentence and the fix, for a refusal to carry. */
+function firstFix(design: Design, rules: RulesPack | null): string {
+  const first = checkLayout(design, rules).problems.find((p) => p.severity === "error");
+  return first ? ` Its first error is: ${first.message}${first.hint ? `. ${first.hint}` : ""}` : "";
+}
+
+/** The id of a design this session has already checked that is this one exactly, if there is one. */
+function sameAsChecked(store: Store, design: Design): string | null {
+  const text = JSON.stringify(design);
+  for (const [id, held] of CHECKED.get(store) ?? []) if (JSON.stringify(held) === text) return id;
+  return null;
+}
 
 function remember(store: Store, id: string, design: Design) {
   let held = CHECKED.get(store);
@@ -126,14 +162,25 @@ function compareWithLast(store: Store, design: Design, report: LayoutReport): st
   return `compared with ${last.id}: ${what}.${kept} To change a few rooms, call revise_design { designId: "${last.id}", rooms: [{ key, ...fields }] } instead of sending the whole design again.`;
 }
 
+/** A design this session holds, or null; recall() is the same with a refusal instead of the null. */
+function held(store: Store, id: string): Design | null {
+  return CHECKED.get(store)?.get(id) ?? null;
+}
+
 function recall(store: Store, id: string): Design {
-  const design = CHECKED.get(store)?.get(id);
+  const held = CHECKED.get(store) ?? new Map<string, Design>();
+  const design = held.get(id);
   if (!design)
     throw new ToolError(
       "design.unknown",
       `no design called "${id}" was checked in this session`,
       null,
-      "call check_design first; it answers with the designId to build",
+      // Whoever is asking is told what they can do about it: the designer has design_layout and not
+      // check_design, and a live designer told to "call check_design first" gave up instead, four
+      // steps into a run, because it has no such tool (ADR-022 D1a).
+      held.size > 0
+        ? `this session has: ${[...held.keys()].join(", ")}. A design lives as long as the host does, so an id from an earlier session is gone; design it again with design_layout, or check_design if you are the architect`
+        : "nothing has been designed in this session yet: call design_layout with the brief, or check_design if you are the architect",
     );
   return design;
 }
@@ -143,8 +190,8 @@ let seq = 0;
 const nextId = () => `design_${(seq += 1).toString(36).padStart(4, "0")}`;
 
 const RectS = z.object({
-  x: z.number().describe("south-west corner of the clear inside, mm"),
-  y: z.number(),
+  x: z.number().describe("the south-west corner of the clear inside, mm; x grows to the east"),
+  y: z.number().describe("the same corner, mm; y grows to the north, so y = 0 is the south side"),
   w: z.number().positive().describe("east-west, mm"),
   d: z.number().positive().describe("north-south, mm"),
 });
@@ -163,14 +210,14 @@ const DesignS = z.object({
       interiorWallMm: z.number().positive().optional().describe("inside walls, 100 to 120"),
       facade: z
         .object({
-          north: z.enum(["windows", "glazed"]).optional(),
-          south: z.enum(["windows", "glazed"]).optional(),
-          east: z.enum(["windows", "glazed"]).optional(),
-          west: z.enum(["windows", "glazed"]).optional(),
+          north: z.enum(["windows", "glazed", "solid"]).optional(),
+          south: z.enum(["windows", "glazed", "solid"]).optional(),
+          east: z.enum(["windows", "glazed", "solid"]).optional(),
+          west: z.enum(["windows", "glazed", "solid"]).optional(),
         })
         .optional()
         .describe(
-          "per side: 'windows' (default) or 'glazed', one glass wall the length of that side with no separate windows; rooms on a glazed side need no window: true",
+          "per side: 'glazed', one glass wall the length of that side with no separate windows, the default for a workplace; 'windows', punched windows, the default for a home; or 'solid', no windows, for a side against a neighbour or the building's core, where a door can still go. Rooms on a glazed side need no window: true",
         ),
     })
     .describe("the outside of the building, in mm"),
@@ -245,7 +292,7 @@ export function inferDoors(design: Design): { design: Design; assumed: string[] 
   return { design: { ...design, rooms }, assumed };
 }
 
-function reportOf(id: string, report: LayoutReport) {
+function reportOf(id: string, report: LayoutReport, walk?: Walk) {
   const errors = report.problems.filter((p) => p.severity === "error");
   const warnings = report.problems.filter((p) => p.severity === "warning");
   return {
@@ -255,8 +302,25 @@ function reportOf(id: string, report: LayoutReport) {
     totals: report.totals,
     errors,
     warnings,
+    ...(walk ? { walk } : {}),
   };
 }
+
+/** What walking a design finds, in the report every check returns (ADR-028 D11). */
+const WalkS = z
+  .object({
+    entrances: z.array(z.string()),
+    routes: z.record(z.string()),
+    through: z.array(z.string()),
+    unreached: z.array(z.string()),
+    sides: z.record(
+      z.object({ facade: z.string(), enclosed: z.number(), empty: z.number(), along: z.array(z.string()) }),
+    ),
+    displays: z.record(z.string()),
+  })
+  .describe(
+    "what walking the plan from the entrance finds: the route to each room, rooms reached only through another, what stands along each side of the building (enclosed is the share of its length with a room against it that is not open floor), and the wall each meeting room's screen would go on. Facts for you to judge, not errors",
+  );
 
 export const checkDesignTool = defineTool({
   name: "check_design",
@@ -278,6 +342,7 @@ export const checkDesignTool = defineTool({
     }),
     errors: z.array(ProblemS),
     warnings: z.array(ProblemS),
+    walk: WalkS.optional(),
   }),
   run(args, call) {
     // What the rooms were called, turned into purposes the model has: "living room" is the living
@@ -292,6 +357,31 @@ export const checkDesignTool = defineTool({
       room.purpose = purpose;
     }
     for (const r of read) call.warn(r);
+    // And what they were keyed by: "meetA" is refused by the key rule, and a live architect spent a
+    // round discovering that capital letter. Lower-cased here, doors and circulation with them.
+    const renamed = new Map<string, string>();
+    const keyed = args.design as {
+      rooms?: { key?: unknown; doorsTo?: unknown }[];
+      circulation?: unknown;
+    };
+    for (const room of keyed.rooms ?? []) {
+      if (typeof room.key !== "string") continue;
+      const key = roomKey(room.key);
+      if (key === room.key) continue;
+      renamed.set(room.key, key);
+      room.key = key;
+    }
+    if (renamed.size > 0) {
+      const map = (k: unknown) => (typeof k === "string" ? (renamed.get(k) ?? k) : k);
+      for (const room of keyed.rooms ?? [])
+        if (Array.isArray(room.doorsTo)) room.doorsTo = room.doorsTo.map(map);
+      if (Array.isArray(keyed.circulation)) keyed.circulation = keyed.circulation.map(map);
+      call.warn(
+        `a key is lower-case letters, digits and underscores, so these were read as: ${[...renamed]
+          .map(([was, now]) => `${was} as ${now}`)
+          .join(", ")}`,
+      );
+    }
 
     const parsed = Design.safeParse(args.design);
     if (!parsed.success) {
@@ -313,13 +403,32 @@ export const checkDesignTool = defineTool({
       call.warn(
         `no doors were given for ${assumed.length} room(s), so each opens onto what it touches: ${assumed.join("; ")}`,
       );
+    // The same design again, word for word, is not checked again. A live run sent one design three
+    // times in a row, saying each time that it would redesign from scratch, and the warning that
+    // nothing had changed did not stop it; each copy cost a round. A refusal is a failed call, which
+    // the loop's stall breaker counts, and it costs no round.
+    const again = sameAsChecked(call.ctx.store, design);
     const report = checkLayout(design, call.ctx.rules);
+    // A design that passed is not a mistake to send again -- the look gate bounces an answer, and
+    // the model checks its design once more before answering -- so it gets its report and the id it
+    // already has. A design that still has errors is refused: it cost a round three times in a row.
+    if (again && !layoutIsBuildable(report))
+      throw new ToolError(
+        "design.unchanged",
+        `this is ${again} again, word for word, and it has the same errors.${firstFix(design, call.ctx.rules)}`,
+        null,
+        `change it: revise_design { designId: "${again}", rooms: [{ key, rect: { ... } }] } moves the rooms the errors name; preview_design { designId: "${again}" } shows where they are, if you can see pictures`,
+      );
+    if (again) {
+      call.warn(`this is ${again} again, and it passes; build it with that designId`);
+      return reportOf(again, report, walkOf(call, design));
+    }
     const compared = compareWithLast(call.ctx.store, design, report);
     if (compared) call.warn(compared);
     const id = nextId();
     remember(call.ctx.store, id, design);
     for (const p of report.problems.filter((x) => x.severity === "error")) call.warn(p.message);
-    return reportOf(id, report);
+    return reportOf(id, report, walkOf(call, design));
   },
 });
 
@@ -427,7 +536,9 @@ const RoomPatchS = z.object({
   key: z.string().describe("which room"),
   name: z.string().optional(),
   purpose: z.string().optional(),
-  rect: RectS.optional(),
+  // Part of a rect is a rect: "move it 2 m north" is y alone, and a model that had to restate the
+  // size to move a room sent w and d as zero and was refused twice for it.
+  rect: RectS.partial().optional().describe("any of x, y, w, d; what you leave out stays as it is"),
   capacity: z.number().int().min(0).nullable().optional(),
   doorsTo: z.array(z.string()).optional(),
   window: z.boolean().optional(),
@@ -455,15 +566,32 @@ export const reviseDesignTool = defineTool({
     const base = recall(call.ctx.store, args.designId);
     const byKey = new Map(base.rooms.map((r) => [r.key, r]));
     const unchanged: string[] = [];
-    for (const p of args.rooms ?? []) {
+    /** The room a key names, allowing for the shapes a model writes it in: openoffice, OpenOffice. */
+    const find = (given: string): string | undefined => {
+      if (byKey.has(given)) return given;
+      const flat = (k: string) => k.toLowerCase().replace(/[^a-z0-9]/g, "");
+      const near = [...byKey.keys()].filter((k) => flat(k) === flat(given));
+      return near.length === 1 ? near[0] : undefined;
+    };
+    for (const patch of args.rooms ?? []) {
+      const key = find(patch.key);
+      const p = key === undefined || key === patch.key ? patch : { ...patch, key };
+      if (key !== undefined && key !== patch.key)
+        call.warn(`read "${patch.key}" as ${key}, the room of that name in ${args.designId}`);
       const room = byKey.get(p.key);
       if (room) {
         // A move to where the room already is: a real run "moved" two overlapping booths to the
         // coordinates they had, and nothing told it the overlap was still its own doing.
-        const same = Object.entries(p).filter(
-          ([k, v]) =>
-            k !== "key" && JSON.stringify((room as Record<string, unknown>)[k]) === JSON.stringify(v),
-        );
+        const same = Object.entries(p).filter(([k, v]) => {
+          if (k === "key") return false;
+          const held = (room as Record<string, unknown>)[k];
+          // a rect given in part is the same only if every part of it already is
+          if (k === "rect" && v && typeof v === "object")
+            return Object.entries(v as Record<string, unknown>).every(
+              ([f, value]) => (held as Record<string, unknown> | undefined)?.[f] === value,
+            );
+          return JSON.stringify(held) === JSON.stringify(v);
+        });
         for (const [k] of same) unchanged.push(`${p.key}.${k}`);
       }
       if (!room)
@@ -475,10 +603,13 @@ export const reviseDesignTool = defineTool({
       const { key: _key, ...fields } = p;
       const purpose =
         fields.purpose === undefined ? {} : { purpose: purposeFromWord(fields.purpose) ?? fields.purpose };
-      byKey.set(p.key, { ...room, ...fields, ...purpose } as DesignRoom);
+      // What a partial rect leaves out stays as it was.
+      const rect = fields.rect === undefined ? {} : { rect: { ...room.rect, ...fields.rect } };
+      byKey.set(p.key, { ...room, ...fields, ...purpose, ...rect } as DesignRoom);
     }
-    for (const key of args.remove ?? []) {
-      if (!byKey.delete(key)) call.warn(`no room "${key}" to remove`);
+    for (const given of args.remove ?? []) {
+      const key = find(given);
+      if (key === undefined || !byKey.delete(key)) call.warn(`no room "${given}" to remove`);
     }
     const added = (args.add ?? []).map((r) => ({
       ...r,
@@ -486,7 +617,12 @@ export const reviseDesignTool = defineTool({
     }));
     const next = {
       ...base,
-      shell: { ...base.shell, ...(args.shell ?? {}) },
+      // side by side, so changing one side's facade leaves the others as they were
+      shell: {
+        ...base.shell,
+        ...(args.shell ?? {}),
+        facade: { ...base.shell.facade, ...(args.shell?.facade ?? {}) },
+      },
       rooms: [...byKey.values(), ...added],
       ...(args.circulation ? { circulation: args.circulation } : {}),
     };
@@ -497,6 +633,24 @@ export const reviseDesignTool = defineTool({
         .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`);
       throw invalidArg("rooms", issues.join("; "), `purposes are: ${RoomPurpose.options.join(", ")}`);
     }
+    // A revision that changes nothing is the whole-design problem in patch form: a live architect
+    // sent eight rooms' rects back exactly as they were. Refused, so it costs no round.
+    const asked = (args.rooms?.length ?? 0) + (args.add?.length ?? 0) + (args.remove?.length ?? 0);
+    const touched = (args.rooms ?? []).reduce((n, patch) => n + Object.keys(patch).length - 1, 0);
+    if (
+      asked > 0 &&
+      (args.add?.length ?? 0) === 0 &&
+      (args.remove?.length ?? 0) === 0 &&
+      !args.shell &&
+      !args.circulation &&
+      unchanged.length >= touched
+    )
+      throw new ToolError(
+        "design.unchanged",
+        `every field in this revision is already what it says: ${unchanged.slice(0, 6).join(", ")}.${firstFix(base, call.ctx.rules)}`,
+        null,
+        "give the rooms the numbers you want them to have; the errors say what is wrong with the numbers they have",
+      );
     if (unchanged.length)
       call.warn(
         `these were set to the value they already had, so they changed nothing: ${unchanged.join(", ")}`,
@@ -510,7 +664,7 @@ export const reviseDesignTool = defineTool({
     const id = nextId();
     remember(call.ctx.store, id, design);
     for (const p of report.problems.filter((x) => x.severity === "error")) call.warn(p.message);
-    return reportOf(id, report);
+    return reportOf(id, report, walkOf(call, design));
   },
 });
 
@@ -652,7 +806,7 @@ export const planRoomsTool = defineTool({
       );
 
     return {
-      ...reportOf(id, best.report),
+      ...reportOf(id, best.report, walkOf(call, best.design)),
       score: best.report.score,
       quality: best.quality,
       tried: ranked.length,
@@ -724,6 +878,9 @@ export const designLayoutTool = defineTool({
     said: z.string(),
     unresolved: z.array(z.string()),
     rounds: z.number(),
+    looked: z.boolean().describe("whether the architect looked at the design before handing it on"),
+    stopped: z.string().describe("how the architect's run ended: done, stalled, step-budget, ..."),
+    verdict: z.string().nullable().describe("the architect's LOOK verdict on it"),
   }),
   async run(args, call) {
     const runner = call.ctx.subagent;
@@ -735,13 +892,21 @@ export const designLayoutTool = defineTool({
       );
     let from: { designId: string; errors: string[] } | undefined;
     if (args.designId) {
-      const earlier = recall(call.ctx.store, args.designId);
-      from = {
-        designId: args.designId,
-        errors: checkLayout(earlier, call.ctx.rules)
-          .problems.filter((p) => p.severity === "error")
-          .map((p) => p.message),
-      };
+      // A design to continue from that this session no longer holds -- an id remembered from an
+      // earlier conversation, after the host restarted -- is a reason to start fresh, not to refuse
+      // to design at all. A live designer asked for one, was refused, and had nothing left to try.
+      const earlier = held(call.ctx.store, args.designId);
+      if (earlier)
+        from = {
+          designId: args.designId,
+          errors: checkLayout(earlier, call.ctx.rules)
+            .problems.filter((p) => p.severity === "error")
+            .map((p) => p.message),
+        };
+      else
+        call.warn(
+          `no design called "${args.designId}" is held in this session, so the architect designs from the brief instead`,
+        );
     }
     const result = await runner.run({ role: "architect", brief: args.brief, ...(from ? { from } : {}) });
     for (const u of result.unresolved) call.warn(u);
@@ -751,15 +916,268 @@ export const designLayoutTool = defineTool({
           ? `the architect did not reach a design that passes; ${result.lastDesignId} was its closest, with ${result.unresolved.length} error(s) left. Call design_layout again with designId: "${result.lastDesignId}" to have it finished; do not draw the building by hand`
           : "the architect did not reach a design that passes the checker; read what it said",
       );
+    // Why it stopped, when it did not simply answer: a live architect died on a provider error and
+    // the designer was told only that no design passed (ADR-028 D11).
+    if (result.reason !== "done")
+      call.warn(
+        `the architect's run ended early (${result.reason}${result.error ? `: ${result.error}` : ""}); it had ${result.lastDesignId ?? "no design"} at that point`,
+      );
+    if (result.designId && result.looked === false)
+      call.warn(
+        `the architect handed on ${result.designId} without looking at it; look at it yourself with preview_design { designId: "${result.designId}" } before you build it`,
+      );
     return {
       designId: result.designId,
       lastDesignId: result.lastDesignId,
       said: result.text,
       unresolved: result.unresolved,
       rounds: result.rounds,
+      looked: result.looked ?? false,
+      verdict: result.verdict ?? null,
+      stopped: result.reason,
     };
   },
 });
+
+/**
+ * Draw a design into whichever store the call carries: the project's, for build_design, or a scratch
+ * copy, for a preview and the walk (ADR-028 D11). One path, so what a model is shown is what gets
+ * built.
+ */
+function buildInto(
+  call: ToolCall,
+  design: Design,
+  levelId: string,
+): { walls: Wall[]; openings: Opening[]; rooms: Room[]; unplaced: string[] } {
+  const runs = wallRuns(design);
+  // the walls first, as one chain each, so the store joins what meets
+  const wallResults = runAll(
+    call,
+    "design: walls",
+    runs.map((r) => ({
+      type: "wall.createChain",
+      payload: {
+        levelId,
+        points: runPoints(r),
+        closed: false,
+        thickness: r.thickness,
+        kind: r.kind,
+      },
+    })),
+  );
+  const walls: Wall[] = wallResults.flatMap((r) => (r.result as Wall[]) ?? []);
+
+  // then the openings, each matched to the wall whose line passes through the point the design
+  // put it at; a door nobody can place is reported rather than dropped in silence
+  const { wanted, warnings } = openingsWanted(design);
+  for (const w of warnings) call.warn(w);
+  const unplaced: string[] = [];
+  const openings: unknown[] = [];
+  for (const want of wanted) {
+    const wall = nearestWall(walls, want.at);
+    if (!wall) {
+      unplaced.push(`${want.kind} between ${want.between}`);
+      continue;
+    }
+    const len = derive.wallLength(wall);
+    const t =
+      ((want.at.x - wall.start.x) * (wall.end.x - wall.start.x) +
+        (want.at.y - wall.start.y) * (wall.end.y - wall.start.y)) /
+      (len * len);
+    const position = Math.min(Math.max(t, want.width / 2 / len), 1 - want.width / 2 / len);
+    if (!Number.isFinite(position) || len < want.width + 2 * SNAP_MM) {
+      unplaced.push(`${want.kind} between ${want.between} (the wall is only ${Math.round(len)} mm long)`);
+      continue;
+    }
+    openings.push({
+      type: "opening.add",
+      payload: {
+        wallId: wall.id,
+        kind: want.kind,
+        position,
+        width: want.width,
+        height: want.height,
+        sill: want.sill,
+        ...(want.kind === "door" ? { swing: { hinge: "start", direction: "left" } } : {}),
+      },
+    });
+  }
+  const openingResults = openings.length > 0 ? runAll(call, "design: openings", openings) : [];
+
+  // and the rooms over the rectangles the design was measured on
+  const roomResults = runAll(
+    call,
+    "design: rooms",
+    design.rooms.map((r: DesignRoom) => ({
+      type: "room.create",
+      payload: {
+        levelId,
+        polygon: roomPolygon(r),
+        name: r.name,
+        purpose: r.purpose,
+        ...(r.capacity === null ? {} : { capacity: r.capacity }),
+        // An open zone has no walls by design; validate is told so, not left to warn about it.
+        ...(enclosureOf(r) === "open" ? { properties: { enclosure: "open" } } : {}),
+      },
+    })),
+  );
+  return {
+    walls,
+    openings: openingResults.map((r) => r.result as Opening),
+    rooms: roomResults.map((r) => r.result as Room),
+    unplaced,
+  };
+}
+
+/** A design built into a throwaway copy of the project: the level it went on and each room's id. */
+interface Scratch {
+  project: Project;
+  levelId: string;
+  roomOf: Map<string, string>;
+  warnings: string[];
+  unplaced: string[];
+  /** The builder refused it, so only the rooms were drawn: no walls, no doors. */
+  sketch: boolean;
+}
+
+/**
+ * Build a design where nobody will see it: an empty copy of the project with its levels, a store of
+ * its own, and warnings kept rather than sent. Null when the builder refuses it, which a design the
+ * checker is still failing can make it do.
+ */
+function scratchBuild(call: ToolCall, design: Design): Scratch | null {
+  const p0 = call.ctx.store.project;
+  const levelId =
+    design.levelId && derive.levelOf(p0, design.levelId) ? design.levelId : derive.lowestLevel(p0).id;
+  const empty: Project = { ...p0, walls: [], openings: [], rooms: [], items: [], zones: [], annotations: [] };
+  const store = createStore(empty, { ids: sequentialIdGenerator(1), now: call.ctx.now });
+  const warnings: string[] = [];
+  const scratch: ToolCall = {
+    ...call,
+    ctx: { ...call.ctx, store },
+    warn: (m) => warnings.push(m),
+    changed: () => {},
+  };
+  try {
+    const built = buildInto(scratch, design, levelId);
+    const roomOf = new Map(design.rooms.map((r, i) => [r.key, built.rooms[i]?.id ?? ""]));
+    return { project: store.project, levelId, roomOf, warnings, unplaced: built.unplaced, sketch: false };
+  } catch {
+    // The builder refuses some designs that are still wrong. The rooms alone still show where
+    // everything is, which is what a model fixing its arithmetic needs to see.
+    try {
+      const alone = createStore(empty, { ids: sequentialIdGenerator(1), now: call.ctx.now });
+      const rooms = runAll(
+        { ...scratch, ctx: { ...call.ctx, store: alone } },
+        "design: rooms",
+        design.rooms.map((r: DesignRoom) => ({
+          type: "room.create",
+          payload: {
+            levelId,
+            polygon: roomPolygon(r),
+            name: r.name,
+            purpose: r.purpose,
+            ...(enclosureOf(r) === "open" ? { properties: { enclosure: "open" } } : {}),
+          },
+        })),
+      );
+      const roomOf = new Map(
+        design.rooms.map((r, i) => [r.key, (rooms[i]?.result as Room | undefined)?.id ?? ""]),
+      );
+      return { project: alone.project, levelId, roomOf, warnings, unplaced: [], sketch: true };
+    } catch {
+      return null;
+    }
+  }
+}
+
+/**
+ * The wall each room's screen would go on, by the rule furnishing uses, on the design built where
+ * nobody sees it (ADR-028 D12). Only rooms whose recipe has a screen on a wall it chooses itself.
+ */
+function displaysOf(call: ToolCall, design: Design, scratch: Scratch): Record<string, string> {
+  const out: Record<string, string> = {};
+  const rules = call.ctx.rules;
+  if (!rules) return out;
+  const p = scratch.project;
+  const sizes = sizesFor(p, call.ctx.catalog);
+  for (const r of design.rooms) {
+    const room = p.rooms.find((x) => x.id === scratch.roomOf.get(r.key));
+    if (!room) continue;
+    let recipe: ReturnType<typeof pickRecipe>;
+    try {
+      recipe = pickRecipe(rules, room);
+    } catch {
+      continue;
+    }
+    const step = recipe.steps.find((s) => s.op === "display");
+    if (!step || step.wall !== "auto") continue;
+    const side = suggestedDisplayWall(p, room, freeSegments(p, room, sizes));
+    if (!side) {
+      out[r.key] = "none: every wall is glass or has a window, so the screen would stand on the floor";
+      continue;
+    }
+    const kinds = roomWalls(p, room)
+      .filter((w) => w.kind !== "glass" && roomWallCompass(p, w, room) === side)
+      .map((w) => w.kind);
+    out[r.key] = `${side}, on ${kinds.every((k) => k === "exterior") ? "an outside wall" : "plaster"}`;
+  }
+  return out;
+}
+
+export type Walk = DesignWalk & { displays: Record<string, string> };
+
+/** What walking the design finds, with the screens' walls: facts for the model to judge (D11). */
+export function walkOf(call: ToolCall, design: Design): Walk {
+  const scratch = scratchBuild(call, design);
+  return { ...walkDesign(design), displays: scratch ? displaysOf(call, design, scratch) : {} };
+}
+
+/** The headings a LOOK verdict has to speak to, so "Verdict: DONE" alone is not a verdict. */
+export const LOOK_HEADINGS = [
+  "Way in",
+  "Every room reached",
+  "Sides",
+  "Zones",
+  "Doors outside",
+  "Drawn over",
+  "Left over",
+  "Displays",
+  "Brief",
+] as const;
+
+/**
+ * Which of them a verdict left out.
+ *
+ * Emphasis is stripped first: a model writes "- **Way in:** ..." as often as "- Way in: ...", and a
+ * gate that could not read the first sent a good verdict back twice for saying nothing.
+ */
+export function lookMissing(verdict: string): string[] {
+  // Plain text and a colon, not a pattern: a verdict comes as "- Way in: ...", "- **Way in:** ..."
+  // or all on one line, and a regex written in a template literal ate its own escapes and found
+  // none of them, which sent three good verdicts back as saying nothing.
+  const plain = verdict.replace(/[*_`#]/g, "").toLowerCase();
+  return LOOK_HEADINGS.filter((h) => !plain.includes(`${h.toLowerCase()}:`));
+}
+
+/** The checklist a design is looked at against, before it is called done (ADR-028 D11). */
+export function lookChecklist(designId: string): string {
+  return [
+    `Write the LOOK verdict for ${designId}: one concrete sentence per line, naming what you see. "Looks good" is not a verdict, and a line that names nothing was not looked at.`,
+    `LOOK ${designId}`,
+    "- Way in: where the entrance is, what it opens onto, and whether the reception is the first room you reach",
+    "- Every room reached: the longest route, and any room reached only through another",
+    "- Sides: what stands along each side of the building, and any side left blank",
+    "- Zones: whether the desks are open floor (yellow) or a room behind a door, and whether the cafe and the rooms people sit in have daylight",
+    "- Doors outside: any door to outside that is not the entrance",
+    "- Drawn over: anything on top of something else",
+    "- Left over: any pink floor that no room covers, and how big it is",
+    "- Displays: which wall each meeting room's screen goes on, and that it is not glass or a window",
+    "- Brief: what the person asked for that is there, and what is not",
+    "- Verdict: DONE, or FIX and the fixes",
+    "If it is FIX, make the fixes with revise_design and look again.",
+  ].join("\n");
+}
 
 export const buildDesignTool = defineTool({
   name: "build_design",
@@ -796,93 +1214,20 @@ export const buildDesignTool = defineTool({
     if (!derive.levelOf(p0, levelId))
       throw new ToolError("ref.missing", `level "${levelId}" does not resolve`, null, "use get_scene");
 
-    const runs = wallRuns(design);
     const before = ctx.store.historyPosition;
     try {
-      // the walls first, as one chain each, so the store joins what meets
-      const wallResults = runAll(
-        call,
-        "design: walls",
-        runs.map((r) => ({
-          type: "wall.createChain",
-          payload: {
-            levelId,
-            points: runPoints(r),
-            closed: false,
-            thickness: r.thickness,
-            kind: r.kind,
-          },
-        })),
-      );
-      const walls: Wall[] = wallResults.flatMap((r) => (r.result as Wall[]) ?? []);
-
-      // then the openings, each matched to the wall whose line passes through the point the design
-      // put it at; a door nobody can place is reported rather than dropped in silence
-      const { wanted, warnings } = openingsWanted(design);
-      for (const w of warnings) call.warn(w);
-      const unplaced: string[] = [];
-      const openings: unknown[] = [];
-      for (const want of wanted) {
-        const wall = nearestWall(walls, want.at);
-        if (!wall) {
-          unplaced.push(`${want.kind} between ${want.between}`);
-          continue;
-        }
-        const len = derive.wallLength(wall);
-        const t =
-          ((want.at.x - wall.start.x) * (wall.end.x - wall.start.x) +
-            (want.at.y - wall.start.y) * (wall.end.y - wall.start.y)) /
-          (len * len);
-        const position = Math.min(Math.max(t, want.width / 2 / len), 1 - want.width / 2 / len);
-        if (!Number.isFinite(position) || len < want.width + 2 * SNAP_MM) {
-          unplaced.push(`${want.kind} between ${want.between} (the wall is only ${Math.round(len)} mm long)`);
-          continue;
-        }
-        openings.push({
-          type: "opening.add",
-          payload: {
-            wallId: wall.id,
-            kind: want.kind,
-            position,
-            width: want.width,
-            height: want.height,
-            sill: want.sill,
-            ...(want.kind === "door" ? { swing: { hinge: "start", direction: "left" } } : {}),
-          },
-        });
-      }
-      const openingResults = openings.length > 0 ? runAll(call, "design: openings", openings) : [];
-
-      // and the rooms over the rectangles the design was measured on
-      const roomResults = runAll(
-        call,
-        "design: rooms",
-        design.rooms.map((r: DesignRoom) => ({
-          type: "room.create",
-          payload: {
-            levelId,
-            polygon: roomPolygon(r),
-            name: r.name,
-            purpose: r.purpose,
-            ...(r.capacity === null ? {} : { capacity: r.capacity }),
-            // An open zone has no walls by design; validate is told so, not left to warn about it.
-            ...(enclosureOf(r) === "open" ? { properties: { enclosure: "open" } } : {}),
-          },
-        })),
-      );
+      const built = buildInto(call, design, levelId);
       const project = ctx.store.project;
       const sizes = sizesFor(project, ctx.catalog);
-      for (const u of unplaced) call.warn(`could not place the ${u}`);
+      for (const u of built.unplaced) call.warn(`could not place the ${u}`);
       return {
-        walls: walls.length,
-        doors: (openingResults.map((r) => r.result as Opening) ?? []).filter((o) => o?.kind === "door")
-          .length,
-        windows: (openingResults.map((r) => r.result as Opening) ?? []).filter((o) => o?.kind === "window")
-          .length,
-        rooms: roomResults.map((r) =>
-          roomView(project, project.rooms.find((x) => x.id === (r.result as Room).id) as Room, sizes),
+        walls: built.walls.length,
+        doors: built.openings.filter((o) => o?.kind === "door").length,
+        windows: built.openings.filter((o) => o?.kind === "window").length,
+        rooms: built.rooms.map((r) =>
+          roomView(project, project.rooms.find((x) => x.id === r.id) as Room, sizes),
         ),
-        unplaced,
+        unplaced: built.unplaced,
       };
     } catch (e) {
       while (ctx.store.historyPosition > before) ctx.store.undo();
@@ -910,3 +1255,125 @@ function nearestWall(walls: readonly Wall[], at: { x: number; y: number }): Wall
   }
   return best;
 }
+
+/**
+ * A picture of a plan, for a model to look at before it calls it done (ADR-028 D11): a checked design
+ * as build_design will draw it, or the level as built. Only offered to a model that can see.
+ */
+export const previewDesignTool = defineTool({
+  name: "preview_design",
+  description:
+    "Look at a plan: a drawing, north up, of a checked design exactly as build_design will draw it -- outside walls, plaster, glass, doors, the entrance, windows, and the rooms numbered with a legend. With no designId, the level as it is built now, furniture included, so you can see where every screen went. Look before you call a design done, and after you build it.",
+  tier: "both",
+  mutating: false,
+  timeoutMs: TIMEOUTS.slow,
+  resultCapBytes: 8 * 1024 * 1024,
+  input: z.object({
+    designId: z
+      .string()
+      .optional()
+      .describe("a design from check_design or revise_design; leave it out to see what is built"),
+    levelId: z.string().optional().describe("with no designId: the level to draw, default the lowest"),
+  }),
+  output: z.object({
+    caption: z.string(),
+    ask: z.string(),
+    legend: z.array(z.string()),
+    images: z.array(
+      z.object({ name: z.string(), width: z.number(), height: z.number(), pngBase64: z.string() }),
+    ),
+  }),
+  run(args, call) {
+    const key = (pic: PlanPicture) =>
+      pic.northUp
+        ? PLAN_KEY
+        : PLAN_KEY.replace("North is up.", "North is where the arrow at the top right points.");
+    const image = (name: string, pic: PlanPicture) => ({
+      name,
+      width: pic.width,
+      height: pic.height,
+      pngBase64: Buffer.from(pic.png).toString("base64"),
+    });
+    if (args.designId) {
+      const design = recall(call.ctx.store, args.designId);
+      const scratch = scratchBuild(call, design);
+      if (!scratch)
+        throw new ToolError(
+          "design.not-drawable",
+          `${args.designId} cannot be drawn: the builder refuses it`,
+          null,
+          "fix its errors with revise_design and look at the new designId",
+        );
+      const labels = new Map<string, string>();
+      const legend: string[] = [];
+      design.rooms.forEach((r, i) => {
+        const id = scratch.roomOf.get(r.key);
+        if (id) labels.set(id, String(i + 1));
+        legend.push(`${i + 1} ${r.key}`);
+      });
+      for (const u of scratch.unplaced) call.warn(`build_design would not place the ${u}`);
+      const pic = drawLevel(scratch.project, scratch.levelId, { labels });
+      const what = scratch.sketch
+        ? `The rooms of ${args.designId} as rectangles alone: the builder cannot draw its walls yet, so there are no walls or doors in it.`
+        : `The plan of ${args.designId} as build_design will draw it.`;
+      return {
+        caption: `${what} ${key(pic)} Rooms by number: ${legend.join(", ")}.`,
+        ask: lookChecklist(args.designId),
+        legend,
+        images: [image(args.designId, pic)],
+      };
+    }
+    const p = call.ctx.store.project;
+    const levelId = args.levelId ?? derive.lowestLevel(p).id;
+    if (!derive.levelOf(p, levelId))
+      throw new ToolError("ref.missing", `level "${levelId}" does not resolve`, null, "use get_scene");
+    const labels = new Map<string, string>();
+    const legend: string[] = [];
+    p.rooms
+      .filter((r) => r.levelId === levelId)
+      .forEach((r, i) => {
+        labels.set(r.id, String(i + 1));
+        legend.push(`${i + 1} ${r.name ?? r.purpose} (${r.id})`);
+      });
+    const pic = drawLevel(p, levelId, { labels, items: true, sizes: sizesFor(p, call.ctx.catalog) });
+    return {
+      caption: `The level as it is built now, furniture included. ${key(pic)} Rooms by number: ${legend.join(", ")}.`,
+      ask: "Compare it with the design that was approved: every wall, door and window where the design put them, every screen on a plaster wall and none on glass or a window, and every room furnished that should be. Name each difference in a sentence. A difference in the walls is the builder's fault to report, never a reason to draw walls by hand.",
+      legend,
+      images: [image(levelId, pic)],
+    };
+  },
+});
+
+/**
+ * The arithmetic done for a design whose arrangement is already decided (ADR-028 D10).
+ *
+ * Not a rearranger: it moves each room the least it can. Across five live runs the errors a local
+ * model could not clear were rooms overlapping by a few hundred millimetres and rooms past the shell,
+ * and it spent every round re-sending the same rectangles rather than applying the numbers the hints
+ * gave it.
+ */
+export const tidyDesignTool = defineTool({
+  name: "tidy_design",
+  description:
+    "Do the arithmetic on a design you have already drawn: every room moved the least it can be so that none overlaps another and all of them are inside the building. It never changes which room is where, what it is, or what it opens onto, and it says what it moved. Use it when an overlap or an outside-the-building error will not clear; then look at the result and put right anything it moved that you did not mean.",
+  tier: "both",
+  mutating: false,
+  input: z.object({
+    designId: z.string().describe("the design to tidy, from check_design or revise_design"),
+  }),
+  output: checkDesignTool.output,
+  run(args, call) {
+    const base = recall(call.ctx.store, args.designId);
+    const { design, moves, unresolved } = tidyDesign(base);
+    if (moves.length === 0)
+      call.warn("nothing moved: no room overlaps another and all are inside the building");
+    for (const m of moves) call.warn(m);
+    for (const u of unresolved) call.warn(u);
+    const report = checkLayout(design, call.ctx.rules);
+    const id = nextId();
+    remember(call.ctx.store, id, design);
+    for (const p of report.problems.filter((x) => x.severity === "error")) call.warn(p.message);
+    return reportOf(id, report, walkOf(call, design));
+  },
+});

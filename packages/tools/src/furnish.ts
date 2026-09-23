@@ -22,6 +22,7 @@ import {
   roomWallInterval,
   roomWalls,
   suggestedDisplayWall,
+  wallFacingTheDoor,
 } from "./views.js";
 
 export interface FurnishOptions {
@@ -269,12 +270,22 @@ export function planFurnishing(
     (["north", "east", "south", "west"] as const)
       .map((c) => ({ c, depth: frameFor(room, compassDir(c, p.meta.north)).depth }))
       .sort((a, b) => b.depth - a.depth)[0]?.c ?? "north";
+  const suggested = displayStep && displayStep.wall === "auto" ? suggestedDisplayWall(p, room, free) : null;
+  // No wall fit for a screen: every one is glass or has a window. The room is still laid out along
+  // its length, and the display stands on the floor rather than hanging on glass (ADR-028 D12).
+  const noScreenWall = displayStep !== undefined && displayStep.wall === "auto" && suggested === null;
+  if (noScreenWall)
+    warnings.push(
+      `no wall of ${room.name} can take a display: every one is glass or has a window, so it stands on the floor`,
+    );
   const side: derive.Compass =
     displayStep && displayStep.wall !== "auto"
       ? displayStep.wall
-      : rowsWithoutScreen
+      : rowsWithoutScreen || noScreenWall
         ? longest()
-        : (suggestedDisplayWall(p, room, free) ?? "north");
+        : displayStep
+          ? (suggested ?? longest())
+          : (wallFacingTheDoor(p, room, free) ?? "north");
   const frame = frameFor(room, compassDir(side, p.meta.north));
   const span = frame.pMax - frame.pMin;
   const midAcross = (frame.pMin + frame.pMax) / 2;
@@ -675,6 +686,17 @@ export function planFurnishing(
         };
         let placed = 0;
         let front = firstFront;
+        // With no screen to face, the block is centred along the room as it is across it. The office
+        // in the owner's rendering, furnished, had its ninety desks in the west two thirds of the
+        // floor and a band of empty floor to the east, which read as a blank side (ADR-028 D11).
+        if (!displayStep) {
+          const perStep = bench ? 2 * perRow : perRow;
+          const unit = bench ? pairDepth : rowDepth;
+          const k = Math.ceil(want / perStep);
+          const used = k * unit + (k - 1) * step.spacingMm;
+          const room = frame.depth - CHAIR_CLEARANCE_MM - firstFront;
+          if (used <= room) front = firstFront + (room - used) / 2;
+        }
         while (placed < want) {
           if (bench) {
             // the pair: tables back to back, chairs on the outside of both
@@ -730,8 +752,14 @@ export function planFurnishing(
           const raw = centre - total / 2 + r.size.w / 2 + k * (r.size.w + 200);
           const across = Math.min(Math.max(raw, frame.pMin + r.size.w / 2), frame.pMax - r.size.w / 2);
           const pos = at(frame, r.size.d / 2, across);
-          const wall = wallOn(side, pos);
-          if (!wall) warnings.push(`no ${side} wall found for the display; placed it standing`);
+          const found = wallOn(side, pos);
+          // glass takes no mount: the display stands in front of it
+          const wall = found && found.kind !== "glass" && !noScreenWall ? found : null;
+          if (!found) warnings.push(`no ${side} wall found for the display; placed it standing`);
+          else if (found.kind === "glass" && !noScreenWall)
+            warnings.push(
+              `the ${side} wall of ${room.name} is glass where the display goes; it stands on the floor`,
+            );
           place(
             "display",
             r,

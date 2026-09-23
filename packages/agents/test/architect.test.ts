@@ -127,8 +127,9 @@ const BAD = {
 };
 
 describe("the architect's reach", () => {
-  it("is nine tools, none of which draws", () => {
+  it("is eleven tools, none of which draws", () => {
     // look_at joined in ADR-027 D3: a picture the person attached, which the architect never saw.
+    // preview_design in ADR-028 D11: a picture of its own design, before it calls it done.
     expect([...ARCHITECT_TOOLS].sort()).toEqual([
       "check_design",
       "describe_room",
@@ -136,9 +137,11 @@ describe("the architect's reach", () => {
       "look_at",
       "measure",
       "plan_rooms",
+      "preview_design",
       "query_design",
       "revise_design",
       "search_catalog",
+      "tidy_design",
     ]);
     for (const drawing of ["create_walls", "build_design", "place_item", "furnish_room", "add_opening"])
       expect(ARCHITECT_TOOLS.has(drawing), drawing).toBe(false);
@@ -168,7 +171,7 @@ describe("the architect's reach", () => {
     void provider;
     const all = registry.advertised("high").length;
     const mine = registry.advertised("high").filter((t) => ARCHITECT_TOOLS.has(t.name)).length;
-    expect(mine).toBe(9);
+    expect(mine).toBe(11);
     expect(all).toBeGreaterThan(25);
   });
 });
@@ -206,7 +209,10 @@ describe("what comes back", () => {
     const registry = session();
     const provider = scripted([
       () => reply(null, [call("check_design", { design: BAD })]),
-      () => reply(null, [call("check_design", { design: GOOD })]),
+      (req) => {
+        const id = /design_[0-9a-z]+/.exec(JSON.stringify(req.messages.at(-1)?.content))?.[0] ?? "?";
+        return reply(null, [call("revise_design", { designId: id, remove: ["bed"] })]);
+      },
       () => reply("Fixed the bedroom by taking it out; it is a studio."),
     ]);
     const result = await runArchitect(provider, registry, { role: "architect", brief: "a studio" });
@@ -278,5 +284,154 @@ describe("the architect draws (ADR-028 D1, D9)", () => {
     expect(withPicture).toMatch(/Copying a picture/);
     expect(withPicture).toMatch(/do not let plan_rooms rearrange it/);
     expect(withPicture).toMatch(/look_at it, with its id/);
+  });
+});
+
+describe("the look gate (ADR-028 D11)", () => {
+  const lastText = (req: CompletionRequest): string => {
+    const content = req.messages.at(-1)?.content;
+    return typeof content === "string"
+      ? content
+      : Array.isArray(content)
+        ? content.map((p) => (p.type === "text" ? p.text : "")).join(" ")
+        : "";
+  };
+  const idIn = (text: string) => /design_[0-9a-z]+/.exec(text)?.[0] ?? "design_?";
+
+  it("has a model that can see look at the design and judge it before it may answer", async () => {
+    const registry = session();
+    const told: string[] = [];
+    let pictured = false;
+    const provider = scripted([
+      () => reply(null, [call("check_design", { design: GOOD })]),
+      () => reply("Designed a studio."),
+      (req) => {
+        told.push(lastText(req));
+        return reply(null, [call("preview_design", { designId: idIn(lastText(req)) })]);
+      },
+      (req) => {
+        pictured = req.messages.some(
+          (m) => Array.isArray(m.content) && m.content.some((p) => p.type === "image_url"),
+        );
+        told.push(lastText(req));
+        return reply(
+          `LOOK ${idIn(lastText(req))}\n- Way in: from the south into the studio\n- Verdict: DONE`,
+        );
+      },
+    ]);
+    provider.profile.vision = true;
+    const result = await runArchitect(provider, registry, { role: "architect", brief: "a studio" });
+    expect(told[0]).toMatch(/look at it: call preview_design/);
+    expect(pictured).toBe(true);
+    // the picture comes with its checklist, not a bare "look at it"
+    expect(told[1]).toMatch(/Write the LOOK verdict/);
+    expect(result.looked).toBe(true);
+    expect(result.verdict).toMatch(/^LOOK design_.*Verdict: DONE$/s);
+    expect(result.designId).toMatch(/^design_/);
+  });
+
+  it("has a model that cannot see write the verdict from the walk, and is never offered the picture", async () => {
+    const registry = session();
+    const told: string[] = [];
+    const provider = scripted([
+      () => reply(null, [call("check_design", { design: GOOD })]),
+      () => reply("Designed a studio."),
+      (req) => {
+        told.push(lastText(req));
+        return reply(`LOOK ${idIn(lastText(req))}\n- Sides: the studio along the south\n- Verdict: DONE`);
+      },
+    ]);
+    const result = await runArchitect(provider, registry, { role: "architect", brief: "a studio" });
+    expect(provider.requests[0]?.tools?.map((t) => t.name)).not.toContain("preview_design");
+    expect(told[0]).toMatch(/judge it/);
+    expect(told[0]).toMatch(/- Displays:/);
+    expect(result.looked).toBe(true);
+  });
+
+  it("asks twice, then lets the answer go marked as not looked at", async () => {
+    const registry = session();
+    const provider = scripted([
+      () => reply(null, [call("check_design", { design: GOOD })]),
+      () => reply("Designed a studio."),
+    ]);
+    provider.profile.vision = true;
+    const result = await runArchitect(provider, registry, { role: "architect", brief: "a studio" });
+    expect(result.designId).toMatch(/^design_/);
+    expect(result.looked).toBe(false);
+    // one check, then the answer three times: twice held back, the third let through
+    expect(provider.requests).toHaveLength(4);
+  });
+
+  it("will not show the same picture twice", async () => {
+    const registry = session();
+    const seen: string[] = [];
+    let id = "";
+    const provider = scripted([
+      () => reply(null, [call("check_design", { design: GOOD })]),
+      (req) => {
+        id = idIn(JSON.stringify(req.messages.at(-1)?.content));
+        return reply(null, [call("preview_design", { designId: id }, "p1")]);
+      },
+      () => reply(null, [call("preview_design", { designId: id }, "p2")]),
+      (req) => {
+        seen.push(lastText(req));
+        return reply(`LOOK ${id}\n- Verdict: DONE`);
+      },
+    ]);
+    provider.profile.vision = true;
+    await runArchitect(provider, registry, { role: "architect", brief: "a studio" });
+    expect(seen[0]).toMatch(/already looked at/);
+  });
+});
+
+describe("an answer with no design behind it (ADR-028 D11)", () => {
+  it("is sent back twice, and then stands", async () => {
+    const registry = session();
+    const told: string[] = [];
+    const provider = scripted([
+      () => reply(null, [call("get_scene", { detail: "summary" })]),
+      (req) => {
+        const c = req.messages.at(-1)?.content;
+        if (typeof c === "string" && c.includes("not checked a design")) told.push(c);
+        return reply("I have read the skill and will write my notes.");
+      },
+    ]);
+    const result = await runArchitect(provider, registry, { role: "architect", brief: "a studio" });
+    expect(told).toHaveLength(2);
+    expect(told[0]).toContain("call check_design");
+    expect(result.designId).toBeNull();
+    expect(result.rounds).toBe(0);
+  });
+});
+
+describe("a design sent whole, twice (ADR-028 D10)", () => {
+  it("is refused with the patch to send instead, and a different building is not", async () => {
+    const registry = session();
+    const told: string[] = [];
+    const other = {
+      ...GOOD,
+      rooms: GOOD.rooms.map((r, i) => ({
+        ...r,
+        key: `z${i}`,
+        doorsTo: r.doorsTo.map((d) => (d === "outside" ? d : `z${GOOD.rooms.findIndex((x) => x.key === d)}`)),
+      })),
+    };
+    const provider = scripted([
+      () => reply(null, [call("check_design", { design: GOOD }, "c1")]),
+      () => reply(null, [call("check_design", { design: { ...GOOD, brief: "the same rooms again" } }, "c2")]),
+      (req) => {
+        told.push(String(req.messages.at(-1)?.content));
+        return reply(null, [call("check_design", { design: other }, "c3")]);
+      },
+      (req) => {
+        told.push(String(req.messages.at(-1)?.content));
+        return reply("LOOK design\n- Verdict: DONE");
+      },
+    ]);
+    await runArchitect(provider, registry, { role: "architect", brief: "a studio" });
+    expect(told[0]).toContain("design.send-the-change");
+    expect(told[0]).toContain("revise_design");
+    // a design of different rooms goes through
+    expect(told[1]).not.toContain("send-the-change");
   });
 });

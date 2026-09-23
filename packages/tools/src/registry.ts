@@ -132,6 +132,8 @@ const LOW_PROFILE = new Set([
   "build_design",
   "query_design",
   "revise_design",
+  "preview_design",
+  "tidy_design",
   // What the model reads before it designs (ADR-027): simple, non-mutating, and a weak model with a
   // picture attached needs the first as much as a strong one.
   "look_at",

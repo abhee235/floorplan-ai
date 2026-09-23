@@ -1,0 +1,26 @@
+{
+  "id": "office-brief-live",
+  "title": "The owner's office brief, word for word, run through a live host and looked at",
+  "task": "An architectural 3D floor plan and isometric cutaway view of a modern 100-person corporate IT company office. The layout features an open-plan workspace with rows of sleek desks, ergonomic chairs, dual monitors on every table, and neat cable management. Key areas include a glass-walled corporate executive suite, a secure IT server room with wire mesh cages, three distinct glass-partitioned meeting rooms, and a spacious modern pantry/cafeteria with high stools and a coffee bar. An entertainment and breakout room is visible with a ping-pong table, bean bags, and a gaming console setup. Bright, vibrant interior design with corporate blue and neon accents, acoustic ceiling panels, indoor plants, polished concrete floors, and realistic commercial lighting. Clean architectural rendering style, highly detailed, photorealistic, 8k resolution.",
+  "maxSteps": 120,
+  "expect": {
+    "rooms": [
+      { "purpose": "open-office" },
+      { "purposeIn": ["meeting", "huddle", "boardroom"] },
+      { "purposeIn": ["meeting", "huddle", "boardroom"] },
+      { "purposeIn": ["meeting", "huddle", "boardroom"] },
+      { "purpose": "cafeteria" },
+      { "purposeIn": ["restroom", "toilet"] }
+    ],
+    "categories": ["desk", "chair", "display"],
+    "minCounts": { "desk": 100, "chair": 100 },
+    "maxValidationErrors": 0,
+    "calls": {
+      "must": ["design_layout", "build_design", "furnish_room", "preview_design"],
+      "never": ["create_walls"]
+    }
+  },
+  "look": {
+    "maxEmptySide": 0.35
+  }
+}

@@ -314,7 +314,7 @@ export type AgentWireEvent =
       ids: string[];
     }
   | { type: "question.answered"; id: string; answers: Record<string, string>; by: "person" | "review" }
-  | { type: "reminder"; step: number; gate: "plan" | "verify" | "idle"; text: string }
+  | { type: "reminder"; step: number; gate: "plan" | "verify" | "idle" | "look" | "empty"; text: string }
   /** The conversation was made smaller to fit (ADR-025); the chat says so rather than letting it shift. */
   | { type: "compacted"; step: number; before: number; after: number; text: string }
   | { type: "context"; step: number; promptTokens: number; contextTokens: number }

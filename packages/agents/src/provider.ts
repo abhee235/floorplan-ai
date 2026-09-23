@@ -109,7 +109,10 @@ export function parameterQuirk(errorText: string): { key: QuirkKey; note: string
   if (t.includes("max_tokens") && t.includes("max_completion_tokens"))
     return { key: "maxCompletionTokens", note: "max_tokens is sent as max_completion_tokens" };
   if (t.includes("reasoning_effort") && t.includes("none") && (t.includes("tool") || t.includes("function")))
-    return { key: "reasoningNone", note: 'reasoning_effort "none" is sent with tools' };
+    return {
+      key: "reasoningNone",
+      note: 'this server will not think while it calls tools, so reasoning_effort "none" is sent with them, whatever the configuration asked for',
+    };
   if (t.includes("stream_options"))
     return { key: "noStreamOptions", note: "stream_options is left off, so usage is not reported" };
   if (
@@ -137,6 +140,13 @@ export interface ProviderConfig {
    * as the wire's own field, so the quirk that renames it is honoured.
    */
   maxTokens?: number;
+  /**
+   * The sampling temperature when a request does not name one. Absent is 0, greedy, which is
+   * reproducible and what every eval here was measured at. Qwen's own guidance is 0.7 with thinking
+   * off: greedy decoding, it says, degrades output and can repeat without end, and a live architect
+   * did exactly that -- one design, word for word, six times.
+   */
+  temperature?: number;
   /** Extra top-level request fields a server understands (for example a reasoning switch). */
   extraBody?: Record<string, unknown>;
   headers?: Record<string, string>;
@@ -197,7 +207,7 @@ export function openAICompatible(
     const body: Record<string, unknown> = {
       model: config.model,
       messages,
-      ...(quirks.noTemperature ? {} : { temperature: req.temperature ?? 0 }),
+      ...(quirks.noTemperature ? {} : { temperature: req.temperature ?? config.temperature ?? 0 }),
       stream: streaming,
       // Without this a streamed reply reports no tokens at all, and the context meter has nothing to
       // show; servers that refuse the option are learnt from their refusal like any other quirk.
@@ -211,7 +221,11 @@ export function openAICompatible(
         type: "function",
         function: { name: t.name, description: t.description, parameters: t.parameters },
       }));
-      if (quirks.reasoningNone && body.reasoning_effort === undefined) body.reasoning_effort = "none";
+      // The server's refusal wins over the configured value: "Function tools with reasoning_effort
+      // are not supported ... set reasoning_effort to 'none'" is not a preference. A person who set
+      // FPV_AGENT_EXTRA_BODY={"reasoning_effort":"medium"} had the adaptation blocked by their own
+      // setting and every run died on the same 400.
+      if (quirks.reasoningNone) body.reasoning_effort = "none";
     }
     if (req.json && profile.jsonMode) body.response_format = { type: "json_object" };
     return body;
@@ -240,7 +254,19 @@ export function openAICompatible(
           signal,
         });
       } catch (e) {
-        throw new ProviderError(config.id, null, e instanceof Error ? e.message : String(e));
+        // A reply that outlasts the timeout is not a broken server: it is a local model still
+        // writing. Said as a timeout, with the seconds, so the loop asks for a shorter reply
+        // instead of ending the run on what reads as an unknown network fault (ADR-028 D11).
+        const aborted = timer.aborted && !req.signal?.aborted;
+        throw new ProviderError(
+          config.id,
+          null,
+          aborted
+            ? `the request timed out after ${Math.round((config.timeoutMs ?? 120_000) / 1000)}s while the model was still writing`
+            : e instanceof Error
+              ? e.message
+              : String(e),
+        );
       }
       if (res.ok) return res;
       const text = await res.text();

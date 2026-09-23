@@ -2,6 +2,7 @@
 name: home-layout
 description: How a home is zoned, sized and furnished, from a family's brief to the rooms
 whenToUse: before designing any dwelling: a flat, a house, a villa, a floor of one
+kind: dwelling
 ---
 
 # Home layout

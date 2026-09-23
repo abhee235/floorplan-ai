@@ -91,7 +91,13 @@ export type AgentEvent =
   | { type: "question"; step: number; at: string; request: AskRequest }
   | { type: "question.answered"; step: number; at: string; id: string; answers: Record<string, string> }
   /** A gate spoke: the model was told why the run is not over. Never shown as the model's own words. */
-  | { type: "reminder"; step: number; at: string; gate: "plan" | "verify" | "idle"; text: string }
+  | {
+      type: "reminder";
+      step: number;
+      at: string;
+      gate: "plan" | "verify" | "idle" | "look" | "empty";
+      text: string;
+    }
   /** The conversation was made smaller to fit; the chat says so rather than letting it shift silently. */
   | {
       type: "compacted";
@@ -167,6 +173,12 @@ export interface AgentOptions {
   /** Which gates may speak; all three do unless a caller says otherwise. */
   gates?: { plan?: boolean; verify?: boolean; idle?: boolean };
   /**
+   * A caller's own reason the run is not over, asked when the model answers and no gate objects:
+   * what to tell it, or null to let the answer stand. The architect's look gate (ADR-028 D11): a
+   * design is not handed on until it has been looked at. The caller bounds it; the runner does not.
+   */
+  beforeFinish?(answer: string): string | null;
+  /**
    * Entities this run may change from the start, whoever made them: what the person had selected
    * when they asked. Selecting a thing and saying "turn this round" is consent (ADR-023 D3).
    */
@@ -235,6 +247,15 @@ export const DEFAULT_MAX_RESULT_CHARS = 16_000;
 export const UNREADABLE_REPLIES = 2;
 /** The same failing call this many times in a row ends the run. */
 const STALL_REPEATS = 3;
+/**
+ * The temperature of the reply after a step that repeated the one before it, call for call.
+ *
+ * At temperature 0 a model shown nearly the same conversation writes nearly the same reply, and a
+ * live architect sent one design six times in a row saying each time that it would start again.
+ * Sampling the next reply is the cheapest way out of that; the step after is greedy again. 0.7 is
+ * Qwen's own recommendation for its models with thinking off.
+ */
+export const REPEAT_TEMPERATURE = 0.7;
 /** This many tool calls in a row made of at most two distinct calls is a loop, and ends the run. */
 const LOOP_WINDOW = 8;
 
@@ -331,9 +352,15 @@ function imagesIn(result: unknown): string[] {
 
 /** What the lifted picture is introduced as: the tool's own words when it has them. */
 function captionOf(result: unknown): string {
-  const caption = (result as { result?: { caption?: unknown } } | null)?.result?.caption;
+  const r = (result as { result?: { caption?: unknown; ask?: unknown } } | null)?.result;
+  const caption = r?.caption;
+  // What to do with the picture, when the tool says: a preview asks for its checklist (ADR-028 D11).
+  const ask =
+    typeof r?.ask === "string" && r.ask.trim()
+      ? r.ask.trim()
+      : "Look at it, and write what it shows into notes before you go on.";
   return typeof caption === "string" && caption.trim()
-    ? `${caption.trim()} Look at it, and write what it shows into notes before you go on.`
+    ? `${caption.trim()}\n\n${ask}`
     : "This is what the editor draws now. Look at it, and say what is wrong.";
 }
 
@@ -465,6 +492,11 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
   let unreadable = 0;
   let warnedCramped = false;
   let stall: string | null = null;
+  /** The previous step's calls, by content, so a step that only repeats it can be told apart. */
+  let lastStepCalls: string = "";
+  /** Times an empty reply has been sent back; once is enough. */
+  let emptyNudged = 0;
+  let repeated: boolean = false;
   // The person said "leave all my work alone": every later consent question is answered for them.
   let consentWithheld = false;
 
@@ -559,6 +591,10 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
         );
     }
     emit({ type: "step.started", step: steps, at: now(), messages: messages.length, tools: tools.length });
+    // One step's worth: the reply after a repeated step is sampled, and the one after that is not,
+    // whatever happens in between -- a gate's reminder or a nudge is not a repeat.
+    const sampleThis = repeated;
+    repeated = false;
     const started = Date.now();
     let completion: Completion | null = null;
     let attempts = 0;
@@ -570,7 +606,8 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
         system: `${options.system}${pinned()}`,
         messages,
         tools,
-        temperature: 0,
+        // Greedy unless the provider was configured otherwise, and sampled once after a repeat.
+        ...(sampleThis ? { temperature: REPEAT_TEMPERATURE } : {}),
         // A configured cap is a ceiling, never a promise of room: a model allowed eight thousand
         // tokens cannot have them in a window with three thousand left.
         ...(() => {
@@ -600,6 +637,21 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
         // retried unchanged -- which at temperature 0 writes the same broken reply twice more. A run
         // of 29 steps ended that way; what the server says it could not read decides, not the status.
         const unreadableText = /invalid tool call arguments|unexpected end of json/i.test(message);
+        // A reply that outlasted the request timeout: the model was still writing, so what it was
+        // writing was too long. A live architect died this way three times in one run, each time on
+        // its first reply, and the designer -- told only that no design passed -- drew the building
+        // by hand. Ask for less, twice, before giving up.
+        if (e instanceof ProviderError && /timed out after/i.test(message)) {
+          unreadable += 1;
+          if (unreadable > UNREADABLE_REPLIES) return finish("provider-error", null, message);
+          emit({ type: "warning", step: steps, at: now(), message });
+          messages.push({
+            role: "user",
+            content:
+              "Your last reply took longer than the time allowed and was dropped, so nothing in it happened. Write less: think in a sentence, not a page, and send one tool call. If it was a whole design, send the shell and the rooms with no commentary, or change a few rooms with revise_design instead.",
+          });
+          continue step;
+        }
         if (
           e instanceof ProviderError &&
           e.status !== null &&
@@ -684,7 +736,27 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
         messages.push({ role: "user", content: gate.text });
         continue;
       }
-      return finish("done", stripThinking(content ?? "").trim() || null);
+      const answer = stripThinking(content ?? "").trim();
+      // An empty reply after work has been done is not an answer. A live architect drafted a plan,
+      // then said nothing for six minutes, and the run ended as if it had finished: the likeliest
+      // cause is a reply that ran into the output limit before it reached a tool call. Once.
+      if (!answer && emptyNudged === 0 && toolCalls > 0) {
+        emptyNudged += 1;
+        const text =
+          completion.finishReason === "length"
+            ? "Your last reply was cut off at the output limit before it said anything or called a tool. Think less and act: call the next tool, or answer in a few lines."
+            : "Your last reply was empty. Call the next tool, or answer in a few lines with what you did.";
+        emit({ type: "reminder", step: steps, at: now(), gate: "empty", text });
+        messages.push({ role: "user", content: text });
+        continue;
+      }
+      const held = options.beforeFinish?.(answer) ?? null;
+      if (held) {
+        emit({ type: "reminder", step: steps, at: now(), gate: "look", text: held });
+        messages.push({ role: "user", content: held });
+        continue;
+      }
+      return finish("done", answer || null);
     }
 
     for (const call of calls) {
@@ -814,6 +886,22 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
           stall = `the same failing call (${call.name}) was made ${STALL_REPEATS} times`;
       }
     }
+    // This step's calls against the last step's: the same again means the next reply is sampled.
+    const stepCalls: string = calls
+      .map((c: ToolCall): string => {
+        const parsed = parseToolArguments(c.arguments);
+        return `${c.name}:${canonical(parsed.ok ? parsed.value : c.arguments)}`;
+      })
+      .join("|");
+    repeated = stepCalls !== "" && stepCalls === lastStepCalls;
+    if (repeated)
+      emit({
+        type: "warning",
+        step: steps,
+        at: now(),
+        message: "the model repeated its last step exactly; its next reply is sampled rather than greedy",
+      });
+    lastStepCalls = stepCalls;
     const window = recent.slice(-LOOP_WINDOW);
     const distinct = new Set(window).size;
     if (!stall && window.length === LOOP_WINDOW && distinct <= 2)

@@ -25,10 +25,10 @@ function textOf(result: { content: unknown[] }): ToolResult {
 }
 
 describe("MCP adapter over an in-memory transport (ADR-005 D1, D7)", () => {
-  it("lists the 38 tools with descriptions and JSON schemas, plus the workflow prompt", async () => {
+  it("lists the 40 tools with descriptions and JSON schemas, plus the workflow prompt", async () => {
     const { client } = await connect();
     const tools = await client.listTools();
-    expect(tools.tools).toHaveLength(38);
+    expect(tools.tools).toHaveLength(40);
     const scene = tools.tools.find((t) => t.name === "get_scene");
     expect(scene?.description).toContain("summary");
     expect((scene?.inputSchema as { properties: Record<string, unknown> }).properties).toHaveProperty(
@@ -69,7 +69,7 @@ describe("MCP adapter over an in-memory transport (ADR-005 D1, D7)", () => {
   it("advertises the low profile subset while the rest stays callable", async () => {
     const { client } = await connect("low");
     const tools = await client.listTools();
-    expect(tools.tools).toHaveLength(27);
+    expect(tools.tools).toHaveLength(29);
     expect(tools.tools.map((t) => t.name)).not.toContain("create_walls");
     // add_level, import_plan and the two finishes are in the low profile: they are what a brief asks
     // for, not advanced moves (spec 04 section 9).

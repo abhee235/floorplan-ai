@@ -438,7 +438,8 @@ function packZoned(
         // plan and the checker was right to refuse them.
         window: (room.window ?? HABITABLE.has(room.purpose)) && (outermost || i === 0),
         glazed: GLAZED.has(room.purpose),
-        enclosure: GLAZED.has(room.purpose) ? "glass" : "walled",
+        // The desks are open floor: a walled open office behind one door is a classroom (ADR-028 D12).
+        enclosure: room.purpose === "open-office" ? "open" : GLAZED.has(room.purpose) ? "glass" : "walled",
       });
       y += h + interiorWallMm;
     });
@@ -748,7 +749,12 @@ export function packProgramme(programme: Programme): PackResult {
         doorsTo: room.purpose === "foyer" ? ["outside", corridorKey] : [corridorKey],
         window: room.window ?? HABITABLE.has(room.purpose),
         glazed: isWorkplace && GLAZED.has(room.purpose),
-        enclosure: isWorkplace && GLAZED.has(room.purpose) ? "glass" : "walled",
+        enclosure:
+          room.purpose === "open-office"
+            ? "open"
+            : isWorkplace && GLAZED.has(room.purpose)
+              ? "glass"
+              : "walled",
       });
       u += w + interiorWallMm;
     });

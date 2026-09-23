@@ -290,7 +290,16 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
       provider: agentConfig.model ? providerFor(agentConfig.model) : null,
       skills,
       note: agentConfig.model
-        ? `${agentConfig.model.id}:${agentConfig.model.model}`
+        ? // Whether it can be shown a picture is said here, because it decides whether the architect
+          // is offered preview_design at all and there is otherwise no way to tell from outside
+          // (ADR-028 D11). Ollama is asked as the wire settles, so it says "asks the server".
+          `${agentConfig.model.id}:${agentConfig.model.model} (${
+            agentConfig.model.profile?.vision === undefined
+              ? "vision: asks the server"
+              : agentConfig.model.profile.vision
+                ? "vision: yes"
+                : "vision: no, so no pictures"
+          })`
         : "no agent model (set FPV_AGENT_MODEL, or a designer role in the host's config)",
       now,
     });

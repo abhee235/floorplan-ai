@@ -72,9 +72,27 @@ export const WALLED_ALWAYS: ReadonlySet<string> = new Set([
   "garage",
 ]);
 
-/** A side of the building: punched windows, or one glass wall the length of it. */
-export const Facade = z.enum(["windows", "glazed"]);
+/**
+ * A side of the building: punched windows, one glass wall the length of it, or `solid`, no opening
+ * but a door: a side against a neighbouring building, or against the core of the tower the floor is
+ * in, which is where an office floor's entrance usually is (ADR-028 D12).
+ */
+export const Facade = z.enum(["windows", "glazed", "solid"]);
 export type Facade = z.infer<typeof Facade>;
+type SideName = "north" | "south" | "east" | "west";
+
+/**
+ * What a side the design leaves unsaid is: glass for a workplace, windows for a home.
+ *
+ * An office drawn with the old default, punched windows on every side, was the first thing its owner
+ * objected to: a modern office is glass. A home is not.
+ */
+export function defaultFacade(kind: "dwelling" | "workplace" | "mixed"): Facade {
+  return kind === "workplace" ? "glazed" : "windows";
+}
+
+/** Rooms that are the way between others. */
+export const CIRCULATION_PURPOSES: ReadonlySet<string> = new Set(["corridor", "foyer"]);
 
 export const DesignRect = z.object({
   /** South-west corner of the clear inside, in mm. */
@@ -198,7 +216,10 @@ export function enclosureOf(room: {
 }): Enclosure {
   if (room.enclosure) return room.enclosure;
   if (room.glazed) return "glass";
-  return room.purpose === "corridor" || room.purpose === "foyer" ? "open" : "walled";
+  // Circulation is open, and so are the desks: an open office is the floor, not a room behind a door.
+  return room.purpose === "corridor" || room.purpose === "foyer" || room.purpose === "open-office"
+    ? "open"
+    : "walled";
 }
 
 /**
@@ -207,40 +228,55 @@ export function enclosureOf(room: {
  */
 export const mustBeWalled = (room: { purpose: string }): boolean => WALLED_ALWAYS.has(room.purpose);
 
-export const Design = z.object({
-  /** The words this was designed for, so a later round can tell whether the brief changed. */
-  brief: z.string(),
-  kind: z.enum(["dwelling", "workplace", "mixed"]),
-  /** The level it will be drawn on; the lowest one when the architect does not say. */
-  levelId: z.string().nullable().default(null),
-  shell: z.object({
-    x: Mm,
-    y: Mm,
-    w: MmPositive,
-    d: MmPositive,
-    /** Outside wall thickness; 230 to 300 for a building. */
-    wallMm: MmPositive.default(230),
-    /** Inside wall thickness; 100 to 120. */
-    interiorWallMm: MmPositive.default(115),
-    /**
-     * Each side of the building: punched windows, the default, or `glazed`, a glass wall the length
-     * of the side with no separate windows, which counts as daylight for every room along it.
-     */
-    facade: z
-      .object({
-        north: Facade.default("windows"),
-        south: Facade.default("windows"),
-        east: Facade.default("windows"),
-        west: Facade.default("windows"),
-      })
-      .default({}),
-  }),
-  rooms: z.array(DesignRoom).min(1),
-  /** Keys of the rooms that are circulation: a hall, a corridor, a landing. */
-  circulation: z.array(RoomKey).default([]),
-  /** What the brief did not say and the architect decided. */
-  assumptions: z.array(z.string()).default([]),
-});
+export const Design = z
+  .object({
+    /** The words this was designed for, so a later round can tell whether the brief changed. */
+    brief: z.string(),
+    kind: z.enum(["dwelling", "workplace", "mixed"]),
+    /** The level it will be drawn on; the lowest one when the architect does not say. */
+    levelId: z.string().nullable().default(null),
+    shell: z.object({
+      x: Mm,
+      y: Mm,
+      w: MmPositive,
+      d: MmPositive,
+      /** Outside wall thickness; 230 to 300 for a building. */
+      wallMm: MmPositive.default(230),
+      /** Inside wall thickness; 100 to 120. */
+      interiorWallMm: MmPositive.default(115),
+      /**
+       * Each side of the building: punched `windows`; `glazed`, a glass wall the length of the side
+       * with no separate windows, which counts as daylight for every room along it; or `solid`. A side
+       * left unsaid is glazed in a workplace and windows in a home.
+       */
+      facade: z
+        .object({
+          north: Facade.optional(),
+          south: Facade.optional(),
+          east: Facade.optional(),
+          west: Facade.optional(),
+        })
+        .default({}),
+    }),
+    rooms: z.array(DesignRoom).min(1),
+    /** Keys of the rooms that are circulation: a hall, a corridor, a landing. */
+    circulation: z.array(RoomKey).default([]),
+    /** What the brief did not say and the architect decided. */
+    assumptions: z.array(z.string()).default([]),
+  })
+  // Every side has a facade once parsed, so nothing downstream decides the default again.
+  .transform((d) => ({
+    ...d,
+    shell: {
+      ...d.shell,
+      facade: {
+        north: d.shell.facade.north ?? defaultFacade(d.kind),
+        south: d.shell.facade.south ?? defaultFacade(d.kind),
+        east: d.shell.facade.east ?? defaultFacade(d.kind),
+        west: d.shell.facade.west ?? defaultFacade(d.kind),
+      } satisfies Record<SideName, Facade>,
+    },
+  }));
 
 export type DesignRect = z.infer<typeof DesignRect>;
 export type DesignRoom = z.infer<typeof DesignRoom>;
@@ -292,10 +328,32 @@ export function outsideSides(
   return out;
 }
 
-/** True when a side of the room is on a glazed side of the building: daylight without a window. */
+/**
+ * True when a side of the room is on a glazed side of the building: daylight without a window.
+ *
+ * Not for a room that must be walled: a toilet on a glazed side keeps a solid outside wall.
+ */
 export function onGlazedSide(room: DesignRoom, shell: Design["shell"], gapMm: number): boolean {
+  if (mustBeWalled(room)) return false;
   return outsideSides(room, shell, gapMm).some((side) => shell.facade[side] === "glazed");
 }
+
+/** The room's outside sides that can take a punched window: on a side of the building with windows. */
+export function windowSides(room: DesignRoom, shell: Design["shell"], gapMm: number): SideName[] {
+  return outsideSides(room, shell, gapMm).filter((side) => shell.facade[side] === "windows");
+}
+
+/** True when the room can have daylight: a glazed side, or a side that can take a window. */
+export function canBeDaylit(room: DesignRoom, shell: Design["shell"], gapMm: number): boolean {
+  return onGlazedSide(room, shell, gapMm) || windowSides(room, shell, gapMm).length > 0;
+}
+
+/**
+ * Floor everyone walks on: an open zone, a corridor, a foyer. Glass faces it; between two rooms
+ * with doors of their own the wall is plaster (ADR-028 D12).
+ */
+export const isSharedFloor = (room: DesignRoom): boolean =>
+  enclosureOf(room) === "open" || CIRCULATION_PURPOSES.has(room.purpose);
 
 /** True when the room has a side on the outside of the building, so a window is possible. */
 export function onOutsideWall(room: DesignRoom, shell: Design["shell"], gapMm: number): boolean {

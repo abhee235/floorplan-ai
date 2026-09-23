@@ -303,8 +303,9 @@ for `auto` the door-free wall opposite a door (`suggestedDisplayWall`).
   when an opening is in the way.
 
 - `along-wall` (phase 3, for homes): items with their backs to a wall, facing
-  into the room. The wall is `auto` (the display wall, which `suggestedDisplayWall`
-  puts opposite the door), `opposite-display`, `beside-display` (the perpendicular
+  into the room. The wall is `auto` (the display wall: in a room with a screen, the
+  plaster wall `suggestedDisplayWall` chooses, never glass or a side with a window
+  (ADR-028 D12); in a room without one, the door-free wall opposite the door), `opposite-display`, `beside-display` (the perpendicular
   wall with the longest free run) or a compass word. Each wall keeps two cursors:
   `align: "start"` fills from one end, `"end"` from the other, `"centre"` takes the
   middle of an untouched wall, so a bathroom's shower, basin and toilet stand in a

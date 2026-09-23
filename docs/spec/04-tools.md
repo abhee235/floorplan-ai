@@ -176,6 +176,9 @@ Output: `{ room: RoomView }`
 ## 5. Item tools (tier: primitive unless noted)
 
 ### place_item (tier: both)
+Given a `roomId` and no position, anchor or mount, the item stands in the middle
+of that room, with a warning saying so: a live run placed a server rack with a
+room and nothing else four times and the run ended stalled (ADR-028 D11).
 Description: "Place a product or recipe. Either give x, y, or give roomId plus an anchor: 'center', 'against-north-wall' (also south/east/west), 'north-east-corner' (and the other corners), 'along-wall:<wallId>@<mm>', or 'on:<itemId>' to stack on another item. Anchors set rotation for you. Returns the final position after snapping and any warnings about overlaps or blocked door swings."
 Input: `{ productId?: string, recipe?: PrimitiveRecipe, x?: number, y?: number, roomId?: string, anchor?: string, rotation?: number, elevation?: number, mount?: { kind, targetId?, height? }, tags?: string[] }`
 Output: `{ item: ItemView, adjusted: boolean }`
@@ -258,10 +261,12 @@ Input: `{ design: Design }` — the artefact of spec 01 section 4.3b: a shell
 rectangle, a list of room rectangles with purposes and `doorsTo`, circulation
 keys and assumptions. Since ADR-028 D3 a room also carries `enclosure`
 (`walled`, `glass` or `open`; the older `glazed: true` reads as `glass`) and the
-shell a `facade` per side (`windows` or `glazed`). An open room needs no door
+shell a `facade` per side: `glazed`, `windows` or `solid` (ADR-028 D12), a
+side left unsaid being glazed in a workplace and windows in a home. An open room needs no door
 and is circulation for every open room it touches; a room on a glazed side has
 daylight without a window; restrooms, toilets, bathrooms, utility, storage,
-laundry and garages are walled whatever the design says.
+laundry and garages are walled whatever the design says, and keep a solid
+outside wall on a glazed side.
 
 The checker judges whether a plan can be built and used, never its shape
 (ADR-028 D2): errors are rooms overlapping or outside the shell, a door with no
@@ -272,6 +277,9 @@ key. `too-large` is a warning. An open office is held to 6 m² a desk.
 
 ### revise_design (tier: both, non-mutating; ADR-028 D10)
 Input: `{ designId, rooms?: [{ key, ...fields }], add?: DesignRoom[], remove?: string[], shell?: Partial<shell>, circulation? }`
+A room's `rect` may be given in part: what is left out stays as it was, so moving
+a room is `rect: { y }`. A key is matched as it is read -- "openoffice" finds
+`open_office` -- and the reading is reported.
 Output: as `check_design`.
 
 A checked design changed a little and checked again. The whole design is never
@@ -280,11 +288,33 @@ was adding `doorsTo`, and each time the JSON came back without it -- a page
 regenerated from context loses the edit that was meant, while a patch of a few
 lines carries it. Counts as a round for the architect, like `check_design`.
 
+A design already checked in this session, word for word, is refused with
+`design.unchanged` rather than checked again, and so is a revision whose every
+field is already what it says: both are a model re-sending what it has, and a
+refusal costs no round and is a failed call the loop's stall breaker counts
+(ADR-028 D10). The architect refuses more than that: after its first design, a
+whole design whose rooms are mostly the ones it has already checked is refused
+with `design.send-the-change`, naming the `revise_design` call to send instead.
+A room key that is not a key ("meetA") is read as one, with a warning, and the
+doors that name it are read with it.
+
 Both `check_design` and `revise_design` give an enclosed room that lists no
 doors at all a door onto the corridor, foyer or open room it shares the longest
 wall with (at least a metre), and say which in a warning. Which door a meeting
 room off a corridor has is not a design decision; a room that touches no
 circulation is left for the checker to name.
+
+### tidy_design (tier: both, non-mutating; ADR-028 D10)
+Input: `{ designId }`
+Output: as `check_design`.
+
+The arithmetic of a design whose arrangement is already decided: every room
+moved the least it can be so that none overlaps another and all are inside the
+building, each move reported as a warning ("cafe moved 1500 mm north"). It never
+changes which room is where, what it is, or what it opens onto. It is there
+because a local model's rounds went on overlaps of a few hundred millimetres
+that it could not compute its way out of, and it counts as a round like any
+other check.
 
 ### query_design (tier: both, non-mutating; ADR-028 D8)
 Input: `{ designId, where?: string, select?: string[], limit?: number }`
@@ -298,6 +328,21 @@ doors, shellW, shellD, rooms`. `touches` and `doors` are comma-separated keys
 for `has(...)`. An unknown name is an error naming the names. This is the
 dynamic half of verification: the checker knows what cannot be built, the model
 knows what it meant, and a query is how it compares the two.
+
+### preview_design (tier: both, non-mutating; ADR-028 D11)
+Input: `{ designId?, levelId? }`
+Output: `{ caption, ask, legend: string[], images: [{ name, width, height, pngBase64 }] }`
+
+A plan drawing, north up, for a model to look at. With a `designId`, the checked
+design built into a scratch copy of the project by the builder's own code and
+drawn: what `build_design` will draw. Without one, the level as it is built,
+furniture included. Black outside walls, grey plaster, blue glass, red doors, a
+green entrance, cyan windows; open floor pale yellow, corridors pale blue,
+service rooms grey, floor no room covers pink, displays magenta; the rooms
+numbered, with the legend in `legend` and the caption. `ask` is what to do with
+it: for a design, the LOOK checklist; for a built level, the comparison. The
+runner lifts the picture for a model that can see, and the host offers the tool
+to no other. A design the builder refuses is `design.not-drawable`.
 Output: `{ designId, buildable, score, totals: { shellM2, roomsM2,
 unaccountedM2, rooms, byPurpose }, errors: Problem[], warnings: Problem[] }`
 
@@ -317,7 +362,17 @@ Errors, all prefixed `design.`: `duplicate-key`, `door-to-nowhere`,
 `too-large`, `corridor-narrow`, `missing-room`, `no-way-in`,
 `door-without-wall`, `private-to-private`, `wet-into-kitchen`,
 `door-outside-inside`, `unreachable`, `window-inside`. Warnings:
-`unexplained-space`, `no-window`.
+`unexplained-space`, `no-window`, `window-solid`.
+
+Every report from `check_design`, `revise_design` and `plan_rooms` also carries
+`walk` (ADR-028 D11): `{ entrances, routes, through, unreached, sides, displays }`.
+`routes` is each room's way in from the entrance, as the rooms walked through;
+`through` the rooms reached only by walking through a room that is not shared
+floor; `sides` per side of the building its facade, what stands along it, the
+share of it with an enclosed room against it (`enclosed`) and the share with no
+room at all (`empty`); `displays` the wall each screen would go on, by the
+furnishing rule, run on the design built into a scratch copy. Facts for the
+model to judge, never errors.
 
 The size limits come from the rules pack's facts (`bedroomMinM2`,
 `bedroomMinSideMm` and so on, spec 07 section 3.2), so a user's own pack moves
@@ -330,7 +385,11 @@ Since ADR-028 D3 and D4 the builder draws the design exactly as it is: a glazed
 side is one glass wall the length of it with no windows punched in; the wall
 between two rooms is decided by rule, not by list order (solid if either must
 be, else glass if either is glass, none if both are open, else solid), and an
-edge facing several rooms is several walls, each of its own kind; a room with an
+edge facing several rooms is several walls, each of its own kind. Since D12 the
+rule is: solid if either must be; none if both are open; glass where a glass
+room faces open floor or circulation; plaster otherwise, so two glass rooms side
+by side are parted by plaster. A glazed side is glass except behind a room that
+must be walled; a solid side takes no window. A room with an
 entrance and a window on one side gets them side by side, and a side too short
 for both keeps the door and says so.
 Input: `{ designId, levelId? }`
@@ -442,12 +501,12 @@ plan reader.
 |---|---|
 | high | all |
 | medium | all except `modify_wall`, `delete` of walls (still callable) |
-| low | `get_scene`, `describe_room`, `validate`, `render`, `search_catalog`, `create_room_from_brief`, `furnish_room`, `place_item` (anchor form only), `arrange`, `get_bom`, `history`, `batch`, `project`, `export`, `add_level`, `import_plan`, `finish_opening`, `finish_wall`, the design tools, `look_at`, `web_search`, `read_page` |
+| low | `get_scene`, `describe_room`, `validate`, `render`, `search_catalog`, `create_room_from_brief`, `furnish_room`, `place_item` (anchor form only), `arrange`, `get_bom`, `history`, `batch`, `project`, `export`, `add_level`, `import_plan`, `finish_opening`, `finish_wall`, the design tools, `preview_design`, `look_at`, `web_search`, `read_page` |
 
 The three reading tools are in every profile (ADR-027): simple, non-mutating, and a weak model with a
 picture attached needs `look_at` as much as a strong one. Whatever the profile, the host leaves out
 what the session cannot use: the web tools without a search provider, `look_at` for a model that
-cannot see or a conversation with nothing attached.
+cannot see or a conversation with nothing attached, and `preview_design` for a model that cannot see.
 
 A weak model is offered fewer ways to do a thing, never fewer things it can say. `add_level`,
 `import_plan` and the two finish tools were added to the low profile in phase 4: a storey, a plan to

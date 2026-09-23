@@ -430,8 +430,12 @@ export function freeSegments(
   return out;
 }
 
-/** Prefer a door-free wall opposite the door, else the wall with the longest free run. */
-export function suggestedDisplayWall(p: Project, r: Room, free: FreeSegment[]): derive.Compass | null {
+/**
+ * The wall a room without a screen is laid out from: a door-free wall opposite the door, else the
+ * wall with the longest free run. A reception's desk faces its door from here, with its back to
+ * whatever window that wall has, which for a desk is the ordinary thing.
+ */
+export function wallFacingTheDoor(p: Project, r: Room, free: FreeSegment[]): derive.Compass | null {
   const walls = roomWalls(p, r);
   const doorWalls = new Set(
     p.openings
@@ -454,6 +458,57 @@ export function suggestedDisplayWall(p: Project, r: Room, free: FreeSegment[]): 
     if (facing) return facing.compass;
   }
   return candidates[0]?.compass ?? null;
+}
+
+/** Free wall a display of about 65 inches needs, with a little either side. */
+const DISPLAY_RUN_MM = 1600;
+
+/**
+ * The wall a display goes on (ADR-028 D12): never glass and never a side with a window in it;
+ * plaster before an outside wall; a wall without a door before one with; then opposite the door;
+ * then the longest free run. Null when no wall qualifies: every one is glass or has a window.
+ *
+ * It used to be "opposite the door", which in a room off a corridor is the outside wall, and the
+ * owner found most meeting rooms' screens on their windows. A screen against a window is backlit:
+ * the far end of the table reads it against daylight. A glass wall takes no mount at all.
+ */
+export function suggestedDisplayWall(p: Project, r: Room, free: FreeSegment[]): derive.Compass | null {
+  const walls = roomWalls(p, r);
+  const byId = new Map(walls.map((w) => [w.id, w]));
+  const mine = (o: Opening) => byId.has(o.wallId);
+  const doorWalls = new Set(p.openings.filter((o) => o.kind !== "window" && mine(o)).map((o) => o.wallId));
+  const sideOf = (id: string) => roomWallCompass(p, byId.get(id) as Wall, r);
+  const windowSides = new Set(
+    p.openings.filter((o) => o.kind === "window" && mine(o)).map((o) => sideOf(o.wallId)),
+  );
+  const opposite: Record<derive.Compass, derive.Compass> = {
+    north: "south",
+    south: "north",
+    east: "west",
+    west: "east",
+  };
+  const doorSides = new Set([...doorWalls].map(sideOf));
+  const facingDoor = (c: derive.Compass) => [...doorSides].some((d) => opposite[d] === c);
+  const candidates = free.filter((f) => {
+    const w = byId.get(f.wallId);
+    return w !== undefined && w.kind !== "glass" && !windowSides.has(f.compass);
+  });
+  if (candidates.length === 0) return null;
+  const rank = (f: FreeSegment): number[] => [
+    f.lengthMm >= DISPLAY_RUN_MM ? 0 : 1,
+    byId.get(f.wallId)?.kind === "exterior" ? 1 : 0,
+    doorWalls.has(f.wallId) ? 1 : 0,
+    facingDoor(f.compass) ? 0 : 1,
+    -f.lengthMm,
+  ];
+  const better = (a: FreeSegment, b: FreeSegment) => {
+    const x = rank(a);
+    const y = rank(b);
+    for (let i = 0; i < x.length; i += 1)
+      if ((x[i] as number) !== (y[i] as number)) return (x[i] as number) - (y[i] as number);
+    return 0;
+  };
+  return [...candidates].sort(better)[0]?.compass ?? null;
 }
 
 /** Nearest-edge distance between two point sets treated as closed rings (or single points). */

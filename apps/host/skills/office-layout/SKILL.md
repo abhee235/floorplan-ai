@@ -1,13 +1,41 @@
 ---
 name: office-layout
 description: How a working office is zoned, sized and furnished, from the brief to the desks
-whenToUse: before designing any workplace: an office, a studio, a clinic, a school wing, a hotel floor
+whenToUse: before designing an office floor of any kind: an open-plan company, a call centre, a practice of private offices, a co-working floor, a studio
+kind: workplace
 ---
 
 # Office layout
 
 What somebody who plans offices for a living knows, in the order they use it. The
-numbers are the pack's and the checker's; the judgement is yours.
+numbers are the pack's and the checker's; the judgement is yours. It is for
+offices only: a clinic, a school or a hotel has rooms this does not describe.
+
+## 0. Which kind of office
+
+They share their rooms and differ in how dense and how enclosed they are. Say
+which one the brief is, and plan to it.
+
+- **Open-plan company floor** (a tech firm, an agency): desks in benches in one
+  or two open zones, about 6 m² a desk there and 10 to 12 m² a person for the
+  floor; glass meeting rooms, a cafe and a breakout as the social heart; glass
+  on every side. This is the default when a brief says "modern office".
+- **Call or contact centre:** long rows of desks, 4.5 to 5.5 m² a desk, few
+  meeting rooms (one seat per ten staff), a large break room because people
+  take breaks by shift, and quiet rooms for training; acoustic separation from
+  the entrance.
+- **Practice of private offices** (law, accountancy, consultancy): most people
+  in an office of their own along the glass, 9 to 12 m² each, partners 15 to
+  20, off a corridor; an office is purpose `focus` with a capacity of 1 or 2,
+  and the checker's warning that it is large can stand. 15 to 20 m² a person
+  for the floor.
+- **Co-working floor:** hot desks and fixed desks in open zones, private
+  studios for 2 to 8 people as glass rooms, one phone booth per ten members,
+  and a big lounge and cafe by the entrance as the heart of it; 8 to 10 m² a
+  member.
+- **Studio** (design, architecture): large benches of 1,800 by 900 desks, a
+  making or model room that is walled, a pin-up wall, and a meeting room for
+  clients near the entrance.
 
 ## 1. Read the brief for what it does not say
 
@@ -51,7 +79,11 @@ cafeteria is near the entrance (deliveries, visitors, smell away from desks);
 toilets are near the core and not next to the cafeteria; the server room is
 windowless, away from wet rooms, near IT.
 
-## 3. Sizes and adjacencies to give plan_rooms
+## 3. Sizes and adjacencies
+
+Draw an office yourself (section 6). `plan_rooms` puts rooms either side of
+hallways, which is a corridor office with the desks in a room behind a door:
+the opposite of an open one, and hard to undo once it is the draft.
 
 - Give `capacity` for every room that holds people; the area follows from it.
 - `nextTo`: reception → visitor meeting rooms; cafeteria → pantry or kitchen;
@@ -60,7 +92,9 @@ windowless, away from wet rooms, near IT.
 - Glazed: meeting, boardroom, huddle, focus, training, reception face the floor
   through glass; the recipe engine does this for a workplace.
 - Corridors 1,500 mm; 1,800 where two people carry things. Doors 900; a
-  meeting room's door on the corridor side, its display on the wall opposite.
+  meeting room's door on the corridor side, its screen on a plaster wall: the
+  wall it shares with the next room, never the window and never the glass onto
+  the floor, where it would be backlit or have nothing to hang on.
 - Proportion: a meeting room close to square (a 1.1 m wide room holds no
   table); an open office 1 : 1.5 to 1 : 2.5; nothing narrower than 2.7 m.
 
@@ -71,8 +105,10 @@ windowless, away from wet rooms, near IT.
   1,500 mm aisles between benches, 1,000 clear behind chairs. Never two
   `arrange` grids — one of desks and one of chairs land on top of each other.
 - **Meeting rooms:** `meeting` (4 to 12), `boardroom` (6 to 20), `huddle` (2
-  to 5), `training` (21 to 60). Display on the wall opposite the door; farthest
-  seat within six diagonals.
+  to 5), `training` (21 to 60). The screen goes on a plaster wall, and
+  furnishing chooses one that is not glass and has no window; farthest seat
+  within six diagonals. A glass room with no plaster wall at all gets its
+  screen on a floor stand, and the furnishing says so.
 - **Cafeteria:** `cafeteria`: four-seat tables in rows, chairs both sides, plus
   a counter along the kitchen wall if the pack has one; a coffee "bar" is a
   counter, not a video bar.
@@ -85,9 +121,11 @@ windowless, away from wet rooms, near IT.
 ## 5. Before you say it is done
 
 - `validate`: no overlapping items, no blocked doors, no room without a door.
-- `render` and look: are the benches benches, is the reception at the
-  entrance, is anything a corridor with a name (a room over 1 : 3)? Say what
-  is wrong, then fix it.
+- `preview_design` and look, with the LOOK checklist: is there a way into
+  every zone, is any side of the building blank, is any screen on glass or a
+  window, are the benches benches, is the reception at the entrance, is
+  anything a corridor with a name (a room over 1 : 3)? Say what is wrong, then
+  fix it.
 - Report the m² per person, the meeting seats per head, and what you assumed.
 
 ## 6. Drawing the plan yourself
@@ -111,9 +149,26 @@ with a shape in mind, write the design and give it to `check_design`.
   wall; `glass` for meeting, boardroom, huddle, focus and the executive suite;
   `open` for the desks, the cafe, the breakout and the waiting area. Toilets,
   stores, server and comms rooms stay walled whatever you say.
-- **Say which sides are glass.** `shell.facade.west: "glazed"` is a glass
-  wall the length of that side with no separate windows; every room on it has
-  daylight. A modern office glazes one or two sides; a house has windows.
+- **Say which sides are not glass.** An office's sides are glazed unless you
+  say otherwise: one glass wall the length of each, no separate windows, and
+  every room on it has daylight. Say `"windows"` for punched windows, or
+  `"solid"` for a side against a neighbour or the building's core, where the
+  entrance from a lift lobby can still be. A toilet, a store or a server room
+  on a glazed side keeps a solid wall behind it.
+- **Glass faces the floor.** A glass room's walls onto the open floor or a
+  corridor are glass; its walls onto another room are plaster. A row of glass
+  meeting rooms has plaster between them, which is where their screens go.
+- **Use every side.** Put the meeting rooms, the social zone and the support
+  rooms on different sides, and the desks where the light is best. The walk in
+  each report says what is along each side and how much of it is empty; a side
+  with nothing against it reads as a blank wall of glass.
+- **Leave no floor undrawn.** Every square metre inside the shell belongs to a
+  room or to an open zone. What belongs to nothing is not open plan: it is
+  floor nobody has thought about, and it comes back as unaccounted space in the
+  report and as pink in the picture. Stretch the open zone over it.
+- **Give every glass room a plaster wall.** Its screen hangs there. A glass box
+  that touches nothing but open floor has glass on four sides and nowhere for a
+  screen, and the furnishing stands one on the floor instead.
 - **Doors.** A walled or glass room lists in `doorsTo` what it opens onto;
   the open floor needs none and counts as reachable for everything touching
   it. The entrance is a door to `outside` on a room against the shell.
