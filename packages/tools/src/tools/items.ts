@@ -95,6 +95,76 @@ function levelFor(p: Project, roomId: string | undefined, explicit: string | und
   return derive.lowestLevel(p).id;
 }
 
+/** The recipe a "recipe:<kind>[:<variant>]:<w>x<d>x<h>" name describes, or null when it names none. */
+export function recipeNamed(name: string): PrimitiveRecipe | null {
+  const m = /^recipe:([a-z-]+)(?::([a-z-]+))?:(\d+)x(\d+)x(\d+)$/i.exec(name.trim());
+  if (!m) return null;
+  const [, kind, variant, w, d, h] = m;
+  const size = { w: Number(w), d: Number(d), h: Number(h) };
+  const candidate =
+    kind === "table"
+      ? { kind, size, shape: variant ?? "rect" }
+      : kind === "box"
+        ? { kind, size, label: variant ?? "box" }
+        : kind === "cylinder"
+          ? { kind, diameter: size.w, height: size.h, label: variant ?? "cylinder" }
+          : { kind, size };
+  const parsed = PrimitiveRecipe.safeParse(candidate);
+  return parsed.success ? parsed.data : null;
+}
+
+interface PlaceArgs {
+  productId?: string | undefined;
+  recipe?: PrimitiveRecipe | undefined;
+  x?: number | undefined;
+  y?: number | undefined;
+  roomId?: string | undefined;
+  levelId?: string | undefined;
+  anchor?: string | undefined;
+  mount?: { kind: string; targetId?: string | undefined; height?: number | undefined } | undefined;
+}
+
+/**
+ * Read what a model means rather than what it typed. Models that fill every field of a tool send ""
+ * for the ones they do not use, a floor mount with a target, a recipe with a made-up productId, and
+ * an anchor beside x and y. A live run had all twenty pieces of furniture refused on these, one field
+ * at a time, and finished with none placed. Each is taken as the plain reading, and the model is told.
+ */
+function forgiving<A extends PlaceArgs>(args: A, warn: (message: string) => void): A {
+  const out: A = { ...args };
+  for (const key of ["productId", "roomId", "levelId", "anchor"] as const)
+    if (out[key] === "") delete out[key];
+  if (out.mount) {
+    const mount = { ...out.mount };
+    if (mount.targetId === "") delete mount.targetId;
+    if (mount.kind === "floor" && mount.targetId !== undefined) {
+      warn(`a floor mount stands on the floor, so targetId ${mount.targetId} was ignored`);
+      delete mount.targetId;
+    }
+    out.mount = mount;
+  }
+  // "recipe:table:boat:3600x1400x750" on its own names a recipe as place_item reports one back; a live
+  // copy sent that as the productId, with no recipe, and was refused. It is read as the recipe it names.
+  if (!out.recipe && out.productId?.startsWith("recipe:")) {
+    const named = recipeNamed(out.productId);
+    if (named) {
+      warn(`${out.productId} is not a product; it was read as the recipe it names`);
+      out.recipe = named;
+      delete out.productId;
+    }
+  }
+  // A catalog product beside a recipe is a real choice, and is still refused; "recipe:..." is not.
+  if (out.recipe && out.productId?.startsWith("recipe:")) {
+    warn(`${out.productId} is not a product; the recipe was used`);
+    delete out.productId;
+  }
+  if (out.x !== undefined && out.y !== undefined && out.anchor !== undefined) {
+    warn(`x and y were given, so anchor ${out.anchor} was ignored`);
+    delete out.anchor;
+  }
+  return out;
+}
+
 export const placeItem = defineTool({
   name: "place_item",
   description:
@@ -131,6 +201,7 @@ export const placeItem = defineTool({
   }),
   output: z.object({ item: ItemViewS, adjusted: z.boolean() }),
   run(args, call) {
+    args = forgiving(args, call.warn);
     const p0 = call.ctx.store.project;
     const ref = itemRefFor(call.ctx.catalog, args.productId, args.recipe);
     const hasXY = args.x !== undefined && args.y !== undefined;

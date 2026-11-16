@@ -3,11 +3,11 @@ import { hingeEndFor, parseAnchor, RECIPE_TEMPLATES, TOOLS } from "../src/index.
 import { buildFixtureRoom, harness } from "./helpers.js";
 
 describe("registry conventions (spec 04 section 1, ADR-006 D3, D4)", () => {
-  it("registers the 23 first-release tools, import_plan, the finish tools, the design tools with preview_design, and the three reading tools", () => {
+  it("registers the 23 first-release tools, import_plan, the finish tools, the design tools with preview_design, the three reading tools and run_code", () => {
     const h = harness();
     const names = h.registry.list().map((t) => t.name);
-    expect(names).toHaveLength(40);
-    expect(new Set(names).size).toBe(40);
+    expect(names).toHaveLength(41);
+    expect(new Set(names).size).toBe(41);
     for (const name of [
       "design_layout",
       "plan_rooms",
@@ -18,6 +18,7 @@ describe("registry conventions (spec 04 section 1, ADR-006 D3, D4)", () => {
       "tidy_design",
       "web_search",
       "read_page",
+      "run_code",
     ])
       expect(names, name).toContain(name);
     expect(TOOLS.every((t) => t.description.length > 20)).toBe(true);
@@ -132,10 +133,12 @@ describe("registry conventions (spec 04 section 1, ADR-006 D3, D4)", () => {
 
   it("profiles advertise a subset while every tool stays callable (ADR-006 D6)", async () => {
     const h = harness();
-    expect(h.registry.advertised("high")).toHaveLength(40);
+    expect(h.registry.advertised("high")).toHaveLength(41);
     expect(h.registry.advertised("medium").map((t) => t.name)).not.toContain("modify_wall");
     const low = h.registry.advertised("low").map((t) => t.name);
-    expect(low).toHaveLength(29);
+    // run_code is offered to every profile (ADR-030 D7).
+    expect(low).toHaveLength(30);
+    expect(low).toContain("run_code");
     expect(low).not.toContain("create_walls");
     expect(low).toContain("place_item");
     // A weak model is offered fewer ways to do a thing, never fewer things it can say: a storey, a

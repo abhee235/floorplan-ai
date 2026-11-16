@@ -131,6 +131,28 @@ names that exist. `notes { text }` replaces the model's notes, up to 3,000 chara
 the system prompt after the plan and are handed to the architect. Neither reaches the registry;
 both are answered inside the loop like `plan_work` and `ask_user` (spec 06 B2, ADR-027 D2).
 
+### run_code (ADR-030; tier: both, mutating)
+Description: run JavaScript in a sandbox that keeps its variables between calls, to measure,
+compute and act in a loop instead of one call at a time.
+Input: `{ code: string, reset?: boolean }`
+Output: `{ ok, printed, value, error: string | null, fresh, calls: [{ name, ok, error? }], ms,
+caption, images: [{ name, mime, pngBase64, width, height }] }`
+
+The engine is QuickJS compiled to WebAssembly, one per session, holding nothing but `console.log`,
+`attachments()`, `image(id)` (a PNG or JPEG as `{ width, height, gray, scale }`, shrunk by a whole
+factor past 4,000 pixels), `crop(img, { x, y, w, h, scale?, grid? })` (an enlarged region under a
+grid labelled in the picture's own pixels), `draw(img, marks)`, `show(picture, caption)`,
+`tools.call(name, args)` and `project()`. `tools.call` is the registry's own call path with the
+run's consent, synchronous from the script's side; `run_code` cannot call itself. The value of the
+last expression is returned; a top-level `await` is answered with a hint that none is needed.
+Limits per call: 30 s of running (time inside tool calls does not count), 256 MB, 500 tool calls, 4
+pictures, 16,000 printed characters. A script that stops still returns what it printed and the calls
+it made, with `ok: false` and the reason in `error`; the envelope is `ok` either way, so a partial
+result is never lost. A picture made and not shown is shown. `fresh` is true when the sandbox is
+new, and a warning says the earlier variables are gone. Pictures ride on `images` and `caption`, so
+the loop lifts them for a model that can see (ADR-028 D11). The method for plans in pictures is the
+skill `reading-a-picture-with-code`.
+
 ## 3. Render (tier: both)
 
 ### render
@@ -481,6 +503,16 @@ Tier both, mutating, slow timeout (120 s), result cap 8 MB. Behaviour (ADR-011 D
   drawing unit (`25.4`, `25.4 mm per unit`), or a yes that keeps the shown
   scale; other answers leave the scale unchanged with a warning. `scale` sets
   it directly; both make the scale source `user`.
+- A scale that contradicts the drawing is refused, not obeyed. When the draft's
+  scale came from the plan's own dimension texts and an answer or a `scale`
+  moves it by more than 5 percent, the tool throws `args.invalid` naming both
+  numbers and what the plan would become ("... which would make the plan 5% of
+  the size it says it is"), and its hint gives the question id to answer `"yes"`
+  instead. Units or a measured length are for a drawing with no dimensions of
+  its own (PRD P2-3; docs/eval/plan-from-image.md).
+- On commit, a plan whose drawn extent is under 3 m or over 500 m across is
+  warned about by size, because a plan at the wrong scale is perfectly well
+  formed and `validate` has nothing to say about it.
 - `draft` replaces the kept draft with an edited one (the app's review sends
   it after deleting walls or changing thickness).
 - With `confirm: true` the draft (by `draftId`, or read again from `path`)

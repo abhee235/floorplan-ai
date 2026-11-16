@@ -124,6 +124,9 @@ const LOW_PROFILE = new Set([
   "import_plan",
   "finish_opening",
   "finish_wall",
+  // A weak model that cannot place ninety chairs one call at a time can often write the loop that does
+  // (ADR-030 D7).
+  "run_code",
   // and the two a weak model needs most: they are what turn "three bedrooms and a hall" into
   // something measured, drawn in one step and impossible to get half right.
   "design_layout",
@@ -254,7 +257,23 @@ export class Registry {
         args = Object.fromEntries(Object.entries(args).filter(([k]) => known.has(k)));
       }
     }
-    const parsed = def.input.safeParse(args);
+    let parsed = def.input.safeParse(args);
+    // Models that fill in every field send "", null or [] for the ones they do not use, and the call
+    // is refused on a field it never meant to give. Live runs lost rooms and furniture this way. A
+    // filler where the call fails is taken as the field left out; a call that parses is never touched.
+    if (!parsed.success && typeof args === "object" && args !== null && !Array.isArray(args)) {
+      const emptied = withoutFillers(
+        args as Record<string, unknown>,
+        parsed.error.issues.map((i) => i.path),
+      );
+      if (emptied.dropped.length) {
+        const again = def.input.safeParse(emptied.args);
+        if (again.success) {
+          warnings.push(`Empty values taken as left out: ${emptied.dropped.join(", ")}`);
+          parsed = again;
+        }
+      }
+    }
     if (!parsed.success) {
       const issues = parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`);
       return fail(
@@ -381,6 +400,39 @@ export class Registry {
     if (this.ctx.rules) out.push(...checkDesign(project, this.ctx.rules, { catalog: this.ctx.catalog }));
     return out;
   }
+}
+
+const isFiller = (v: unknown): boolean =>
+  v === null ||
+  v === "" ||
+  (Array.isArray(v) && v.length === 0) ||
+  (typeof v === "object" && v !== null && !Array.isArray(v) && Object.keys(v).length === 0);
+
+/**
+ * The arguments without the empty values ("", null, [], {}) that a validation failure points at, or at
+ * a field above it. Only fields of objects are dropped: an empty item in a list is kept, and refused.
+ */
+export function withoutFillers(
+  args: Record<string, unknown>,
+  paths: readonly (string | number)[][],
+): { args: Record<string, unknown>; dropped: string[] } {
+  const out = structuredClone(args);
+  const dropped: string[] = [];
+  for (const path of paths) {
+    for (let n = path.length; n >= 1; n -= 1) {
+      let parent: unknown = out;
+      for (const key of path.slice(0, n - 1)) parent = (parent as Record<string | number, unknown>)?.[key];
+      const key = path[n - 1] as string | number;
+      if (typeof parent !== "object" || parent === null || Array.isArray(parent)) continue;
+      const box = parent as Record<string | number, unknown>;
+      if (key in box && isFiller(box[key])) {
+        delete box[key];
+        dropped.push(path.slice(0, n).join("."));
+        break;
+      }
+    }
+  }
+  return { args: out, dropped };
 }
 
 function fail(error: ToolFail["error"], warnings: string[]): ToolFail {

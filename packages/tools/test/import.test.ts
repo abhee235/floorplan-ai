@@ -355,3 +355,41 @@ describe("import_plan from an attachment (P4-6)", () => {
     if (!r.ok) expect(r.error.hint).toContain("nothing is attached");
   });
 });
+
+describe("a scale that would make nonsense of the plan (PRD P2-3)", () => {
+  it("refuses a scale that contradicts the drawing's own dimensions, and says what to send", async () => {
+    const h = harness(undefined, { plans: reader() });
+    const review = await h.ok<ReviewOut>("import_plan", { path: "office-mm.dxf" });
+    // the dxf fixture reads at 1 mm per unit from its dimension texts; a metre answer is 1000 times that
+    const answered = await h.call("import_plan", {
+      draftId: review.result.draftId,
+      scale: { units: "m" },
+    });
+    expect(answered.ok).toBe(false);
+    if (answered.ok) return;
+    expect(answered.error.message).toContain("dimension texts imply 1 mm per unit");
+    expect(answered.error.message).toContain("100000%");
+    expect(answered.error.hint).toContain('"yes"');
+    // and the drawing is untouched, so the next call can still confirm it properly
+    expect(h.ctx.store.project.walls).toHaveLength(0);
+  });
+
+  it("says when what it is about to commit is smaller than a room", async () => {
+    // a drawing with no dimension texts of its own: nothing contradicts the scale a person gives
+    const headerOnly = fixture("office-mm").replace(/\r\nDIMENSION\r\n/g, "\r\nXDIMENSION\r\n");
+    const h = harness(undefined, { plans: reader({ "header.dxf": headerOnly }) });
+    const review = await h.ok<ReviewOut>("import_plan", { path: "header.dxf" });
+    // a tenth of a millimetre per unit: the office becomes 1.2 by 0.8 metres, which is a cupboard
+    const scaled = await h.ok<ReviewOut>("import_plan", {
+      draftId: review.result.draftId,
+      scale: { mmPerUnit: 0.1 },
+    });
+    // a draft is named by its content, so setting the scale gives it a new id
+    const committed = await h.ok<ReviewOut>("import_plan", {
+      draftId: scaled.result.draftId,
+      confirm: true,
+    });
+    expect(committed.result.status).toBe("committed");
+    expect(committed.warnings.some((w) => w.includes("smaller than a room"))).toBe(true);
+  });
+});

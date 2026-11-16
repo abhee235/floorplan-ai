@@ -4,6 +4,7 @@ export const PACKAGE = "tools" as const;
 
 import type { ToolContext } from "./context.js";
 import { Registry } from "./registry.js";
+import { runCode } from "./tools/code.js";
 import {
   buildDesignTool,
   checkDesignTool,
@@ -80,6 +81,8 @@ export const TOOLS = [
   lookAt,
   webSearch,
   readPage,
+  // Somewhere to think in code, with the pictures and the tools in reach (ADR-030).
+  runCode,
 ] as const;
 
 /** Tools that only make sense with something the session may not have; the host advertises them or not. */

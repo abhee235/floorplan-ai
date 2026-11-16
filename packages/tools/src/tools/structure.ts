@@ -4,6 +4,7 @@ import type { ApplyResult, Ref } from "@fpv/commands";
 import type { FinishRef, Opening, Project, Room, Wall } from "@fpv/ir";
 import {
   blankFinish,
+  DEFAULTS,
   derive,
   FINISH_NAMES,
   FINISH_SHININESS,
@@ -277,6 +278,26 @@ export function dress(
   return tidyFinish(f);
 }
 
+/**
+ * The distance along the wall to use, when an opening is placed by distance; undefined when by fraction.
+ * Models that fill in every field send both. Live runs sent atMm 0 beside a measured position, which put
+ * each door at the wall's start, and a measured atMm beside a round position such as 0.5. So atMm 0
+ * with a position is taken as left out, and any other atMm, the more exact of the two, wins.
+ */
+function alongWall(
+  args: { position?: number | undefined; atMm?: number | undefined },
+  warn: (m: string) => void,
+) {
+  if (args.atMm === undefined) return undefined;
+  if (args.position === undefined) return args.atMm;
+  if (args.atMm === 0) {
+    warn("atMm 0 was given beside position; position was used");
+    return undefined;
+  }
+  warn("position and atMm were both given; atMm was used, the more exact of the two");
+  return args.atMm;
+}
+
 export const modifyOpening = defineTool({
   name: "modify_opening",
   description:
@@ -299,7 +320,8 @@ export const modifyOpening = defineTool({
   }),
   output: z.object({ opening: OpeningViewS }),
   run(args, call) {
-    const { openingId, atMm, ...rest } = args;
+    const { openingId, atMm: _given, ...rest } = args;
+    const atMm = alongWall(args, call.warn);
     const changes: Record<string, unknown> = { ...rest };
     if (atMm !== undefined) {
       // Given as a distance, which is how a drawing states it; the store keeps a fraction.
@@ -511,15 +533,55 @@ export const addOpening = defineTool({
     const w = wallOrThrow(p0, args.wallId);
     if (args.position === undefined && args.atMm === undefined)
       throw invalidArg("position", "give position (0..1) or atMm", "e.g. position: 0.5");
+    // Two traps live runs fell into, answered rather than refused: both ways of placing the opening at
+    // once (see alongWall), and an empty productId, which means none.
+    let atMm = alongWall(args, call.warn);
+    // Where it will sit, checked here so that one misplaced opening does not undo a whole batch: live
+    // copies lost batches of eight and eleven openings to one that ran off a wall's end, or to one
+    // added twice. The product's own width is not known here, so an opening from a product is left to
+    // the store's checks.
+    const len = derive.wallLength(w);
+    const width = args.width ?? DEFAULTS[args.kind].width;
+    if (!args.productId && len >= width) {
+      const asked = atMm ?? (args.position as number) * len;
+      const centre = Math.min(Math.max(asked, width / 2), len - width / 2);
+      if (Math.abs(centre - asked) > 0.5) {
+        call.warn(
+          `an opening ${width} wide at ${Math.round(asked)} mm ran past the end of the ${Math.round(len)} mm wall; it was moved to ${Math.round(centre)} mm`,
+        );
+        atMm = centre;
+      }
+      const same = p0.openings.find(
+        (o) =>
+          o.wallId === w.id &&
+          o.kind === args.kind &&
+          Math.abs(o.position * len - centre) <= 100 &&
+          Math.abs(o.width - width) <= 100,
+      );
+      if (same) {
+        call.warn(`${same.id} is already there, the same ${args.kind} in the same place; nothing was added`);
+        return { opening: openingView(p0, same), wall: wallView(p0, w) };
+      }
+      const clash = p0.openings.find(
+        (o) => o.wallId === w.id && Math.abs(o.position * len - centre) < (o.width + width) / 2,
+      );
+      if (clash) {
+        const c = clash.position * len;
+        throw invalidArg(
+          "position",
+          `it would overlap ${clash.id}, a ${clash.kind} ${clash.width} wide at ${Math.round(c - clash.width / 2)}-${Math.round(c + clash.width / 2)} mm along this wall`,
+          `place this one clear of it, or change ${clash.id} with modify_opening, or delete it first`,
+        );
+      }
+    }
     const payload: Record<string, unknown> = {
       wallId: args.wallId,
       kind: args.kind,
-      ...(args.position !== undefined ? { position: args.position } : {}),
-      ...(args.atMm !== undefined ? { atMm: args.atMm } : {}),
+      ...(atMm !== undefined ? { atMm } : args.position !== undefined ? { position: args.position } : {}),
       ...(args.width !== undefined ? { width: args.width } : {}),
       ...(args.height !== undefined ? { height: args.height } : {}),
       ...(args.sill !== undefined ? { sill: args.sill } : {}),
-      ...(args.productId !== undefined ? { productId: args.productId } : {}),
+      ...(args.productId ? { productId: args.productId } : {}),
     };
     if (args.kind !== "window" && (args.hingeSide || args.swingDirection)) {
       const hinge = args.hingeSide ? hingeEndFor(p0, w, args.hingeSide) : "start";
@@ -557,6 +619,15 @@ export const createRoom = defineTool({
   }),
   output: z.object({ room: RoomViewS }),
   run(args, call) {
+    // A model that fills every field sends all three ways, a placeholder rect among them; a live run
+    // was refused and merged two rooms into one to get past it. The most exact way given is used.
+    const ways = (["polygon", "rect", "atPoint"] as const).filter((k) => args[k] !== undefined);
+    if (ways.length > 1) {
+      const [used, ...ignored] = ways;
+      call.warn(`${ways.join(", ")} were all given; ${used} was used and ${ignored.join(", ")} ignored`);
+      args = { ...args };
+      for (const k of ignored) delete args[k];
+    }
     const r = run(call, { type: "room.create", payload: args });
     const p = call.ctx.store.project;
     const room = roomOrThrow(p, (r.result as Room).id);

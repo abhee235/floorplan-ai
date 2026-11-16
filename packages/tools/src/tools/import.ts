@@ -77,6 +77,23 @@ const Output = z.object({
   next: z.string(),
 });
 
+/** Rounded for a sentence: two decimals at most, and no trailing zeros. */
+const round = (n: number) => Math.round(n * 100) / 100;
+
+/** The drawn extent of a draft in millimetres, or null when it has no walls to measure. */
+function extentOf(draft: PlanDraft): { w: number; d: number } | null {
+  const mm = draft.units.mmPerUnit ?? 1;
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (const wall of draft.walls)
+    for (const q of wall.points) {
+      xs.push(q.x);
+      ys.push(q.y);
+    }
+  if (xs.length === 0) return null;
+  return { w: (Math.max(...xs) - Math.min(...xs)) * mm, d: (Math.max(...ys) - Math.min(...ys)) * mm };
+}
+
 export const importPlan = defineTool({
   name: "import_plan",
   description:
@@ -199,6 +216,10 @@ export const importPlan = defineTool({
 
     let draft = (kept as Kept).draft;
     fileName = fileName ?? draft.source.file;
+    // What the drawing itself implied, before an answer changes it. A run answered a scale question
+    // with "mm", which means one millimetre per unit, over a reader that had read 21 mm per unit
+    // from the plan's own dimension texts, and committed an office 571 mm wide (PRD P2-3).
+    const implied = draft.units.scaleSource === "dimension-text" ? draft.units.mmPerUnit : null;
     if (args.answers) {
       const applied = applyAnswers(draft, args.answers);
       draft = applied.draft;
@@ -215,6 +236,19 @@ export const importPlan = defineTool({
         throw invalidArg("scale", e instanceof Error ? e.message : String(e));
       }
     }
+    // A scale that contradicts the drawing's own dimension texts is refused, not warned about: a run
+    // asked the person, was told yes, and then committed at "mm" -- one millimetre per unit against
+    // the 21 the plan's labels implied -- which drew an office 571 mm wide and passed validate.
+    if (
+      implied !== null &&
+      draft.units.mmPerUnit !== null &&
+      Math.abs(draft.units.mmPerUnit - implied) > implied * 0.05
+    )
+      throw invalidArg(
+        "scale",
+        `the drawing's own dimension texts imply ${round(implied)} mm per unit and this sets ${round(draft.units.mmPerUnit)}, which would make the plan ${round((draft.units.mmPerUnit / implied) * 100)}% of the size it says it is`,
+        `keep the scale the plan states: answers: { "${(kept as Kept).draft.questions.find((q) => q.kind === "scale")?.id ?? "q1"}": "yes" }. Give units or a length only for a drawing with no dimensions of its own`,
+      );
     const presentation: DraftPresentation = {
       ...(kept as Kept).presentation,
       draftId: idOf(draft),
@@ -263,6 +297,17 @@ export const importPlan = defineTool({
         `level "${levelId}" does not resolve`,
         null,
         "use get_scene to list levels",
+      );
+    // A plan whose whole extent is a few metres, or hundreds of them, is a scale that went wrong;
+    // validate has nothing to say about it, because every wall in it is perfectly well formed.
+    const span = extentOf(draft);
+    if (span !== null && (span.w < 3000 || span.d < 3000))
+      call.warn(
+        `this plan is only ${round(span.w / 1000)} by ${round(span.d / 1000)} m, which is smaller than a room: its scale is almost certainly wrong, and ${draft.units.mmPerUnit ?? "?"} mm per unit is what it is being committed at`,
+      );
+    if (span !== null && (span.w > 500_000 || span.d > 500_000))
+      call.warn(
+        `this plan is ${round(span.w / 1000)} by ${round(span.d / 1000)} m, which is larger than a city block: check the scale before you build on it`,
       );
     const existing = p.walls.filter((w) => w.levelId === levelId).length;
     if (existing > 0) call.warn(`level ${levelId} already has ${existing} walls; the plan is added to them`);
