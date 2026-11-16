@@ -10,14 +10,16 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@fpv/ir": "workspace:*",
+    "@fpv/assets": "workspace:*",
+    "@fpv/catalog": "workspace:*",
     "@fpv/commands": "workspace:*",
     "@fpv/engine": "workspace:*",
-    "@fpv/catalog": "workspace:*",
-    "@fpv/geometry": "workspace:*",
-    "@fpv/assets": "workspace:*",
     "@fpv/exporters": "workspace:*",
+    "@fpv/geometry": "workspace:*",
     "@fpv/importers": "workspace:*",
+    "@fpv/ir": "workspace:*",
+    "jpeg-js": "^0.4.4",
+    "quickjs-emscripten": "^0.32.0",
     "zod": "^3.25.0"
   }
 }
