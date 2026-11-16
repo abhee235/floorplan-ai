@@ -11,10 +11,11 @@
 // It prints one line per step, so a watcher can follow along, and writes into <dir>: events.jsonl,
 // every picture the agent looked at, built.png (the level as built, furniture included),
 // project.json, and report.md with each check PASS or FAIL. It exits 0 only when every check passes.
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, join, resolve } from "node:path";
 import type { Project } from "@fpv/ir";
-import { categoryOf, describeRoom, loadCards, roomMatches } from "./cards.js";
+import { categoryOf, describeRoom, loadCards, roomMatches, type TaskCard } from "./cards.js";
+import { fidelityOverall, scoreFidelity } from "./fidelity.js";
 
 /** A bridge message, read as JSON and checked where it is used. */
 type Msg = any;
@@ -28,7 +29,11 @@ const arg = (name: string, fallback?: string): string => {
 };
 
 const hostUrl = arg("--host", "ws://127.0.0.1:4311/bridge");
-const card = loadCards([arg("--card", "office-brief-live")])[0];
+// A card file outside the repository is for a picture that cannot be committed (ADR-030).
+const cardFile = arg("--card-file", "");
+const card: TaskCard | undefined = cardFile
+  ? (JSON.parse(readFileSync(cardFile, "utf8")) as TaskCard)
+  : loadCards([arg("--card", "office-brief-live")])[0];
 if (!card) throw new Error("no such card");
 const out = arg("--out");
 const timeoutMin = Number(arg("--timeout-min", "150"));
@@ -109,6 +114,22 @@ function onEvent(m: Msg): void {
     case "reminder":
       say(`[${who}] gate ${event.gate}: ${short(event.text, 160)}`);
       break;
+    case "question": {
+      // Nobody is watching a run, so the card answers. A raster plan's scale is the question that
+      // stops everything, and it is the one a person is meant to answer (ADR-011 D3).
+      const asked = String(event.text ?? "");
+      say(`[${who}] ASKS (${event.kind}): ${short(asked, 240)}`);
+      const answers = (card as { answers?: Record<string, string> }).answers ?? {};
+      const key =
+        Object.keys(answers).find((k) => k !== "*" && asked.toLowerCase().includes(k.toLowerCase())) ?? "*";
+      const answer = answers[key];
+      if (answer === undefined) say("  the card has no answer for that; the run will wait");
+      else {
+        say(`  answering "${answer}"`);
+        void request({ type: "agent", op: "answer", questionId: event.id, answers: { [event.id]: answer } });
+      }
+      break;
+    }
     case "message":
       say(`[${who}] says: ${short(event.text, 300)}`);
       break;
@@ -136,7 +157,26 @@ if (!made.ok) throw new Error(`could not make a project: ${short(made.error)}`);
 const projectId: string = made.result?.id ?? made.result?.projectId ?? "?";
 say(`project ${projectId} on ${hostUrl}`);
 const started = Date.now();
-const go = await request({ type: "agent", op: "start", text: task });
+const attach = (card as { attach?: { path: string; mime: string } }).attach;
+if (attach) say(`attaching ${attach.path}`);
+const go = await request({
+  type: "agent",
+  op: "start",
+  text: task,
+  // The card's step budget is what caps a run's spend; the host's own limit is far higher.
+  maxSteps: card.maxSteps,
+  ...(attach
+    ? {
+        attachments: [
+          {
+            name: basename(attach.path),
+            mime: attach.mime,
+            data: readFileSync(resolve(attach.path)).toString("base64"),
+          },
+        ],
+      }
+    : {}),
+});
 if (!go.ok) throw new Error(`the agent did not start: ${short(go.error)}`);
 say(`run ${go.result?.runId ?? "?"} started`);
 
@@ -194,42 +234,107 @@ check(
   finished?.reason === "done",
   `reason ${finished?.reason ?? "timeout"}, ${finished?.steps ?? "?"} steps, ${minutes} min`,
 );
-check("a checked design was built", Boolean(builtId && buildOk), builtId ?? "no build_design");
+// A run that reads a plan is judged on what came out of the picture; one that designs, on its design.
+// A picture read with code (ADR-030) is judged against a reference built from the same picture.
+const byCode = (card as { readWith?: string }).readWith === "code";
+const reading = attach !== undefined && !byCode;
+const designing = !reading && !byCode;
+if (designing) check("a checked design was built", Boolean(builtId && buildOk), builtId ?? "no build_design");
+else if (reading) {
+  const imports = startedCalls(designer, "import_plan");
+  const committed = designer.some(
+    (m) =>
+      m.event.type === "tool.finished" &&
+      m.event.name === "import_plan" &&
+      m.event.ok &&
+      /committed/.test(String(m.event.preview ?? "")),
+  );
+  check("the plan was read", imports.length > 0, `${imports.length} import_plan calls`);
+  check(
+    "its scale was settled and the draft committed",
+    committed,
+    committed ? "committed" : "never committed",
+  );
+  const want = (card as { read?: { walls?: number; rooms?: number; openings?: number } }).read ?? {};
+  const atLeast = (got: number, expected: number | undefined) => expected === undefined || got >= expected;
+  check(
+    "walls came out of it",
+    atLeast(p.walls.length, want.walls),
+    `${p.walls.length} walls, ${want.walls ?? "any"} wanted`,
+  );
+  check(
+    "rooms came out of it",
+    atLeast(p.rooms.length, want.rooms),
+    `${p.rooms.length} rooms, ${want.rooms ?? "any"} wanted`,
+  );
+  check(
+    "openings came out of it",
+    atLeast(p.openings.length, want.openings),
+    `${p.openings.length} openings: ${[...new Set(p.openings.map((o) => o.kind))].map((k) => `${p.openings.filter((o) => o.kind === k).length} ${k}`).join(", ")}`,
+  );
+  check(
+    "it looked at what it read",
+    startedCalls(designer, "preview_design").length > 0,
+    `${startedCalls(designer, "preview_design").length} previews`,
+  );
+}
 const handDrawn = ["create_walls", "add_opening", "create_room"].map(
   (t) => [t, startedCalls(designer, t).length] as const,
 );
-check(
-  "nothing drawn by hand",
-  handDrawn.every(([, k]) => k === 0),
-  handDrawn.map(([t, k]) => `${t} ${k}`).join(", "),
-);
+if (!byCode)
+  check(
+    "nothing drawn by hand",
+    handDrawn.every(([, k]) => k === 0),
+    handDrawn.map(([t, k]) => `${t} ${k}`).join(", "),
+  );
+let fidelity: ReturnType<typeof scoreFidelity> | null = null;
+if (byCode) {
+  const scripts = startedCalls(designer, "run_code").length;
+  check("it measured the picture with run_code", scripts > 0, `${scripts} run_code calls`);
+  const refPath = (card as { reference?: string }).reference;
+  if (refPath) {
+    fidelity = scoreFidelity(p, JSON.parse(readFileSync(refPath, "utf8")) as Project);
+    const want = (card as { fidelity?: { overall?: number } }).fidelity?.overall ?? 0.8;
+    const f = fidelity;
+    check(
+      "it matches the picture",
+      fidelityOverall(f) >= want,
+      `overall ${fidelityOverall(f)} (${want} wanted): walls ${f.walls.recall}, openings ${f.openings.recall}, rooms ${f.rooms.named} of ${f.rooms.reference}, furniture ${f.items.recall} (${f.items.built} placed, ${f.items.reference} in the picture); scale x${f.scaleRatio}`,
+    );
+  }
+}
 const previewed = new Set(
   startedCalls(architect, "preview_design").map(
     (m) => (m.event.args as { designId?: string } | undefined)?.designId,
   ),
 );
-check(
-  "the architect looked at the design it handed on",
-  builtId !== null && previewed.has(builtId),
-  `previewed ${[...previewed].join(", ") || "nothing"}`,
-);
+if (designing)
+  check(
+    "the architect looked at the design it handed on",
+    builtId !== null && previewed.has(builtId),
+    `previewed ${[...previewed].join(", ") || "nothing"}`,
+  );
 const verdicts = architect
   .filter((m) => m.event.type === "message" && /verdict\s*:/i.test(String(m.event.text)))
   .map((m) => String(m.event.text));
-check(
-  "the architect wrote a LOOK verdict",
-  verdicts.length > 0,
-  verdicts.length ? short(verdicts.at(-1), 200) : "none",
-);
+if (designing)
+  check(
+    "the architect wrote a LOOK verdict",
+    verdicts.length > 0,
+    verdicts.length ? short(verdicts.at(-1), 200) : "none",
+  );
 const buildStep = buildCall?.step ?? Number.POSITIVE_INFINITY;
-check(
-  "the designer looked at what it built",
-  startedCalls(designer, "preview_design").some(
-    (m) => m.event.step > buildStep && !(m.event.args as { designId?: string })?.designId,
-  ),
-  `${startedCalls(designer, "preview_design").length} designer previews`,
-);
-if (walk) {
+if (designing)
+  check(
+    "the designer looked at what it built",
+    startedCalls(designer, "preview_design").some(
+      (m) => m.event.step > buildStep && !(m.event.args as { designId?: string })?.designId,
+    ),
+    `${startedCalls(designer, "preview_design").length} designer previews`,
+  );
+if (!designing) {
+  // a read has no design to walk and no screens to judge; what it produced was checked above
+} else if (walk) {
   check(
     "every room can be walked to",
     walk.unreached.length === 0,
@@ -278,11 +383,12 @@ const onGlass = screens.filter((i) => {
   );
 });
 const standing = screens.filter((i) => i.mount.kind !== "wall");
-check(
-  "no screen on glass or a window",
-  onGlass.length === 0,
-  `${screens.length} screens, ${onGlass.length} on glass or a window, ${standing.length} standing`,
-);
+if (designing)
+  check(
+    "no screen on glass or a window",
+    onGlass.length === 0,
+    `${screens.length} screens, ${onGlass.length} on glass or a window, ${standing.length} standing`,
+  );
 
 // the card's own expectations
 const taken = new Set<string>();
@@ -328,6 +434,16 @@ const lines = [
   "|---|---|---|",
   ...checks.map((c) => `| ${c.name} | ${c.pass ? "PASS" : "FAIL"} | ${c.detail.replace(/\|/g, "/")} |`),
   "",
+  ...(fidelity
+    ? [
+        "## Against the reference",
+        "",
+        "```json",
+        JSON.stringify({ overall: fidelityOverall(fidelity), ...fidelity }, null, 2),
+        "```",
+        "",
+      ]
+    : []),
   "## The architect's verdict",
   "",
   verdicts.at(-1) ?? "(none)",

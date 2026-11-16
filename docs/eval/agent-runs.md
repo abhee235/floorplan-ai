@@ -23,6 +23,7 @@ and profile.
 <!-- runs:start -->
 | Card | Model | Profile | Result | Steps | Tool calls (failed) | Tokens in / out | Seconds | Validation errors | Missing | BOM verified | Date |
 |---|---|---|---|---|---|---|---|---|---|---|---|
+| boardroom | claude-opus-5-5 | high | pass | 6 of 40 | 8 (0) | 179493 / 2225 | 24 | 0 | none | 7% of 14 | 2026-11-16 |
 | boardroom | gpt-5.6-luna | medium | pass | 8 of 40 | 7 (1) | 89786 / 366 | 14 | 0 | none | 0% of 14 | 2026-09-15 |
 | boardroom | qwen3.6:35b | medium | pass | 17 of 40 | 16 (2) | 304651 / 1413 | 125 | 0 | none | 0% of 14 | 2026-09-16 |
 | four-bed-house | gpt-5.6-luna | high | pass | 12 of 36 | 19 (0) | 208497 / 1188 | 42 | 0 | none | 59% of 22 | 2026-09-20 |

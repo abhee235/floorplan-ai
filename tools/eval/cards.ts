@@ -52,6 +52,19 @@ export interface TaskCard {
   };
   /** For the live loop (tools/eval/live.ts, ADR-028 D11): how blank a side of the building may be. */
   look?: { maxEmptySide?: number };
+  /**
+   * A file to attach to the first message, as a person would: a plan to read (PRD P2-2, P2-3).
+   * The path is relative to the repository.
+   */
+  attach?: { path: string; mime: string };
+  /** What a read of that plan should produce, at least: the fixture's own counts. */
+  read?: { walls?: number; rooms?: number; openings?: number };
+  /**
+   * What to answer when the run asks something, since nobody is watching: the first answer whose
+   * key appears in the question wins, and "*" answers anything else. A scale question is the one
+   * that matters -- a raster plan commits only when a person confirms its scale (ADR-011 D3).
+   */
+  answers?: Record<string, string>;
 }
 
 export function loadCards(ids?: readonly string[]): TaskCard[] {

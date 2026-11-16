@@ -7,12 +7,13 @@
 //     [--cards boardroom,import-office] [--reliability low|medium|high] [--think] [--steps <n>]
 // Models: ollama:<model> (http://127.0.0.1:11434/v1, reasoning switched off unless --think),
 //         openai:<model> (OPENAI_API_KEY), openrouter:<model> (OPENROUTER_API_KEY),
+//         anthropic:<model> (ANTHROPIC_API_KEY, e.g. anthropic:claude-opus-5-5),
 //         config:<name> (a provider in the host data directory's config.json).
 // Keys and the default model list (FPV_EVAL_MODELS) come from the nearest .env; see .env.example.
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { type ProviderConfig, providerFor, runArchitect } from "@fpv/agents";
+import { claudeReachable, createProvider, type ProviderConfig, runArchitect } from "@fpv/agents";
 import type { ToolReliability } from "@fpv/tools";
 import { AGENT_TIMEOUT_MS, describeEvent, runAgentTask } from "../../apps/host/src/agent.js";
 import { loadDotEnv } from "../../apps/host/src/env.js";
@@ -78,6 +79,28 @@ function configFor(spec: string, think: boolean, reliability: ToolReliability | 
         baseUrl: kind === "openai" ? "https://api.openai.com/v1" : "https://openrouter.ai/api/v1",
         model: name,
         apiKey,
+        // OpenAI on the wire where its models think while calling tools (ADR-029 D2).
+        api: kind === "openai" ? "openai-responses" : "openai-chat",
+        ...(process.env.FPV_AGENT_REASONING
+          ? { reasoning: process.env.FPV_AGENT_REASONING as NonNullable<ProviderConfig["reasoning"]> }
+          : {}),
+        profile: { ...profile, toolReliability: reliability ?? "high" },
+        timeoutMs,
+      };
+    }
+    case "anthropic": {
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) throw new Error(`${spec} needs ANTHROPIC_API_KEY`);
+      return {
+        id: spec,
+        baseUrl: process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com",
+        model: name,
+        apiKey,
+        // Claude on its own Messages API (ADR-029 D2); every current model sees, as in the product.
+        api: "anthropic",
+        ...(process.env.FPV_AGENT_REASONING
+          ? { reasoning: process.env.FPV_AGENT_REASONING as NonNullable<ProviderConfig["reasoning"]> }
+          : {}),
         profile: { ...profile, toolReliability: reliability ?? "high" },
         timeoutMs,
       };
@@ -101,15 +124,19 @@ function configFor(spec: string, think: boolean, reliability: ToolReliability | 
         },
         timeoutMs: entry.timeoutMs ?? timeoutMs,
         ...(entry.extraBody ? { extraBody: entry.extraBody } : {}),
+        ...(entry.api ? { api: entry.api } : {}),
+        ...(entry.reasoning ? { reasoning: entry.reasoning } : {}),
       };
     }
     default:
-      throw new Error(`model "${spec}" must start with ollama:, openai:, openrouter: or config:`);
+      throw new Error(`model "${spec}" must start with ollama:, openai:, openrouter:, anthropic: or config:`);
   }
 }
 
 /** A model server that does not answer is skipped, not scored: a connection failure says nothing about the model. */
 async function unreachable(config: ProviderConfig): Promise<string | null> {
+  // Anthropic authenticates its own way, and is asked through its SDK, which also checks the model id.
+  if (config.api === "anthropic") return claudeReachable(config);
   try {
     const res = await fetch(`${config.baseUrl.replace(/\/+$/, "")}/models`, {
       headers: config.apiKey ? { authorization: `Bearer ${config.apiKey}` } : {},
@@ -152,7 +179,7 @@ async function main() {
       console.log(`\nskipped ${spec}: ${config.baseUrl} does not answer (${down}); nothing recorded`);
       continue;
     }
-    const provider = providerFor(config);
+    const provider = createProvider(config);
     for (const card of cards) {
       const { session, close } = evalSession();
       const at = new Date().toISOString();
