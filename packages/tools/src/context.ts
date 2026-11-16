@@ -1,7 +1,14 @@
 // What a tool runs against: the store, the catalog, and optional services (ADR-005 D1, ADR-006 D2).
 // Everything here is an in-process object; nothing is a network client.
 
-import type { PageFetcher, RulesPack, SearchProvider, VerifyOutcome, VerifyRequest } from "@fpv/catalog";
+import type {
+  PageFetcher,
+  RulesPack,
+  SearchProvider,
+  Texture,
+  VerifyOutcome,
+  VerifyRequest,
+} from "@fpv/catalog";
 import type { Origin, Store } from "@fpv/commands";
 import type { PlanDraft, PlanPreview } from "@fpv/importers";
 import type { PrimitiveRecipe, Project, Size3 } from "@fpv/ir";
@@ -131,6 +138,26 @@ export interface Attachment {
 export interface AttachmentStore {
   get(id: string): Attachment | null;
   list(): readonly { id: string; name: string; mime: string; size: number }[];
+}
+
+/** A picture a person brought, to be kept as a texture the catalog offers (ADR-010 D10, P3-8). */
+export interface TextureImportRequest {
+  bytes: Uint8Array;
+  mime: "image/png" | "image/jpeg" | "image/webp";
+  name: string;
+  /** How big the picture is in reality; its height follows the picture's shape. */
+  widthMm: number;
+  heightMm: number;
+  tags: string[];
+}
+
+/**
+ * Where imported pictures are kept, by their hash, and made textures (ADR-010 D10). Declared here and
+ * implemented by the host, which owns the data directory and the catalog store.
+ */
+export interface TextureImporter {
+  /** Keep the picture and add it as a texture; the same picture again is the texture already made of it. */
+  add(request: TextureImportRequest): { texture: Texture; existing: boolean };
 }
 
 export interface OpenOptions {
@@ -281,6 +308,8 @@ export interface ToolContext {
   plans?: PlanReader | null;
   /** Files attached to the agent's conversation; absent in a session nobody is talking to. */
   attachments?: AttachmentStore | null;
+  /** Keeps imported pictures as textures; absent or null in a session that cannot keep files. */
+  textures?: TextureImporter | null;
   /** Search and a guarded fetcher (ADR-027 D4); absent or null when the host has no search provider. */
   web?: WebAccess | null;
   transcript: TranscriptRecorder | null;

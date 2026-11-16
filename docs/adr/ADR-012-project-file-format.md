@@ -33,6 +33,14 @@ Custom assets are referenced from the IR by asset key; the manifest maps keys
 present in `assets/` to files. Shared registry assets (ADR-010) are not
 copied into projects.
 
+Amended 2026-11-17 (P3-8): the first custom assets are pictures imported as
+textures. Saving copies each one the project's textures name into `assets/`,
+before the project file and the manifest, and lists it in the manifest by its
+hash, which is also its file name. Opening offers `assets/` back to the
+installation, which keeps each picture whose bytes match its name and adds
+the texture from the project's record of it; a folder that cannot be read
+costs the project its imported textures, never its opening.
+
 ### D2. JSON conventions
 
 - Pretty-printed with two spaces and keys in a fixed order per entity type,

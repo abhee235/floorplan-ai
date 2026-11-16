@@ -22,6 +22,7 @@ import type { EventLog } from "./log.js";
 import { silentLog } from "./log.js";
 import type { ProjectRegistry } from "./projects.js";
 import { createSession, type Session } from "./session.js";
+import type { UserTextures } from "./user-textures.js";
 
 /** One project open in this host. */
 export interface Held {
@@ -49,6 +50,11 @@ export interface WorkspaceOptions {
   library?: string | null;
   /** Written into an exported project's manifest, so a file says which version made it. */
   appVersion?: string;
+  /**
+   * Pictures imported as textures (P3-8): given to each session for import_texture, and to each project's
+   * files, which carry the ones the project uses in its assets/ folder and take them back in on open.
+   */
+  textures?: UserTextures | null;
 }
 
 export class Workspace {
@@ -274,9 +280,18 @@ export class Workspace {
 
   private newFileStore(): ProjectFileStore {
     const registry = this.options.registry;
+    const textures = this.options.textures;
     return new ProjectFileStore({
       ...(this.options.now ? { now: this.options.now } : {}),
       ...(registry ? { remember: (entry) => registry.remember(entry) } : {}),
+      ...(textures
+        ? {
+            assets: {
+              assetsFor: (project) => textures.assetsFor(project),
+              adopt: (project, dir) => textures.adopt(project, dir),
+            },
+          }
+        : {}),
     });
   }
 
@@ -292,6 +307,7 @@ export class Workspace {
       ...(this.options.rules !== undefined ? { rules: this.options.rules } : {}),
       ...(this.options.plans !== undefined ? { plans: this.options.plans } : {}),
       ...(this.options.web !== undefined ? { web: this.options.web } : {}),
+      ...(this.options.textures ? { textures: this.options.textures } : {}),
       ...(this.options.writer ? { writer: this.options.writer(files) } : {}),
     });
     files.startAutosave();

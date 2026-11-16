@@ -34,6 +34,7 @@ import {
   modifyRoom,
   modifyWall,
 } from "./tools/structure.js";
+import { importTexture } from "./tools/texture.js";
 import { readPage, webSearch } from "./tools/web.js";
 
 /** The 23 tools of the first release (ADR-006 D2) in spec order, then import_plan (phase 2) and
@@ -83,6 +84,8 @@ export const TOOLS = [
   readPage,
   // Somewhere to think in code, with the pictures and the tools in reach (ADR-030).
   runCode,
+  // A person's own surface, from a picture they bring (ADR-010 D10, P3-8).
+  importTexture,
 ] as const;
 
 /** Tools that only make sense with something the session may not have; the host advertises them or not. */
@@ -123,6 +126,8 @@ export {
   type SubagentRunner,
   searchRecipes,
   sizesFor,
+  type TextureImporter,
+  type TextureImportRequest,
   type ToolContext,
   type TranscriptEntry,
   type TranscriptRecorder,
@@ -164,5 +169,6 @@ export {
 export { LOOK_HEADINGS, lookChecklist, lookMissing, type Walk, walkOf } from "./tools/design.js";
 export { doorSwingWarnings, itemRefFor, parseAnchor } from "./tools/items.js";
 export { hingeEndFor } from "./tools/structure.js";
+export { DEFAULT_TEXTURE_WIDTH_MM, LARGE_TEXTURE_PX, nameFromFile } from "./tools/texture.js";
 export { createTranscript, replay, type Transcript } from "./transcript.js";
 export * from "./views.js";

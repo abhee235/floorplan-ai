@@ -35,6 +35,7 @@ export {
   MANIFEST_FILE,
   type Manifest,
   PROJECT_FILE,
+  type ProjectAssets,
   ProjectFileError,
   ProjectFileStore,
   type ProjectFileStoreOptions,
@@ -50,3 +51,5 @@ export { createMcpServer, HOST_VERSION, type McpOptions, serveStdio, toCallToolR
 export { createReader, loadReaderConfig, READER_TIMEOUT_MS } from "./reader.js";
 export { DEFAULT_PORT, defaultWebDir, type Served, type ServeOptions, serve } from "./server.js";
 export { createSession, type Session, type SessionOptions } from "./session.js";
+export { type TextureImage, TextureImages } from "./textures.js";
+export { hasTransparency, type ProjectAsset, USER_LIBRARY, UserTextures } from "./user-textures.js";

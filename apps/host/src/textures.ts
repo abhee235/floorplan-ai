@@ -35,6 +35,8 @@ export class TextureImages {
   constructor(
     private readonly lookup: TextureLookup,
     private readonly dataDir: string,
+    /** Pictures a person imported (P3-8), which no installed library holds. */
+    private readonly user: { fileFor(hex: string): string | null } | null = null,
   ) {}
 
   /** The image for a texture id, or null when the catalog has no such texture or its file is gone. */
@@ -52,9 +54,14 @@ export class TextureImages {
       const pixels = renderGeneratedTexture(texture.image.slice("generated:".length), DRAWN_SIZE);
       return pixels ? { bytes: encodePng(pixels, (d) => deflateSync(d)), type: "image/png" } : null;
     }
-    const origin = this.lookup.textureOrigin(id);
-    if (!origin) return null;
     const hex = texture.image.slice("sha256:".length);
+    const origin = this.lookup.textureOrigin(id);
+    if (!origin) {
+      // an imported picture, kept by its hash rather than in a library's copy
+      const kept = texture.image.startsWith("sha256:") ? (this.user?.fileFor(hex) ?? null) : null;
+      const type = kept ? TYPES[extname(kept).toLowerCase()] : undefined;
+      return kept && type ? { bytes: new Uint8Array(readFileSync(kept)), type } : null;
+    }
     const folder = join(libraryDir(this.dataDir, origin.library, origin.version), "textures");
     if (!existsSync(folder)) return null;
     const file = readdirSync(folder).find((f) => f.startsWith(hex));

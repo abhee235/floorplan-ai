@@ -174,6 +174,16 @@ format. Not in phase 0; the manifest field is reserved.
   real-world width in millimetres with height following the aspect ratio,
   defaults to 200 mm, and stores the file by hash.
 
+Amended 2026-11-17, when the texture import was built (P3-8, first part):
+the `import_texture` tool and the editor's "From an image…" material choice
+and File ▸ Import texture… do what D10 says, with the textures in a `user`
+library (spec 02 section 2). D7's prompt to downscale a picture over 2048
+pixels is a warning instead: resampling three formats needs codecs the app
+does not carry, and the picture still works at full size. Transparency is
+found from the pixels of a PNG, not only from whether it has an alpha
+channel, because most RGBA files are opaque. Library install from the editor
+and model import are the next parts of P3-8.
+
 ## Alternatives considered
 
 - **Runtime OBJ and Collada loading with zip archives.**
