@@ -1,6 +1,26 @@
 // @fpv/engine: IR to geometry buffers and item instances, plus the invalidation table (docs/spec/05, ADR-003, ADR-014, ADR-015).
 export const PACKAGE = "engine" as const;
 export { type CutOutSource, type CutOutSpec, cutOutSource, snapshotCutOuts } from "./cutouts.js";
+export {
+  clipToShape,
+  hatchLines,
+  type ItemShape,
+  itemTitle,
+  type OpeningShape,
+  PLAN_INK,
+  type PlanStructure,
+  planBounds,
+  planItems,
+  planStructure,
+  planZones,
+  type RoomShape,
+  type SwingShape,
+  shapeTriangles,
+  type WallCut,
+  withoutGaps,
+  type ZoneShape,
+  zoneLabel,
+} from "./drawing.js";
 export { emptyRebuildSet, expand, type Layer, type RebuildSet } from "./expand.js";
 export {
   buildGround,

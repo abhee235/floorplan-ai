@@ -150,6 +150,8 @@ const ROLE_WORDS: readonly [LayerRole, readonly string[]][] = [
       "möbel",
       "fixt",
       "fixtures",
+      "item",
+      "items",
     ],
   ],
 ];

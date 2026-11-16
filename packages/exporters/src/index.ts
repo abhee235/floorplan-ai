@@ -11,6 +11,28 @@ export {
   sourceLookup,
 } from "./bom-export.js";
 export {
+  catalogSnapshotOf,
+  chooseScale,
+  type DrawingProvenance,
+  type LevelDrawing,
+  levelDrawing,
+  mountNote,
+  PAPER_MM,
+  type PaperSize,
+  type ScheduleRow,
+  STANDARD_SCALES,
+  scheduleOf,
+  tagName,
+} from "./drawing.js";
+export { DXF_LAYERS, type DxfDrawing, type DxfDrawingOptions, projectToDxf } from "./drawing-dxf.js";
+export {
+  type PdfDrawing,
+  type PdfDrawingOptions,
+  type PdfSheetReport,
+  projectToPdf,
+} from "./drawing-pdf.js";
+export { type DxfLayer, DxfWriter, dxfText } from "./dxf.js";
+export {
   type GlbExport,
   GlbExportError,
   type GlbNode,
@@ -20,6 +42,7 @@ export {
   type GlbScope,
   projectToGlb,
 } from "./glb.js";
+export { num as pdfNumber, PdfPage, PT_PER_MM, textWidth, winAnsi, writePdf } from "./pdf.js";
 export {
   type Cell,
   type CellStyle,

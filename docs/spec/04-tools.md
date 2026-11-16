@@ -469,15 +469,24 @@ Input: `{ op: "new" | "open" | "save" | "info", path?: string, name?: string }`
 Output: `{ path, name, modified, schemaVersion, lastSavedAt }`
 
 ### export
-Description: "Write the bill of materials to a file: csv or xlsx, with provenance and the verification status of every line. Refuses when validate reports errors unless force is true (the file is then marked DRAFT), and refuses while lines are unverified or placeholders unless includeUnverified is true (the file then says so and highlights them). Relative paths go into the project directory. glb writes the 3D scene as a glTF binary (metres, y up) with one node per level, wall, opening, room and item, named by entity id; it needs no rules pack. pdf and dxf arrive in phase 3. Returns the path and size."
-Input: `{ format: "csv" | "xlsx" | "glb" | "pdf" | "dxf", scope?: string, path: string, force?: boolean, includeUnverified?: boolean, overwrite?: boolean }`
-Output: `{ path, bytes, format, lines, nodes?, triangles?, draft, includesUnverified, warnings }`
+Description: "Write the bill of materials to a file: csv or xlsx, with provenance and the verification status of every line. Refuses when validate reports errors unless force is true (the file is then marked DRAFT), and refuses while lines are unverified or placeholders unless includeUnverified is true (the file then says so and highlights them). Relative paths go into the project directory. glb writes the 3D scene as a glTF binary (metres, y up) with one node per level, wall, opening, room and item, named by entity id; it needs no rules pack. pdf writes the layout drawing, one landscape sheet per level (a room scope frames that room): the plan as the editor draws it, a tag on every item leading to a schedule, the mount height of wall and ceiling items, overall dimensions, north arrow, scale bar and title block, at the largest standard scale that fits the paper unless scale names one. dxf writes one level in millimetres on layers WALL, OPENING-DOOR, OPENING-WINDOW, ROOM, ITEM, CLUSTER, TEXT, DIM and TITLE. Returns the path and size."
+Input: `{ format: "csv" | "xlsx" | "glb" | "pdf" | "dxf", scope?: string, path: string, force?: boolean, includeUnverified?: boolean, overwrite?: boolean, paper?: "A4" | "A3" | "A2" | "A1" | "A0", scale?: number }`
+Output: `{ path, bytes, format, lines, nodes?, triangles?, pages?, scale?, draft, includesUnverified, warnings }`
 
 `force` means "export despite validation errors" (ADR-013 D2), not "overwrite"; replacing an
 existing file needs `overwrite`. Errors: `export.invalid` (validation errors, first three named),
-`export.unverified` (unverified or placeholder lines, first three named), `file.exists`,
-`file.write`, and `unavailable` for pdf and dxf until phase 3, for csv and xlsx in sessions without
-a rules pack, and for any format in sessions without a file writer.
+`export.unverified` (unverified or placeholder lines, first three named), `export.scope` (a dxf of a
+project with more than one level, which names a `level:` scope to pass), `file.exists`, `file.write`,
+and `unavailable` for csv and xlsx in sessions without a rules pack, and for any format in sessions
+without a file writer.
+
+`pdf` and `dxf` (phase 3, P3-7, ADR-013 D5) check validation errors only, like `glb`. `scope` is
+`project` (every level, lowest first; a dxf needs the project to have one), `level:<id>`, or `room:<id>`
+(the room's level; a pdf frames the room, a dxf holds the whole level and says so). `paper` is the pdf's
+sheet, A3 by default; `scale` is n in 1:n, and by default the largest of 1:10, 20, 25, 50, 100, 200, 250,
+500, 1000, 2000 and 5000 at which the level fits. A scale that does not fit draws anyway, cut at the
+frame, with a warning. `lines` is the number of kinds of item in the schedules, `pages` the sheets, and
+`scale` the first sheet's; a dxf's scale is the one its text is sized for.
 
 `glb` (phase 2, ADR-013 D4) checks validation errors only (not design rules or verification) and
 reports `nodes` and `triangles`; `lines` is 0. The node tree is project, then level, then walls (openings as
