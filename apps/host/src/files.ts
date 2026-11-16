@@ -108,7 +108,24 @@ export interface ProjectFileStoreOptions {
    * nothing about where the list is written.
    */
   remember?: (entry: { id: string; address: string; name: string; at: string }) => void;
+  /**
+   * The custom files a project carries in its assets/ folder (ADR-012 D1): which to copy in on save, and
+   * what to do with the folder's contents on open. A callback like `remember`, so this class knows
+   * nothing about where the files come from.
+   */
+  assets?: ProjectAssets;
 }
+
+/** What a project's assets/ folder holds, and where each file comes from. */
+export interface ProjectAssets {
+  /** The custom files a project uses, each with the path it is copied from on save. */
+  assetsFor(project: Project): { key: string; file: string; sha256: string; source: string }[];
+  /** A project's assets/ folder, offered back to this installation as the project opens. */
+  adopt(project: Project, assetsDir: string): unknown;
+}
+
+/** The custom-assets folder of a project directory (ADR-012 D1). */
+export const ASSETS_DIR = "assets";
 
 /** Owns the on-disk form of the open project; implements the tools' ProjectFiles hook. */
 export class ProjectFileStore implements ProjectFiles {
@@ -133,7 +150,11 @@ export class ProjectFileStore implements ProjectFiles {
     this.autosaveMs = options.autosaveMs ?? AUTOSAVE_MS;
     this.free = options.freeBytes ?? freeBytes;
     this.note = options.remember ?? null;
+    this.assets = options.assets ?? null;
   }
+
+  /** Where the project's custom files come from and go to; null keeps no assets. */
+  private readonly assets: ProjectAssets | null;
 
   /**
    * Be told when what is open, or whether it is saved, changes. None of these move the store's history,
@@ -238,6 +259,13 @@ export class ProjectFileStore implements ProjectFiles {
         modifiedOutside = true; // unreadable manifest counts as an outside edit
       }
     } else manifestMissing = true;
+    // What the project carries is taken in before anything asks for it; a folder that cannot be read
+    // costs the project its imported textures, never its opening.
+    try {
+      this.assets?.adopt(parsed.project, join(dir, ASSETS_DIR));
+    } catch {
+      // deliberately ignored
+    }
     this.dir = dir;
     this.recovery = recoveryAt;
     this.modifiedOutside = modifiedOutside;
@@ -280,17 +308,23 @@ export class ProjectFileStore implements ProjectFiles {
       throw new ProjectFileError("file.not-writable", `${dir} is not a writable directory`);
     }
     const text = serialize(store.project);
+    // the project's custom files, carried in its assets/ folder so it opens the same elsewhere (ADR-012 D1)
+    const carried = this.assets?.assetsFor(store.project) ?? [];
+    const toCopy = carried.filter((a) => !existsSync(join(dir, ASSETS_DIR, a.file)));
     const manifest: Manifest = {
       formatVersion: FORMAT_VERSION,
       appVersion: this.appVersion,
       schemaVersion: SCHEMA_VERSION,
       savedAt: this.now(),
       project: { file: PROJECT_FILE, sha256: sha256(text), bytes: Buffer.byteLength(text, "utf8") },
-      assets: [],
+      assets: carried.map(({ key, file, sha256: hash }) => ({ key, file, sha256: hash })),
     };
     const manifestText = `${JSON.stringify(manifest, null, 2)}\n`;
-    // P-007: free space must cover the growth over the existing files
-    const needed = Buffer.byteLength(text, "utf8") + Buffer.byteLength(manifestText, "utf8");
+    // P-007: free space must cover the growth over the existing files, assets to copy among it
+    const needed =
+      Buffer.byteLength(text, "utf8") +
+      Buffer.byteLength(manifestText, "utf8") +
+      toCopy.reduce((n, a) => n + sizeOf(a.source), 0);
     const existing = sizeOf(join(dir, PROJECT_FILE)) + sizeOf(join(dir, MANIFEST_FILE));
     const free = await this.free(dir);
     if (free !== null && free < needed - existing) {
@@ -301,6 +335,14 @@ export class ProjectFileStore implements ProjectFiles {
         "free some disk space or save elsewhere",
       );
     }
+    // assets first, so a manifest never names a file that is not there
+    if (toCopy.length) await mkdir(join(dir, ASSETS_DIR), { recursive: true });
+    for (const a of toCopy)
+      await writeAtomic(
+        join(dir, ASSETS_DIR, a.file),
+        new Uint8Array(await readFile(a.source)),
+        options.signal,
+      );
     const bytes = await writeAtomic(join(dir, PROJECT_FILE), text, options.signal);
     await writeAtomic(join(dir, MANIFEST_FILE), manifestText, options.signal);
     await rm(join(dir, RECOVERY_FILE), { force: true }); // D6: recovery is cleared by a successful save

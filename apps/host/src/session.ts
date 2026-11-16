@@ -15,6 +15,7 @@ import {
   type ProductVerifier,
   type ProjectFiles,
   type Registry,
+  type TextureImporter,
   type ToolContext,
   type Transcript,
   type ViewerRenderer,
@@ -39,6 +40,8 @@ export interface SessionOptions {
   plans?: PlanReader | null;
   /** Search and fetch for the agent's web tools; null or absent when the host has no search provider. */
   web?: WebAccess | null;
+  /** Keeps pictures a person imports as textures (P3-8); without it import_texture is unavailable. */
+  textures?: TextureImporter | null;
   /** Where the session writes what it did (ADR-019); nothing is written without one. */
   log?: EventLog | null;
 }
@@ -88,6 +91,7 @@ export function createSession(options: SessionOptions = {}): Session {
     writer: options.writer ?? null,
     plans: options.plans ?? null,
     web: options.web ?? null,
+    textures: options.textures ?? null,
     // The tools' own recorder keeps entries for replay (ADR-007 D4); the log gets a line each as well,
     // so an agent's calls and a person's commands sit in one file in the order they happened.
     transcript: {

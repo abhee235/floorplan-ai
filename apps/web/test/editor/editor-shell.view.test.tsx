@@ -294,6 +294,7 @@ describe("switching what is on screen (ADR-017 D1)", () => {
       "Export project…",
       "Import project…",
       "Import plan…",
+      "Import texture…",
       "Export",
     ]);
   });

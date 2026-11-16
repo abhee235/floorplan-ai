@@ -24,6 +24,7 @@ import { ProjectRegistry } from "./projects.js";
 import { createReader, loadReaderConfig } from "./reader.js";
 import { DEFAULT_PORT, serve } from "./server.js";
 import { TextureImages } from "./textures.js";
+import { UserTextures } from "./user-textures.js";
 import { createVerifier, createWeb, loadHostConfig } from "./verifier.js";
 import { Workspace } from "./workspace.js";
 
@@ -254,7 +255,10 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   process.stderr.write(`floorplan-ai reader: ${planReaderSetup.describe}\n`);
   // Several projects can be open at once (ADR-020 D4). A host started with --project holds that one
   // to begin with, and a tab can open others without disturbing it.
+  // Pictures a person imports as textures (P3-8), kept in the data directory by their hash.
+  const userTextures = new UserTextures(catalog.store, catalog.dir);
   const workspace = new Workspace({
+    textures: userTextures,
     now,
     log,
     registry: projects,
@@ -278,7 +282,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     log.write("file", "host", { event: "opened", path: args.project, recoveryAt });
   }
   if (args.serve) {
-    const images = new TextureImages(catalog.store, catalog.dir);
+    const images = new TextureImages(catalog.store, catalog.dir, userTextures);
     // The in-app agent (P4-1). Without a configured model the editor still opens and says why the
     // chat is unavailable, which is more use than a chat box that refuses every message.
     const agentConfig = loadAgentConfig({ dataDir: catalog.dir });

@@ -221,10 +221,19 @@ export interface TextureChoice {
 export interface DescribeOptions {
   /** The catalog's textures, for the material rows. The project's own copies are offered as well. */
   textures?: readonly TextureChoice[];
+  /**
+   * Bring a picture in as a material (P3-8). Given the command that would put a texture on the surface
+   * whose row asked, so the picture lands where it was chosen once it has been imported. Absent, the rows
+   * offer only what the catalog has.
+   */
+  importTexture?: (then: (textureId: string) => EditCommand) => void;
 }
 
 /** A material row's value while the surface is painted rather than wearing a texture. */
 export const PAINT = "paint";
+
+/** A material row's last choice: a picture of one's own, imported as it is picked (P3-8). */
+export const FROM_IMAGE = "from-image";
 
 /** Where the viewer finds a texture's image: the host serves it (P3-5). */
 export function textureUrl(id: string): string {
@@ -304,8 +313,12 @@ export function describeEntity(
 ): SelectedEntity | null {
   const kind = kindOf(id);
   if (!kind) return null;
-  const materials = (prefer: string) => (current: string | null) =>
-    materialChoices(project, options.textures ?? [], prefer, current);
+  const materials = (prefer: string): MaterialChoices =>
+    Object.assign(
+      (current: string | null) =>
+        materialChoices(project, options.textures ?? [], prefer, current, !!options.importTexture),
+      options.importTexture ? { importTexture: options.importTexture } : {},
+    );
   if (kind === "wall") {
     const w = project.walls.find((x) => x.id === id);
     if (!w) return null;
@@ -336,14 +349,20 @@ const COORDINATE_RANGE = { min: -MAX_LENGTH_MM, max: MAX_LENGTH_MM } as const;
 /** A typed wall length: a whole millimetre at least, since Mm is an integer, up to that same kilometre. */
 export const LENGTH_RANGE = { min: 1, max: MAX_LENGTH_MM } as const;
 
-/** The material choices for a surface, those tagged `prefer` first, given the texture it wears now. */
-type MaterialChoices = (current: string | null) => Choice[];
+/**
+ * The material choices for a surface, those tagged `prefer` first, given the texture it wears now; and,
+ * when the editor can import a picture, how to.
+ */
+type MaterialChoices = ((current: string | null) => Choice[]) & {
+  importTexture?: DescribeOptions["importTexture"];
+};
 
 function materialChoices(
   project: Project,
   textures: readonly TextureChoice[],
   prefer: string,
   current: string | null,
+  canImport: boolean,
 ): Choice[] {
   const byId = new Map<string, TextureChoice>();
   for (const t of textures) byId.set(t.id, t);
@@ -361,6 +380,7 @@ function materialChoices(
   return [
     { value: PAINT, label: "Paint" },
     ...list.map((t) => ({ value: t.id, label: t.name, image: textureUrl(t.id) })),
+    ...(canImport ? [{ value: FROM_IMAGE, label: "From an image…" }] : []),
   ];
 }
 
@@ -378,6 +398,8 @@ function materialFact(
 ): Fact {
   const value = current?.textureId ?? PAINT;
   const list = choices(current?.textureId ?? null);
+  const pick = choiceEdit("Material", list, value, (v) => set(v === PAINT ? null : v));
+  const importTexture = choices.importTexture;
   return {
     group,
     label,
@@ -385,7 +407,13 @@ function materialFact(
     value,
     choices: list,
     hint: "Paint takes the colour. A material shows its own colours, and a colour replaces it.",
-    edit: choiceEdit("Material", list, value, (v) => set(v === PAINT ? null : v)),
+    // A picture of one's own is not a value to send but a file to fetch: the row asks for it, and the
+    // texture made from it is put on this surface once it exists. Nothing changes until then.
+    edit: (v) => {
+      if (v !== FROM_IMAGE || !importTexture) return pick(v);
+      importTexture((textureId) => set(textureId));
+      return { ok: true, command: null, said: "Choose a picture" };
+    },
   };
 }
 

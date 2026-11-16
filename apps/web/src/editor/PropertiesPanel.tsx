@@ -31,6 +31,7 @@ import { projectColours } from "./colour.js";
 import { Keyed } from "./Phrase.js";
 import { PropertyField, type PropertyFieldProps } from "./PropertyField.js";
 import {
+  type DescribeOptions,
   describeEntity,
   type EditCommand,
   type EntityKind,
@@ -49,11 +50,14 @@ export function PropertiesPanel({
   send,
   textures = [],
   preview,
+  importTexture,
 }: {
   replica: Replica;
   level: string | null;
   /** The catalog's textures, for the material rows (P3-5). */
   textures?: readonly TextureChoice[];
+  /** Brings a picture in as a material and puts it on the surface whose row asked (P3-8). */
+  importTexture?: DescribeOptions["importTexture"];
   /** Shows a dragged number's command without sending it; null puts the host's project back. */
   preview?: (command: EditCommand | null) => void;
   /** Sends an edit to the host; throws with the host's reason when it is refused. */
@@ -71,7 +75,7 @@ export function PropertiesPanel({
   // this render — so anything describeEntity cannot find is dropped rather than shown as a blank band.
   const entities: SelectedEntity[] = project
     ? selected.flatMap((id) => {
-        const found = describeEntity(project, id, { textures });
+        const found = describeEntity(project, id, { textures, ...(importTexture ? { importTexture } : {}) });
         return found ? [found] : [];
       })
     : [];

@@ -73,6 +73,7 @@ export function menus(view: string): MenuDefinition[] {
         "file.importProject",
         { separator: true },
         "file.import",
+        "file.importTexture",
         {
           title: "Export",
           entries: [

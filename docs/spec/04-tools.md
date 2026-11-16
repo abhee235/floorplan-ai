@@ -536,6 +536,19 @@ and images until P2-2 and P2-7), `import.parse`, `import.too-large` (64 MB),
 `file.missing`, `args.invalid`, and `unavailable` in a session without a
 plan reader.
 
+### import_texture (phase 3, P3-8)
+Description: "Make a picture into a texture, as when a person brings a photo of their own carpet or wood: PNG, JPEG or WebP from attachmentId, or contentBase64 with fileName. widthMm is how wide the pictured surface is in reality (default 200); its height follows the picture's shape. The same picture again returns the texture already made from it. Returns the texture id to give a finish as textureId."
+Input: `{ attachmentId?: string, contentBase64?: string, fileName?: string, name?: string, widthMm?: number, tags?: string[] }`
+Output: `{ id, name, widthMm, heightMm, transparent, existing, pixels: { width, height } }`
+
+Not mutating: it adds to the catalog, not to the project, which takes the texture's record when a finish
+first names it, as it does any texture. The bytes decide the format, never the file name. `widthMm` is a
+whole number from 10 to 100 000. A picture more than 2048 pixels on its long side is taken with a warning
+that a smaller copy would look the same. The name defaults to the file's, tidied ("oak-plank_02.jpg" reads
+"Oak plank 02"). Errors: `texture.format` (not a picture, or a GIF or BMP), `import.attachment-unknown`
+(which names what is attached), `args.invalid`, and `unavailable` in a session that cannot keep pictures.
+Advertised to the high and medium profiles.
+
 ## 9. Tiers by profile
 
 | Profile toolReliability | Advertised |

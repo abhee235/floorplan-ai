@@ -147,6 +147,18 @@ texture clears the surface's colour and typing a colour clears its texture.
 The glTF export does not embed images yet and writes a textured surface in
 its plain colour.
 
+A person's own pictures (P3-8, ADR-010 D10) become textures of the library
+`user`, with ids `user/<slug>` from their names, numbered when a name is
+taken, the licence `own`, and the tag `imported`. The host keeps each picture
+once under `<data>/user/textures/<sha256>.<ext>`; the same picture imported
+again is the texture already made from it. Transparency is found at import: a
+JPEG never has it, a WebP says so in its header, and a PNG with an alpha
+channel or a `tRNS` chunk is read through for a pixel that is not opaque,
+since most such files are opaque everywhere. A project that uses an imported
+texture carries its picture in its `assets/` folder (ADR-012 D1), and an
+installation that opens it keeps the picture, if its bytes match its name,
+and adds the texture from the project's own record of it.
+
 ## 3. Asset manifest
 
 ```ts
