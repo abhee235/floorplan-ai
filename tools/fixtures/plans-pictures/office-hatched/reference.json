@@ -1,0 +1,677 @@
+{
+  "note": "The reference for office-hatched: what the picture shows, from tools/eval/pictures/specs.ts.",
+  "walls": [
+    {
+      "id": "w0",
+      "start": {
+        "x": 0,
+        "y": 0
+      },
+      "end": {
+        "x": 14000,
+        "y": 0
+      },
+      "thickness": 300,
+      "kind": "exterior"
+    },
+    {
+      "id": "w1",
+      "start": {
+        "x": 14000,
+        "y": 0
+      },
+      "end": {
+        "x": 14000,
+        "y": 8000
+      },
+      "thickness": 300,
+      "kind": "exterior"
+    },
+    {
+      "id": "w2",
+      "start": {
+        "x": 14000,
+        "y": 8000
+      },
+      "end": {
+        "x": 0,
+        "y": 8000
+      },
+      "thickness": 300,
+      "kind": "exterior"
+    },
+    {
+      "id": "w3",
+      "start": {
+        "x": 0,
+        "y": 8000
+      },
+      "end": {
+        "x": 0,
+        "y": 0
+      },
+      "thickness": 300,
+      "kind": "exterior"
+    },
+    {
+      "id": "w4",
+      "start": {
+        "x": 4500,
+        "y": 0
+      },
+      "end": {
+        "x": 4500,
+        "y": 4500
+      },
+      "thickness": 120,
+      "kind": "interior"
+    },
+    {
+      "id": "w5",
+      "start": {
+        "x": 4500,
+        "y": 4500
+      },
+      "end": {
+        "x": 4500,
+        "y": 8000
+      },
+      "thickness": 80,
+      "kind": "glass"
+    },
+    {
+      "id": "w6",
+      "start": {
+        "x": 0,
+        "y": 4500
+      },
+      "end": {
+        "x": 4500,
+        "y": 4500
+      },
+      "thickness": 120,
+      "kind": "interior"
+    }
+  ],
+  "openings": [
+    {
+      "wallId": "w0",
+      "position": 0.6428571428571429,
+      "kind": "door",
+      "width": 1800
+    },
+    {
+      "wallId": "w5",
+      "position": 0.2857142857142857,
+      "kind": "door",
+      "width": 900
+    },
+    {
+      "wallId": "w4",
+      "position": 0.7777777777777778,
+      "kind": "door",
+      "width": 900
+    },
+    {
+      "wallId": "w2",
+      "position": 0.8392857142857143,
+      "kind": "window",
+      "width": 1800
+    },
+    {
+      "wallId": "w2",
+      "position": 0.5,
+      "kind": "window",
+      "width": 1800
+    },
+    {
+      "wallId": "w2",
+      "position": 0.32142857142857145,
+      "kind": "window",
+      "width": 1800
+    },
+    {
+      "wallId": "w0",
+      "position": 0.16071428571428573,
+      "kind": "window",
+      "width": 1500
+    },
+    {
+      "wallId": "w1",
+      "position": 0.3125,
+      "kind": "window",
+      "width": 1500
+    },
+    {
+      "wallId": "w1",
+      "position": 0.6875,
+      "kind": "window",
+      "width": 1500
+    }
+  ],
+  "rooms": [
+    {
+      "name": "Meeting room",
+      "polygon": [
+        {
+          "x": 0,
+          "y": 4500
+        },
+        {
+          "x": 4500,
+          "y": 4500
+        },
+        {
+          "x": 4500,
+          "y": 8000
+        },
+        {
+          "x": 0,
+          "y": 8000
+        }
+      ]
+    },
+    {
+      "name": "Office",
+      "polygon": [
+        {
+          "x": 0,
+          "y": 0
+        },
+        {
+          "x": 4500,
+          "y": 0
+        },
+        {
+          "x": 4500,
+          "y": 4500
+        },
+        {
+          "x": 0,
+          "y": 4500
+        }
+      ]
+    },
+    {
+      "name": "Open plan",
+      "polygon": [
+        {
+          "x": 4500,
+          "y": 0
+        },
+        {
+          "x": 11000,
+          "y": 0
+        },
+        {
+          "x": 11000,
+          "y": 8000
+        },
+        {
+          "x": 4500,
+          "y": 8000
+        }
+      ]
+    },
+    {
+      "name": "Kitchenette",
+      "polygon": [
+        {
+          "x": 11000,
+          "y": 5500
+        },
+        {
+          "x": 14000,
+          "y": 5500
+        },
+        {
+          "x": 14000,
+          "y": 8000
+        },
+        {
+          "x": 11000,
+          "y": 8000
+        }
+      ]
+    },
+    {
+      "name": "Work area",
+      "polygon": [
+        {
+          "x": 11000,
+          "y": 0
+        },
+        {
+          "x": 14000,
+          "y": 0
+        },
+        {
+          "x": 14000,
+          "y": 5500
+        },
+        {
+          "x": 11000,
+          "y": 5500
+        }
+      ]
+    }
+  ],
+  "items": [
+    {
+      "position": {
+        "x": 2250,
+        "y": 6250
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "table"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 1450,
+        "y": 5400
+      },
+      "rotation": 180,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "chair"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 1450,
+        "y": 7100
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "chair"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 2250,
+        "y": 5400
+      },
+      "rotation": 180,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "chair"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 2250,
+        "y": 7100
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "chair"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 3050,
+        "y": 5400
+      },
+      "rotation": 180,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "chair"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 3050,
+        "y": 7100
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "chair"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 2250,
+        "y": 1500
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "table"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 2250,
+        "y": 2250
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "chair"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 2250,
+        "y": 4150
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "box"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 6800,
+        "y": 2150
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "table"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 8200,
+        "y": 2150
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "table"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 6800,
+        "y": 2850
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "table"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 8200,
+        "y": 2850
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "table"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 6800,
+        "y": 1450
+      },
+      "rotation": 180,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "chair"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 8200,
+        "y": 1450
+      },
+      "rotation": 180,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "chair"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 6800,
+        "y": 3550
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "chair"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 8200,
+        "y": 3550
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "chair"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 11100,
+        "y": 2150
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "table"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 12500,
+        "y": 2150
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "table"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 11100,
+        "y": 2850
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "table"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 12500,
+        "y": 2850
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "table"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 11100,
+        "y": 1450
+      },
+      "rotation": 180,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "chair"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 12500,
+        "y": 1450
+      },
+      "rotation": 180,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "chair"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 11100,
+        "y": 3550
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "chair"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 12500,
+        "y": 3550
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "chair"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 12600,
+        "y": 7550
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "box"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 12500,
+        "y": 6500
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "cylinder"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 11850,
+        "y": 6500
+      },
+      "rotation": 90,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "chair"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 13150,
+        "y": 6500
+      },
+      "rotation": 270,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "chair"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 4950,
+        "y": 7550
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "cylinder"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 13550,
+        "y": 450
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "cylinder"
+        }
+      }
+    }
+  ]
+}

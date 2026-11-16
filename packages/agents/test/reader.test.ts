@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { openAICompatible, planReader, ReaderUnavailableError } from "../src/index.js";
+import { openAIChat, planReader, ReaderUnavailableError } from "../src/index.js";
 
 function fakeFetch(replies: string[]) {
   const bodies: Record<string, unknown>[] = [];
@@ -37,7 +37,7 @@ const GOOD = JSON.stringify({
 describe("plan reader role (ADR-011 D4)", () => {
   it("sends the image with the reader-v1 prompt and returns a cleaned draft with the reader recorded", async () => {
     const { fetch, bodies } = fakeFetch([GOOD]);
-    const provider = openAICompatible(
+    const provider = openAIChat(
       { id: "local", baseUrl: "http://127.0.0.1:11434/v1", model: "qwen-vl", profile: { vision: true } },
       fetch,
     );
@@ -61,7 +61,7 @@ describe("plan reader role (ADR-011 D4)", () => {
 
   it("retries with the validation error when the first reply is not usable", async () => {
     const { fetch, bodies } = fakeFetch(['{"walls": [{"from": [1]}]}', GOOD]);
-    const provider = openAICompatible(
+    const provider = openAIChat(
       { id: "p", baseUrl: "http://x/v1", model: "m", profile: { vision: true } },
       fetch,
     );
@@ -73,7 +73,7 @@ describe("plan reader role (ADR-011 D4)", () => {
 
   it("refuses a model that is not marked as able to read images", async () => {
     const { fetch } = fakeFetch([GOOD]);
-    const provider = openAICompatible({ id: "p", baseUrl: "http://x/v1", model: "text-only" }, fetch);
+    const provider = openAIChat({ id: "p", baseUrl: "http://x/v1", model: "text-only" }, fetch);
     await expect(planReader(provider).read(IMAGE)).rejects.toBeInstanceOf(ReaderUnavailableError);
   });
 });

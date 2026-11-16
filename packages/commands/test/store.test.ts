@@ -124,3 +124,34 @@ describe("history", () => {
     expect(s.selection).toEqual([]);
   });
 });
+
+describe("plan-only changes (W-121, S-011)", () => {
+  const pattern = (value: string) => ({
+    type: "wall.modify",
+    payload: { wallId: "wall_000002", changes: { pattern: value } },
+  });
+  const thicker = { type: "wall.modify", payload: { wallId: "wall_000002", changes: { thickness: 150 } } };
+  const refOf = (refs: { type: string; id: string; aspect?: string }[] | undefined) =>
+    refs?.find((r) => r.type === "wall" && r.id === "wall_000002");
+
+  it("stay plan-only through undo and redo", () => {
+    const s = store();
+    s.apply(pattern("hatch"));
+    expect(refOf(s.undo()?.updated)).toEqual({ type: "wall", id: "wall_000002", aspect: "plan" });
+    expect(s.project.walls.find((w) => w.id === "wall_000002")?.pattern).toBe("solid");
+    expect(refOf(s.redo()?.updated)).toEqual({ type: "wall", id: "wall_000002", aspect: "plan" });
+  });
+
+  it("give way to a whole change of the same wall in one transaction, whichever comes first", () => {
+    for (const commands of [
+      [pattern("hatch"), thicker],
+      [thicker, pattern("hatch")],
+    ]) {
+      const t = store().transaction("edit", commands);
+      expect(t.ok).toBe(true);
+      if (t.ok) expect(refOf(t.entry?.changes.updated)).toEqual({ type: "wall", id: "wall_000002" });
+    }
+    const alone = store().transaction("edit", [pattern("hatch"), pattern("outline")]);
+    if (alone.ok) expect(refOf(alone.entry?.changes.updated)?.aspect).toBe("plan");
+  });
+});

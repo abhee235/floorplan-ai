@@ -1,7 +1,7 @@
 // A fresh host session for one evaluation run: an empty project, the seed catalog in memory, the core AV rules
 // pack, plan files read relative to the repository root, and exports kept in memory.
 import { fileURLToPath } from "node:url";
-import { AV_CORE, ensureSeed } from "@fpv/catalog";
+import { CORE_RULES, ensureSeed } from "@fpv/catalog";
 import { CatalogStore } from "@fpv/catalog/store";
 import type { ExportWriter } from "@fpv/tools";
 import { FilePlanReader } from "../../apps/host/src/plans.js";
@@ -26,7 +26,7 @@ export function evalSession(now: () => string = () => new Date().toISOString()):
   const session = createSession({
     now,
     catalog,
-    rules: AV_CORE,
+    rules: CORE_RULES,
     writer,
     plans: new FilePlanReader({ baseDir: () => REPO_ROOT }),
   });

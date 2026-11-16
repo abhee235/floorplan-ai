@@ -23,6 +23,16 @@ export interface Editor {
   setOption: (toolId: ToolId, optionId: string, value: string | number | boolean) => void;
   /** Opens the command palette. */
   openPalette: () => void;
+  /** The projects this installation has opened lately, for File ▸ Open recent (ADR-020 D1). */
+  recent: { projectId: string; name: string; lastOpenedAt: string }[];
+  /** Opens one of them by id; there are no paths anywhere in the editor (ADR-021). */
+  openRecent: (projectId: string) => void;
+  /** Every project this host has open (ADR-020 D4), for the switcher. */
+  open: { projectId: string; name: string; address: string | null }[];
+  /** Which of them this tab is looking at. */
+  currentProject: string;
+  /** Look at another of them; nothing is closed and nothing is lost. */
+  switchProject: (projectId: string) => void;
   /** What a snap caught, or what is being drawn, for the status bar. */
   snap: string;
   setSnap: (text: string) => void;

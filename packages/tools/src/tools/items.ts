@@ -1,13 +1,14 @@
-// Item tools (spec 04 section 5): place_item, modify_item, arrange.
+// Item tools (spec 04 section 5): place_item, modify_item, finish_item, arrange.
+import { itemMaterialSlots } from "@fpv/commands";
 import { doorSwingZones } from "@fpv/geometry";
 import type { Item, Point, Project, Zone } from "@fpv/ir";
-import { derive, PrimitiveRecipe, poly } from "@fpv/ir";
+import { derive, FINISH_NAMES, finishNameOf, PrimitiveRecipe, poly } from "@fpv/ir";
 import { z } from "zod";
 import { type CatalogSearch, sizesFor } from "../context.js";
 import { invalidArg, ToolError } from "../envelope.js";
 import { defineTool, type ToolCall } from "../registry.js";
 import { ItemViewS, itemView } from "../views.js";
-import { roomOrThrow, run } from "./structure.js";
+import { dress, HexS, roomOrThrow, run, runAll } from "./structure.js";
 
 const PointS = z.object({ x: z.number(), y: z.number() });
 const CompassS = z.enum(["north", "south", "east", "west"]);
@@ -27,6 +28,10 @@ const ANCHOR_WORDS = new Set([
 /** Parse the anchor string of place_item into the command's anchor union. */
 export function parseAnchor(anchor: string): unknown {
   if (ANCHOR_WORDS.has(anchor)) return anchor;
+  // "east" is what a model writes when it means against the east wall, and a live run lost a batch
+  // of eleven placements to it. A corner still has to be named as one: "east-corner" is two walls.
+  const side = /^(north|south|east|west)(-wall)?$/.exec(anchor);
+  if (side) return `against-${side[1]}-wall`;
   const along = /^along-wall:([a-z0-9_]+)@(\d+)$/.exec(anchor);
   if (along) return { alongWall: along[1], atMm: Number(along[2]) };
   const on = /^on:([a-z0-9_]+)$/.exec(anchor);
@@ -90,6 +95,76 @@ function levelFor(p: Project, roomId: string | undefined, explicit: string | und
   return derive.lowestLevel(p).id;
 }
 
+/** The recipe a "recipe:<kind>[:<variant>]:<w>x<d>x<h>" name describes, or null when it names none. */
+export function recipeNamed(name: string): PrimitiveRecipe | null {
+  const m = /^recipe:([a-z-]+)(?::([a-z-]+))?:(\d+)x(\d+)x(\d+)$/i.exec(name.trim());
+  if (!m) return null;
+  const [, kind, variant, w, d, h] = m;
+  const size = { w: Number(w), d: Number(d), h: Number(h) };
+  const candidate =
+    kind === "table"
+      ? { kind, size, shape: variant ?? "rect" }
+      : kind === "box"
+        ? { kind, size, label: variant ?? "box" }
+        : kind === "cylinder"
+          ? { kind, diameter: size.w, height: size.h, label: variant ?? "cylinder" }
+          : { kind, size };
+  const parsed = PrimitiveRecipe.safeParse(candidate);
+  return parsed.success ? parsed.data : null;
+}
+
+interface PlaceArgs {
+  productId?: string | undefined;
+  recipe?: PrimitiveRecipe | undefined;
+  x?: number | undefined;
+  y?: number | undefined;
+  roomId?: string | undefined;
+  levelId?: string | undefined;
+  anchor?: string | undefined;
+  mount?: { kind: string; targetId?: string | undefined; height?: number | undefined } | undefined;
+}
+
+/**
+ * Read what a model means rather than what it typed. Models that fill every field of a tool send ""
+ * for the ones they do not use, a floor mount with a target, a recipe with a made-up productId, and
+ * an anchor beside x and y. A live run had all twenty pieces of furniture refused on these, one field
+ * at a time, and finished with none placed. Each is taken as the plain reading, and the model is told.
+ */
+function forgiving<A extends PlaceArgs>(args: A, warn: (message: string) => void): A {
+  const out: A = { ...args };
+  for (const key of ["productId", "roomId", "levelId", "anchor"] as const)
+    if (out[key] === "") delete out[key];
+  if (out.mount) {
+    const mount = { ...out.mount };
+    if (mount.targetId === "") delete mount.targetId;
+    if (mount.kind === "floor" && mount.targetId !== undefined) {
+      warn(`a floor mount stands on the floor, so targetId ${mount.targetId} was ignored`);
+      delete mount.targetId;
+    }
+    out.mount = mount;
+  }
+  // "recipe:table:boat:3600x1400x750" on its own names a recipe as place_item reports one back; a live
+  // copy sent that as the productId, with no recipe, and was refused. It is read as the recipe it names.
+  if (!out.recipe && out.productId?.startsWith("recipe:")) {
+    const named = recipeNamed(out.productId);
+    if (named) {
+      warn(`${out.productId} is not a product; it was read as the recipe it names`);
+      out.recipe = named;
+      delete out.productId;
+    }
+  }
+  // A catalog product beside a recipe is a real choice, and is still refused; "recipe:..." is not.
+  if (out.recipe && out.productId?.startsWith("recipe:")) {
+    warn(`${out.productId} is not a product; the recipe was used`);
+    delete out.productId;
+  }
+  if (out.x !== undefined && out.y !== undefined && out.anchor !== undefined) {
+    warn(`x and y were given, so anchor ${out.anchor} was ignored`);
+    delete out.anchor;
+  }
+  return out;
+}
+
 export const placeItem = defineTool({
   name: "place_item",
   description:
@@ -126,14 +201,51 @@ export const placeItem = defineTool({
   }),
   output: z.object({ item: ItemViewS, adjusted: z.boolean() }),
   run(args, call) {
+    args = forgiving(args, call.warn);
     const p0 = call.ctx.store.project;
     const ref = itemRefFor(call.ctx.catalog, args.productId, args.recipe);
     const hasXY = args.x !== undefined && args.y !== undefined;
+    // A mount on another item says where the thing goes: on that item. A real run put a display on a
+    // table this way, was told to give x and y or an anchor, and sent the same call twice more,
+    // because nothing said that "on:<itemId>" was the anchor it had already described.
+    const onto =
+      !hasXY &&
+      !args.anchor &&
+      args.mount?.targetId &&
+      (args.mount.kind === "table" || args.mount.kind === "item")
+        ? p0.items.find((i) => i.id === args.mount?.targetId)
+        : undefined;
+    if (onto && args.roomId && onto.roomId && onto.roomId !== args.roomId) {
+      const there = p0.rooms.find((r) => r.id === onto.roomId);
+      throw invalidArg(
+        "mount",
+        `${onto.id} is in ${there?.name ?? onto.roomId}, not in the room you named`,
+        "stand it on something in this room, or leave roomId out to follow the item",
+      );
+    }
+    if (onto) {
+      args = {
+        ...args,
+        anchor: `on:${onto.id}`,
+        ...(onto.roomId ? { roomId: args.roomId ?? onto.roomId } : {}),
+      };
+    }
+    // A room and nothing else: the middle of it is the obvious place, as a door onto the corridor is
+    // the obvious door. A live run placed a server rack with a room and no anchor four times in one
+    // step, was refused four times, and the run ended stalled with the rack nowhere.
+    if (!hasXY && args.roomId && !args.anchor && !args.mount?.targetId) {
+      args = { ...args, anchor: "center" };
+      call.warn(
+        `no position was given, so it stands in the middle of ${args.roomId}; anchor 'against-north-wall', a corner such as 'north-east-corner', or x and y puts it elsewhere`,
+      );
+    }
     if (!hasXY && !(args.roomId && args.anchor))
       throw invalidArg(
         "position",
         "give x and y, or roomId and anchor",
-        "e.g. roomId: 'room_000001', anchor: 'center'",
+        args.mount?.targetId
+          ? `to stand it on ${args.mount.targetId}, give anchor 'on:${args.mount.targetId}'`
+          : "e.g. roomId: 'room_000001', anchor: 'center'",
       );
     const levelId = levelFor(p0, args.roomId, args.levelId);
     const payload: Record<string, unknown> = { levelId, ref };
@@ -158,6 +270,18 @@ export const placeItem = defineTool({
     return { item: itemView(p, item, sizes, call.ctx.catalog), adjusted };
   },
 });
+
+export function itemOrThrow(p: Project, id: string): Item {
+  const it = p.items.find((i) => i.id === id);
+  if (!it)
+    throw new ToolError(
+      "ref.missing",
+      `item "${id}" does not resolve`,
+      null,
+      "use get_scene with types ['item']",
+    );
+  return it;
+}
 
 export const modifyItem = defineTool({
   name: "modify_item",
@@ -192,14 +316,7 @@ export const modifyItem = defineTool({
   output: z.object({ item: ItemViewS, descendants: z.array(ItemViewS) }),
   run(args, call) {
     const p0 = call.ctx.store.project;
-    const it = p0.items.find((i) => i.id === args.itemId);
-    if (!it)
-      throw new ToolError(
-        "ref.missing",
-        `item "${args.itemId}" does not resolve`,
-        null,
-        "use get_scene with types ['item']",
-      );
+    const it = itemOrThrow(p0, args.itemId);
     const commands: unknown[] = [];
     const ids = [it.id];
     if (args.x !== undefined || args.y !== undefined) {
@@ -230,7 +347,7 @@ export const modifyItem = defineTool({
       commands.push({ type: "item.mirror", payload: { itemIds: ids } });
     if (args.tags !== undefined) call.warn("tags cannot be changed after placement yet; ignored");
     if (commands.length === 0) throw invalidArg("changes", "give at least one field to change");
-    const t = call.ctx.store.transaction("modify_item", commands, "agent");
+    const t = call.ctx.store.transaction("modify_item", commands, call.origin);
     if (!t.ok) throw new ToolError(t.error.code, t.error.message, t.error.entityId, t.error.hint);
     call.changed(t.entry?.changes ?? null);
     const p = call.ctx.store.project;
@@ -240,6 +357,93 @@ export const modifyItem = defineTool({
     return {
       item: itemView(p, item, sizes, call.ctx.catalog),
       descendants: descendants.map((d) => itemView(p, d, sizes, call.ctx.catalog)),
+    };
+  },
+});
+
+const PartFinishS = z.object({
+  itemId: z.string(),
+  part: z.string(),
+  colour: z.string().nullable(),
+  texture: z.string().nullable(),
+  finish: z.string(),
+  /** False when the part carries no finish of its own and follows the item's. */
+  own: z.boolean(),
+});
+
+/**
+ * Every part an item is drawn in and how each is dressed now.
+ *
+ * Reported by finish_item because the part names are otherwise undiscoverable: they come from the
+ * recipe behind a product's category, not from anything the model can see. A call that names no part
+ * dresses the whole item and answers with the list, so one call teaches the next.
+ */
+function partFinishes(p: Project, it: Item): z.infer<typeof PartFinishS>[] {
+  const slots = itemMaterialSlots(p, it) ?? [];
+  return slots.map((part) => {
+    const own = it.materials[part] ?? null;
+    const f = own ?? it.finish;
+    return {
+      itemId: it.id,
+      part,
+      colour: f?.color ?? null,
+      texture: f?.textureId ?? null,
+      finish: finishNameOf(f?.shininess ?? null),
+      own: own !== null,
+    };
+  });
+}
+
+export const finishItem = defineTool({
+  name: "finish_item",
+  description:
+    "Paint or texture items, or one part of them: a chair's fabric or frame, a table's top or legs. Give part to dress that part alone, or leave it out to dress the whole item, which every part without a finish of its own follows. A part given anything of its own stops following the item, so to keep the item's colour on a part, give that colour to the part as well. colour is hex (#RRGGBB or #RGB) or null for the default; texture is a texture id from search_catalog, or null for paint; finish is matt, satin or gloss. The answer lists every part of every item, with `own` saying which parts carry a finish of their own, and is how the part names are learnt.",
+  tier: "primitive",
+  mutating: true,
+  input: z.object({
+    itemIds: z.array(z.string()).min(1).describe("one or more items, e.g. ['item_0000a1']"),
+    part: z
+      .string()
+      .optional()
+      .describe("a part name such as fabric, frame, top or legs; omit for the whole item"),
+    colour: HexS.nullable().optional(),
+    texture: z.string().nullable().optional().describe("a texture id from search_catalog, or null for paint"),
+    finish: z.enum(FINISH_NAMES as [string, ...string[]]).optional(),
+  }),
+  output: z.object({ items: z.array(ItemViewS), parts: z.array(PartFinishS) }),
+  run(args, call) {
+    const { itemIds, part, ...fields } = args;
+    if (Object.values(fields).every((v) => v === undefined))
+      throw invalidArg("colour", "give at least one of colour, texture, finish");
+    const p0 = call.ctx.store.project;
+    // One command per item rather than one for all: each is dressed from its own current finish, so a
+    // colour given to a mixed set changes the colour and leaves each item's texture and sheen alone.
+    const commands = itemIds.map((id) => {
+      const it = itemOrThrow(p0, id);
+      if (part === undefined)
+        return { type: "item.setFinish", payload: { itemIds: [it.id], finish: dress(it.finish, fields) } };
+      const slots = itemMaterialSlots(p0, it);
+      if (slots && !slots.includes(part))
+        throw new ToolError(
+          "item.material-slot",
+          `"${part}" is not a part of ${it.id}`,
+          it.id,
+          slots.length
+            ? `its parts are ${slots.join(", ")}`
+            : "this item has no named parts; dress it without a part",
+        );
+      return {
+        type: "item.setFinish",
+        payload: { itemIds: [it.id], materials: { [part]: dress(it.materials[part], fields) } },
+      };
+    });
+    runAll(call, "finish_item", commands);
+    const p = call.ctx.store.project;
+    const sizes = sizesFor(p, call.ctx.catalog);
+    const after = itemIds.map((id) => itemOrThrow(p, id));
+    return {
+      items: after.map((it) => itemView(p, it, sizes, call.ctx.catalog)),
+      parts: after.flatMap((it) => partFinishes(p, it)),
     };
   },
 });
@@ -254,13 +458,13 @@ const COMPASS_DEG: Record<"north" | "west" | "south" | "east", number> = {
 export const arrange = defineTool({
   name: "arrange",
   description:
-    "Fill a room or zone with a pattern: 'grid', 'rows', 'bench' (desks back to back), 'boardroom' (one table, chairs around), 'u-shape', 'classroom'. count is the number of items requested; the result says how many fit.",
+    "Fill a room or zone with ONE product in a pattern: 'grid', 'rows', or 'bench' (rows in back-to-back pairs). It places that product only, so two arrange calls make two unrelated grids; for desks with their chairs use furnish_room with recipe 'open-office', and for chairs around a table furnish_room with 'meeting', 'boardroom' or 'huddle'. To redo a zone, call again with its zoneId and replace: true. count is the number requested; the result says how many fit.",
   tier: "both",
   mutating: true,
   input: z.object({
     roomId: z.string().optional(),
     zoneId: z.string().optional(),
-    pattern: z.enum(["grid", "rows", "u-shape", "boardroom", "classroom", "bench"]),
+    pattern: z.enum(["grid", "rows", "bench"]),
     productId: z.string().optional(),
     recipe: PrimitiveRecipe.optional(),
     count: z.number().int().min(1).describe("items requested, e.g. 12"),

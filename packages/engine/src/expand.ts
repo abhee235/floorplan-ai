@@ -79,6 +79,11 @@ export function expand(
   const rows = (ref: Ref, removed: boolean) => {
     switch (ref.type) {
       case "wall":
+        // How the plan fills the wall is the plan's alone: redraw it, build nothing (W-121, S-011).
+        if (ref.aspect === "plan" && !removed) {
+          into.layers.add("structure");
+          break;
+        }
         touchWall(ref.id);
         if (removed) into.layers.add("structure");
         break;
@@ -108,6 +113,9 @@ export function expand(
         const z = zones.get(ref.id);
         for (const id of z?.generatedItemIds ?? []) into.items.add(id);
         into.layers.add("items");
+        // The plan draws the zone's own ring and name on the overlay (P3-6), so moving or renaming one
+        // has to redraw that layer as well as rebuilding whatever it generated.
+        into.layers.add("overlay");
         break;
       }
       case "level": {

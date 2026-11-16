@@ -1,0 +1,18 @@
+{
+  "id": "plan-from-image-live",
+  "title": "A plan handed over as a picture, read and built through a live host",
+  "task": "Here is a floor plan as a PNG. Read it into this project: import it, settle its scale, commit it, then check what you drew and tell me what is in it. The drawing is in millimetres.",
+  "maxSteps": 60,
+  "attach": { "path": "tools/fixtures/plans-raster/office-mm.png", "mime": "image/png" },
+  "answers": {
+    "*": "yes"
+  },
+  "read": { "walls": 6, "rooms": 3, "openings": 8 },
+  "expect": {
+    "maxValidationErrors": 0,
+    "calls": {
+      "must": ["import_plan"],
+      "never": ["create_walls"]
+    }
+  }
+}

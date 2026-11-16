@@ -4,7 +4,13 @@
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Completion, CompletionRequest, Provider, ToolCall } from "@fpv/agents";
+import {
+  type Completion,
+  type CompletionRequest,
+  type Provider,
+  type ToolCall,
+  toolResultOf,
+} from "@fpv/agents";
 import { describe, expect, it } from "vitest";
 import { runAgentTask } from "../../apps/host/src/agent.js";
 import { loadCards, mergeRunsSection, renderRunsTable, scoreCard } from "../eval/cards.js";
@@ -47,8 +53,8 @@ const call = (name: string, args: unknown): ToolCall => ({
 
 /** The result of the latest tool message in a request. */
 const lastResult = (req: CompletionRequest) => {
-  const msg = [...req.messages].reverse().find((m) => m.role === "tool");
-  return JSON.parse(String(msg?.content ?? "{}")) as { result?: Record<string, unknown> };
+  const msg = [...req.messages].reverse().find((m) => toolResultOf(m) !== null);
+  return JSON.parse((msg && toolResultOf(msg)?.content) ?? "{}") as { result?: Record<string, unknown> };
 };
 
 describe("agent evaluation harness (PRD P1-7, P1-8)", () => {
@@ -104,7 +110,7 @@ describe("agent evaluation harness (PRD P1-7, P1-8)", () => {
       });
       expect(lines[0].tools).toContain("create_room_from_brief");
       expect(lines.at(-1)).toMatchObject({ type: "done", reason: "done", steps: 5 });
-      expect(lines.filter((l) => l.type === "tool").map((l) => l.name)).toEqual([
+      expect(lines.filter((l) => l.type === "tool.finished").map((l) => l.name)).toEqual([
         "get_scene",
         "create_room_from_brief",
         "validate",

@@ -5,8 +5,10 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { extname, join, normalize, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
-import { Bridge } from "./bridge.js";
+import type { AgentRuns } from "./agent-runs.js";
+import { Bridge, type RecentEntry } from "./bridge.js";
 import type { Session } from "./session.js";
+import { Workspace } from "./workspace.js";
 
 export const DEFAULT_PORT = 4310;
 
@@ -28,7 +30,12 @@ export interface ServeOptions {
   host?: string;
   /** Directory with the built web app (apps/web/dist by default). */
   webDir?: string;
-  projectPath?: () => string | null;
+  /** Texture images by id, served at /textures/<id> for the viewer (P3-5). */
+  textures?: (id: string) => { bytes: Uint8Array; type: string } | null;
+  /** Everything in this installation's library, newest first; read fresh on every request. */
+  library?: () => RecentEntry[];
+  /** The in-app agent (ADR-022); without one the editor is told there is none. */
+  agent?: AgentRuns | null;
 }
 
 export interface Served {
@@ -63,6 +70,14 @@ function serveStatic(webDir: string, req: IncomingMessage, res: ServerResponse):
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(NOT_BUILT);
       return;
     }
+    // A project's URL is `/p/<id>` (ADR-020 D2), which is not a file and never will be: the address
+    // names a project, and the app resolves it once it is running. Anything without an extension is a
+    // route and gets the app; anything with one is a missing asset and stays a 404, so a mistyped
+    // script name fails loudly instead of being answered with a page.
+    if (!extname(path)) {
+      serveStatic(webDir, { ...req, url: "/index.html" } as IncomingMessage, res);
+      return;
+    }
     res.writeHead(404, { "content-type": "text/plain" }).end("not found");
     return;
   }
@@ -73,14 +88,45 @@ function serveStatic(webDir: string, req: IncomingMessage, res: ServerResponse):
   createReadStream(file).pipe(res);
 }
 
-/** Start serving the session: static web app plus `/bridge`. Resolves once listening. */
-export function serve(session: Session, options: ServeOptions = {}): Promise<Served> {
+/** A texture image: `/textures/<library>/<slug>`, the texture's catalog id after the prefix. */
+function serveTexture(textures: ServeOptions["textures"], req: IncomingMessage, res: ServerResponse): void {
+  const url = new URL(req.url ?? "/", "http://localhost");
+  const id = decodeURIComponent(url.pathname.slice("/textures/".length));
+  const image = /^[a-z0-9-]+\/[a-z0-9-]+$/.test(id) ? textures?.(id) : null;
+  if (!image) {
+    res.writeHead(404, { "content-type": "text/plain" }).end(`no texture ${id}`);
+    return;
+  }
+  res
+    .writeHead(200, {
+      "content-type": image.type,
+      "content-length": image.bytes.byteLength,
+      "cache-control": "no-cache",
+    })
+    .end(image.bytes);
+}
+
+/**
+ * Start serving: the static web app, plus `/bridge`.
+ *
+ * Takes a workspace of several projects, or one session — a host that opened a single project, and
+ * every test that only cares about one, is a workspace of one (ADR-020 D4).
+ */
+export function serve(target: Session | Workspace, options: ServeOptions = {}): Promise<Served> {
   const webDir = resolve(options.webDir ?? defaultWebDir());
   const host = options.host ?? "127.0.0.1";
-  const bridge = new Bridge(session, options.projectPath ?? (() => null));
+  const workspace = target instanceof Workspace ? target : Workspace.of(target);
+  const bridge = new Bridge(workspace, {
+    ...(options.library ? { library: options.library } : {}),
+    ...(options.agent ? { agent: options.agent } : {}),
+  });
   const server = createServer((req, res) => {
     if (req.url?.startsWith("/bridge")) {
       res.writeHead(426, { "content-type": "text/plain" }).end("websocket only");
+      return;
+    }
+    if (req.url?.startsWith("/textures/")) {
+      serveTexture(options.textures, req, res);
       return;
     }
     serveStatic(webDir, req, res);

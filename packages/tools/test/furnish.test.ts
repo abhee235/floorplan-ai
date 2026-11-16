@@ -85,9 +85,9 @@ async function checks(h: H) {
 }
 
 describe("room recipes (spec 07 section 4)", () => {
-  it("the core pack's three recipes are valid and chosen by purpose and capacity", () => {
+  it("the core pack's recipes are valid and chosen by purpose and capacity", () => {
     expect(validatePack(AV_CORE).problems).toEqual([]);
-    expect(AV_CORE.recipes.map((r) => r.id)).toEqual(["huddle", "boardroom", "training"]);
+    expect(AV_CORE.recipes.map((r) => r.id).slice(0, 3)).toEqual(["huddle", "boardroom", "training"]);
     const room = (purpose: string, capacity: number | null) =>
       ({
         purpose,
@@ -101,11 +101,13 @@ describe("room recipes (spec 07 section 4)", () => {
         holes: [],
       }) as never;
     expect(pickRecipe(AV_CORE, room("boardroom", 10)).id).toBe("boardroom");
-    expect(pickRecipe(AV_CORE, room("meeting", 4)).id).toBe("huddle");
+    // a meeting room has a recipe of its own now (ADR-027 D7); a two-seat one is a huddle
+    expect(pickRecipe(AV_CORE, room("meeting", 4)).id).toBe("meeting");
+    expect(pickRecipe(AV_CORE, room("meeting", 2)).id).toBe("huddle");
     expect(pickRecipe(AV_CORE, room("other", 30)).id).toBe("training");
     expect(pickRecipe(AV_CORE, room("boardroom", 80)).id).toBe("training");
-    // no capacity: 30 m² at 3 m² a seat is 10 seats, in the boardroom range
-    expect(pickRecipe(AV_CORE, room("meeting", null)).id).toBe("boardroom");
+    // no capacity: 30 m² at 3 m² a seat is 10 seats, in the meeting range
+    expect(pickRecipe(AV_CORE, room("meeting", null)).id).toBe("meeting");
     expect(pickRecipe(AV_CORE, room("meeting", 4), "training").id).toBe("training");
     expect(() => pickRecipe(AV_CORE, room("meeting", 4), "cafe")).toThrow(
       'recipe "cafe" is not in the rules pack',
@@ -240,7 +242,7 @@ describe("furnish_room (spec 04 section 6)", () => {
     if (!bad.ok)
       expect(bad.error).toMatchObject({
         code: "recipe.unknown",
-        hint: "use one of huddle, boardroom, training",
+        hint: "use one of huddle, boardroom, training, meeting, open-office, cafeteria, reception",
       });
   });
 });

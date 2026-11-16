@@ -1,8 +1,21 @@
 // Structure tools (spec 04 section 4): walls, openings, rooms. Each maps onto one command or one
 // atomic transaction and echoes the resolved geometry.
 import type { ApplyResult, Ref } from "@fpv/commands";
-import type { Opening, Project, Room, Wall } from "@fpv/ir";
-import { derive, idType } from "@fpv/ir";
+import type { FinishRef, Opening, Project, Room, Wall } from "@fpv/ir";
+import {
+  blankFinish,
+  DEFAULTS,
+  derive,
+  FINISH_NAMES,
+  FINISH_SHININESS,
+  idType,
+  parseHexColour,
+  RoomPurpose,
+  SKIRTING_DEPTH,
+  SKIRTING_DEPTH_RANGE,
+  tidyFinish,
+  WallPattern,
+} from "@fpv/ir";
 import { z } from "zod";
 import { sizesFor } from "../context.js";
 import { invalidArg, ToolError } from "../envelope.js";
@@ -15,7 +28,7 @@ const RefS = z.object({ type: z.string(), id: z.string() });
 
 /** Apply one command through the store as the agent; failures become tool errors. */
 export function run(call: ToolCall, command: unknown): Extract<ApplyResult, { ok: true }> {
-  const r = call.ctx.store.apply(command, "agent");
+  const r = call.ctx.store.apply(command, call.origin);
   if (!r.ok) throw new ToolError(r.error.code, r.error.message, r.error.entityId, r.error.hint);
   for (const w of r.warnings) call.warn(w);
   call.changed(r.changes);
@@ -28,7 +41,7 @@ export function runAll(
   label: string,
   commands: unknown[],
 ): Extract<ApplyResult, { ok: true }>[] {
-  const t = call.ctx.store.transaction(label, commands, "agent");
+  const t = call.ctx.store.transaction(label, commands, call.origin);
   if (!t.ok)
     throw new ToolError(
       t.error.code,
@@ -40,6 +53,18 @@ export function runAll(
   for (const r of oks) for (const w of r.warnings) call.warn(w);
   call.changed(t.entry?.changes ?? null);
   return oks;
+}
+
+export function openingOrThrow(p: Project, id: string): Opening {
+  const o = p.openings.find((x) => x.id === id);
+  if (!o)
+    throw new ToolError(
+      "ref.missing",
+      `opening "${id}" does not resolve`,
+      null,
+      "use get_scene with types ['opening']",
+    );
+  return o;
 }
 
 export function wallOrThrow(p: Project, id: string): Wall {
@@ -96,7 +121,7 @@ export const createWalls = defineTool({
 export const modifyWall = defineTool({
   name: "modify_wall",
   description:
-    "Change one wall: move its start or end (joined neighbours follow), or set thickness, height, heightAtEnd (sloped top), arcExtent (degrees, positive bulges left) or kind. Returns the wall and every wall that changed with it.",
+    "Change one wall: move its start or end (joined neighbours follow), or set thickness, height, heightAtEnd (sloped top), arcExtent (degrees, positive bulges left), kind, or pattern (how the plan fills it: solid, hatch, cross-hatch or outline). Returns the wall and every wall that changed with it.",
   tier: "primitive",
   mutating: true,
   input: z.object({
@@ -108,6 +133,7 @@ export const modifyWall = defineTool({
     heightAtEnd: z.number().int().positive().nullable().optional(),
     arcExtent: z.number().min(-270).max(270).nullable().optional(),
     kind: z.enum(["exterior", "interior", "partition", "glass"]).optional(),
+    pattern: WallPattern.optional(),
   }),
   output: z.object({ wall: WallViewS, affected: z.array(WallViewS) }),
   run(args, call) {
@@ -119,6 +145,242 @@ export const modifyWall = defineTool({
       .filter((x: Ref) => x.type === "wall" && x.id !== wallId)
       .map((x: Ref) => wallView(p, wallOrThrow(p, x.id)));
     return { wall: wallView(p, wallOrThrow(p, wallId)), affected };
+  },
+});
+
+export const HexS = z
+  .string()
+  .refine((v) => parseHexColour(v) !== null, "a colour is hex, e.g. #E8E6E1 or #FFF")
+  .describe("hex colour, e.g. #E8E6E1");
+const hex = (value: string): string => parseHexColour(value) as string;
+
+/**
+ * Paint a wall face and give it a baseboard (ADR-006 D3: compass words, not left and right). A model cannot
+ * see which side of a wall is its left, but describe_room and get_scene say which way each face looks, so
+ * the face is named the same way here. Only the fields given change; everything goes in one command.
+ */
+export const finishWall = defineTool({
+  name: "finish_wall",
+  description:
+    "Paint a wall face and set its baseboard. face is the compass direction the face looks toward (get_scene lists them under compass) or 'both'. colour is hex (#RRGGBB or #RGB) or null for the default; finish is matt, satin or gloss. baseboardHeight in mm, null removes the baseboard; baseboardDepth in mm (default 12); baseboardColour is hex or null to follow the face. Only the fields you give change.",
+  tier: "primitive",
+  mutating: true,
+  input: z.object({
+    wallId: z.string(),
+    face: z.enum(["north", "south", "east", "west", "both"]),
+    colour: HexS.nullable().optional(),
+    finish: z.enum(FINISH_NAMES as [string, ...string[]]).optional(),
+    texture: z.string().nullable().optional().describe("a texture id from search_catalog, or null for paint"),
+    baseboardHeight: z.number().int().positive().nullable().optional().describe("mm, e.g. 100"),
+    baseboardDepth: z.number().int().positive().optional().describe("mm, e.g. 12"),
+    baseboardColour: HexS.nullable().optional(),
+  }),
+  output: z.object({ wall: WallViewS }),
+  run(args, call) {
+    const { wallId, face, ...fields } = args;
+    if (Object.values(fields).every((v) => v === undefined))
+      throw invalidArg(
+        "face",
+        "give at least one of colour, texture, finish, baseboardHeight, baseboardDepth, baseboardColour",
+      );
+    const p = call.ctx.store.project;
+    const w = wallOrThrow(p, wallId);
+    const facing = {
+      left: derive.wallCompassSide(w, "left", p.meta.north),
+      right: derive.wallCompassSide(w, "right", p.meta.north),
+    };
+    const sides = (["left", "right"] as const).filter((s) => face === "both" || facing[s] === face);
+    if (sides.length === 0)
+      throw new ToolError(
+        "wall.face",
+        `wall ${wallId} has no face looking ${face}`,
+        wallId,
+        `its faces look ${facing.left} and ${facing.right}; use one of those or both`,
+      );
+    const level = derive.levelOf(p, w.levelId) ?? derive.lowestLevel(p);
+    const tallest = Math.round(derive.wallMaxHeight(w, level));
+    if (fields.baseboardHeight != null && fields.baseboardHeight > tallest)
+      throw invalidArg(
+        "baseboardHeight",
+        `at most the wall's height, ${tallest} mm; got ${fields.baseboardHeight}`,
+      );
+    const depth = fields.baseboardDepth;
+    if (depth !== undefined && (depth < SKIRTING_DEPTH_RANGE.min || depth > SKIRTING_DEPTH_RANGE.max))
+      throw invalidArg(
+        "baseboardDepth",
+        `from ${SKIRTING_DEPTH_RANGE.min} to ${SKIRTING_DEPTH_RANGE.max} mm; got ${depth}`,
+      );
+
+    const finishes = { ...w.finishes };
+    const skirting = { ...w.skirting };
+    for (const s of sides) {
+      if (fields.colour !== undefined || fields.finish !== undefined || fields.texture !== undefined) {
+        finishes[s] = dress(w.finishes[s], fields);
+      }
+      const board = w.skirting[s];
+      if (fields.baseboardHeight === null) {
+        skirting[s] = null;
+        continue;
+      }
+      if (!board && fields.baseboardHeight === undefined) {
+        if (depth !== undefined || fields.baseboardColour !== undefined)
+          throw invalidArg(
+            "baseboardHeight",
+            `the ${facing[s]} face has no baseboard; give its height to add one`,
+          );
+        continue;
+      }
+      skirting[s] = {
+        height: fields.baseboardHeight ?? (board?.height as number),
+        thickness: depth ?? board?.thickness ?? SKIRTING_DEPTH,
+        color:
+          fields.baseboardColour === undefined
+            ? (board?.color ?? null)
+            : fields.baseboardColour === null
+              ? null
+              : hex(fields.baseboardColour),
+      };
+    }
+    run(call, { type: "wall.modify", payload: { wallId, changes: { finishes, skirting } } });
+    const after = call.ctx.store.project;
+    // the view lists the faces by compass, colour, finish and baseboard: what the model reads back
+    return { wall: wallView(after, wallOrThrow(after, wallId)) };
+  },
+});
+
+/**
+ * A surface's finish after a change: paint, or a texture, never both.
+ *
+ * The same rule the properties panel follows — a texture replaces the colour and a colour replaces the
+ * texture — so a surface never says one thing while the view shows another. Shared by every tool that
+ * dresses something, because three copies of it would eventually be two rules.
+ */
+export function dress(
+  current: FinishRef | null | undefined,
+  fields: {
+    colour?: string | null | undefined;
+    texture?: string | null | undefined;
+    finish?: string | undefined;
+  },
+): FinishRef | null {
+  const f = { ...(current ?? blankFinish()) };
+  if (fields.texture !== undefined) {
+    f.textureId = fields.texture;
+    if (fields.texture !== null) f.color = null;
+  }
+  if (fields.colour !== undefined) {
+    f.color = fields.colour === null ? null : hex(fields.colour);
+    if (fields.colour !== null) f.textureId = null;
+  }
+  if (fields.finish !== undefined)
+    f.shininess = FINISH_SHININESS[fields.finish as keyof typeof FINISH_SHININESS];
+  // tidyFinish drops a finish that says nothing at all, which is a surface back to its default.
+  return tidyFinish(f);
+}
+
+/**
+ * The distance along the wall to use, when an opening is placed by distance; undefined when by fraction.
+ * Models that fill in every field send both. Live runs sent atMm 0 beside a measured position, which put
+ * each door at the wall's start, and a measured atMm beside a round position such as 0.5. So atMm 0
+ * with a position is taken as left out, and any other atMm, the more exact of the two, wins.
+ */
+function alongWall(
+  args: { position?: number | undefined; atMm?: number | undefined },
+  warn: (m: string) => void,
+) {
+  if (args.atMm === undefined) return undefined;
+  if (args.position === undefined) return args.atMm;
+  if (args.atMm === 0) {
+    warn("atMm 0 was given beside position; position was used");
+    return undefined;
+  }
+  warn("position and atMm were both given; atMm was used, the more exact of the two");
+  return args.atMm;
+}
+
+export const modifyOpening = defineTool({
+  name: "modify_opening",
+  description:
+    "Change one door or window: its kind (door, window or passage), how far along its wall it sits (position 0 to 1, or atMm from the wall's start), width, height, sill in mm, whether it is mirrored, and its swing. swing is {hinge, direction} where hinge is 'start' or 'end' of the wall and direction is 'left' or 'right'; null means no swing, which is a sliding or pocket door. Turning a door into a window clears the swing; turning it back gives it one. Only the fields you give change.",
+  tier: "primitive",
+  mutating: true,
+  input: z.object({
+    openingId: z.string(),
+    kind: z.enum(["door", "window", "passage"]).optional(),
+    position: z.number().min(0).max(1).optional(),
+    atMm: z.number().min(0).optional().describe("distance from the wall's start, instead of position"),
+    width: z.number().int().positive().optional(),
+    height: z.number().int().positive().optional(),
+    sill: z.number().int().min(0).optional(),
+    mirrored: z.boolean().optional(),
+    swing: z
+      .object({ hinge: z.enum(["start", "end"]), direction: z.enum(["left", "right"]) })
+      .nullable()
+      .optional(),
+  }),
+  output: z.object({ opening: OpeningViewS }),
+  run(args, call) {
+    const { openingId, atMm: _given, ...rest } = args;
+    const atMm = alongWall(args, call.warn);
+    const changes: Record<string, unknown> = { ...rest };
+    if (atMm !== undefined) {
+      // Given as a distance, which is how a drawing states it; the store keeps a fraction.
+      const p = call.ctx.store.project;
+      const o = openingOrThrow(p, openingId);
+      const w = wallOrThrow(p, o.wallId);
+      const len = derive.wallLength(w);
+      if (len <= 0) throw invalidArg("atMm", "that wall has no length");
+      if (atMm > len)
+        throw invalidArg("atMm", `at most the wall's length, ${Math.round(len)} mm; got ${atMm}`);
+      changes.position = atMm / len;
+    }
+    if (Object.keys(changes).length === 0) throw invalidArg("changes", "give at least one field to change");
+    // Becoming a door means swinging again. The reducer clears a swing when a door becomes a window
+    // and does not give one back, so the editor's panel supplies the default and so must this: a door
+    // changed by an agent and one changed by a person should not differ.
+    if (changes.kind === "door" && changes.swing === undefined) {
+      const was = openingOrThrow(call.ctx.store.project, openingId);
+      if (!was.swing) changes.swing = { hinge: "start", direction: "left" };
+    }
+    run(call, { type: "opening.modify", payload: { openingId, changes } });
+    const after = call.ctx.store.project;
+    return { opening: openingView(after, openingOrThrow(after, openingId)) };
+  },
+});
+
+export const finishOpening = defineTool({
+  name: "finish_opening",
+  description:
+    "Paint or texture a door or window. part is 'leaf' (the door leaf or the window glazing), 'frame' (the reveal around it) or 'both'. colour is hex (#RRGGBB or #RGB) or null for the default; texture is a texture id or null for paint; finish is matt, satin or gloss. A window is glazed by default and a door has no leaf until one is given here. Only the fields you give change.",
+  tier: "primitive",
+  mutating: true,
+  input: z.object({
+    openingId: z.string(),
+    part: z.enum(["leaf", "frame", "both"]),
+    colour: HexS.nullable().optional(),
+    texture: z.string().nullable().optional().describe("a texture id from search_catalog, or null for paint"),
+    finish: z.enum(FINISH_NAMES as [string, ...string[]]).optional(),
+  }),
+  output: z.object({ opening: OpeningViewS }),
+  run(args, call) {
+    const { openingId, part, ...fields } = args;
+    if (Object.values(fields).every((v) => v === undefined))
+      throw invalidArg("part", "give at least one of colour, texture, finish");
+    const p = call.ctx.store.project;
+    const o = openingOrThrow(p, openingId);
+    if (part !== "frame" && o.kind === "passage")
+      throw new ToolError(
+        "opening.part",
+        `${openingId} is a passage, which has nothing in it to dress`,
+        openingId,
+        "a passage has a frame only; use part 'frame'",
+      );
+    const finishes = { ...o.finishes };
+    for (const slot of (["leaf", "frame"] as const).filter((x) => part === "both" || x === part))
+      finishes[slot] = dress(o.finishes[slot], fields);
+    run(call, { type: "opening.modify", payload: { openingId, changes: { finishes } } });
+    const after = call.ctx.store.project;
+    return { opening: openingView(after, openingOrThrow(after, openingId)) };
   },
 });
 
@@ -177,6 +439,71 @@ export function hingeEndFor(p: Project, w: Wall, side: "north" | "south" | "east
   );
 }
 
+const LevelViewS = z.object({
+  id: z.string(),
+  name: z.string(),
+  elevation: z.number(),
+  height: z.number(),
+  floorThickness: z.number(),
+});
+
+/**
+ * Another storey (spec 03 section 2; ledger R-103..R-105).
+ *
+ * The command has been there since phase 0 and nothing offered it to a model, so "three storeys"
+ * could not be asked for at all: every wall a model drew landed on the one level a blank project has.
+ *
+ * Elevations stack by themselves -- a new level sits on top of the highest one, at its height plus the
+ * slab -- so `count` is the whole of what a storey needs from whoever asks.
+ */
+export const addLevel = defineTool({
+  name: "add_level",
+  description:
+    "Add a storey. It sits above the highest one, at its height plus the floor slab; count adds several, each above the last. height is floor to ceiling in mm (default 2700), floorThickness the slab between storeys (default 300). sameAs copies another level's elevation instead, for a mezzanine. Walls, rooms and items belong to one level: pass the new id as levelId to create_walls, create_room and place_item.",
+  tier: "primitive",
+  mutating: true,
+  input: z.object({
+    name: z.string().optional().describe("e.g. 'First floor'; numbered from it when count is more than one"),
+    count: z.number().int().min(1).max(20).optional().describe("how many storeys to add; default 1"),
+    height: z.number().int().positive().optional().describe("floor to ceiling in mm; default 2700"),
+    floorThickness: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe("the slab between storeys in mm; default 300"),
+    sameAs: z.string().optional().describe("a level id to sit beside rather than above, for a mezzanine"),
+  }),
+  output: z.object({ levels: z.array(LevelViewS) }),
+  run(args, call) {
+    const count = args.count ?? 1;
+    const before = new Set(call.ctx.store.project.levels.map((l) => l.id));
+    const commands = Array.from({ length: count }, (_, i) => ({
+      type: "level.add",
+      payload: {
+        // One name for one storey; numbered after it for several, so a list of levels can be read.
+        ...(args.name !== undefined ? { name: count === 1 ? args.name : `${args.name} ${i + 1}` } : {}),
+        ...(args.height !== undefined ? { height: args.height } : {}),
+        ...(args.floorThickness !== undefined ? { floorThickness: args.floorThickness } : {}),
+        ...(args.sameAs !== undefined ? { sameAs: args.sameAs } : {}),
+      },
+    }));
+    runAll(call, count === 1 ? "add_level" : `add ${count} levels`, commands);
+    // By difference rather than from the results: the store sorts levels by elevation as it adds them,
+    // so the order they come back in is the building's, not the order they were asked for.
+    const levels = call.ctx.store.project.levels
+      .filter((l) => !before.has(l.id))
+      .map((l) => ({
+        id: l.id,
+        name: l.name,
+        elevation: l.elevation,
+        height: l.height,
+        floorThickness: l.floorThickness,
+      }));
+    return { levels };
+  },
+});
+
 export const addOpening = defineTool({
   name: "add_opening",
   description:
@@ -206,15 +533,55 @@ export const addOpening = defineTool({
     const w = wallOrThrow(p0, args.wallId);
     if (args.position === undefined && args.atMm === undefined)
       throw invalidArg("position", "give position (0..1) or atMm", "e.g. position: 0.5");
+    // Two traps live runs fell into, answered rather than refused: both ways of placing the opening at
+    // once (see alongWall), and an empty productId, which means none.
+    let atMm = alongWall(args, call.warn);
+    // Where it will sit, checked here so that one misplaced opening does not undo a whole batch: live
+    // copies lost batches of eight and eleven openings to one that ran off a wall's end, or to one
+    // added twice. The product's own width is not known here, so an opening from a product is left to
+    // the store's checks.
+    const len = derive.wallLength(w);
+    const width = args.width ?? DEFAULTS[args.kind].width;
+    if (!args.productId && len >= width) {
+      const asked = atMm ?? (args.position as number) * len;
+      const centre = Math.min(Math.max(asked, width / 2), len - width / 2);
+      if (Math.abs(centre - asked) > 0.5) {
+        call.warn(
+          `an opening ${width} wide at ${Math.round(asked)} mm ran past the end of the ${Math.round(len)} mm wall; it was moved to ${Math.round(centre)} mm`,
+        );
+        atMm = centre;
+      }
+      const same = p0.openings.find(
+        (o) =>
+          o.wallId === w.id &&
+          o.kind === args.kind &&
+          Math.abs(o.position * len - centre) <= 100 &&
+          Math.abs(o.width - width) <= 100,
+      );
+      if (same) {
+        call.warn(`${same.id} is already there, the same ${args.kind} in the same place; nothing was added`);
+        return { opening: openingView(p0, same), wall: wallView(p0, w) };
+      }
+      const clash = p0.openings.find(
+        (o) => o.wallId === w.id && Math.abs(o.position * len - centre) < (o.width + width) / 2,
+      );
+      if (clash) {
+        const c = clash.position * len;
+        throw invalidArg(
+          "position",
+          `it would overlap ${clash.id}, a ${clash.kind} ${clash.width} wide at ${Math.round(c - clash.width / 2)}-${Math.round(c + clash.width / 2)} mm along this wall`,
+          `place this one clear of it, or change ${clash.id} with modify_opening, or delete it first`,
+        );
+      }
+    }
     const payload: Record<string, unknown> = {
       wallId: args.wallId,
       kind: args.kind,
-      ...(args.position !== undefined ? { position: args.position } : {}),
-      ...(args.atMm !== undefined ? { atMm: args.atMm } : {}),
+      ...(atMm !== undefined ? { atMm } : args.position !== undefined ? { position: args.position } : {}),
       ...(args.width !== undefined ? { width: args.width } : {}),
       ...(args.height !== undefined ? { height: args.height } : {}),
       ...(args.sill !== undefined ? { sill: args.sill } : {}),
-      ...(args.productId !== undefined ? { productId: args.productId } : {}),
+      ...(args.productId ? { productId: args.productId } : {}),
     };
     if (args.kind !== "window" && (args.hingeSide || args.swingDirection)) {
       const hinge = args.hingeSide ? hingeEndFor(p0, w, args.hingeSide) : "start";
@@ -247,27 +614,20 @@ export const createRoom = defineTool({
       .describe("origin corner plus width and depth in mm"),
     atPoint: PointS.optional().describe("a point inside the walls to detect the room around"),
     name: z.string().optional(),
-    purpose: z
-      .enum([
-        "meeting",
-        "huddle",
-        "boardroom",
-        "training",
-        "open-office",
-        "focus",
-        "reception",
-        "cafeteria",
-        "corridor",
-        "utility",
-        "storage",
-        "restroom",
-        "other",
-      ])
-      .optional(),
+    purpose: z.enum(RoomPurpose.options).optional(),
     capacity: z.number().int().min(0).optional().describe("seats, e.g. 10"),
   }),
   output: z.object({ room: RoomViewS }),
   run(args, call) {
+    // A model that fills every field sends all three ways, a placeholder rect among them; a live run
+    // was refused and merged two rooms into one to get past it. The most exact way given is used.
+    const ways = (["polygon", "rect", "atPoint"] as const).filter((k) => args[k] !== undefined);
+    if (ways.length > 1) {
+      const [used, ...ignored] = ways;
+      call.warn(`${ways.join(", ")} were all given; ${used} was used and ${ignored.join(", ")} ignored`);
+      args = { ...args };
+      for (const k of ignored) delete args[k];
+    }
     const r = run(call, { type: "room.create", payload: args });
     const p = call.ctx.store.project;
     const room = roomOrThrow(p, (r.result as Room).id);
@@ -284,23 +644,7 @@ export const modifyRoom = defineTool({
   input: z.object({
     roomId: z.string(),
     name: z.string().nullable().optional(),
-    purpose: z
-      .enum([
-        "meeting",
-        "huddle",
-        "boardroom",
-        "training",
-        "open-office",
-        "focus",
-        "reception",
-        "cafeteria",
-        "corridor",
-        "utility",
-        "storage",
-        "restroom",
-        "other",
-      ])
-      .optional(),
+    purpose: z.enum(RoomPurpose.options).optional(),
     capacity: z.number().int().min(0).nullable().optional(),
     ceilingHeight: z
       .number()

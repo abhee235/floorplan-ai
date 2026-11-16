@@ -1,7 +1,9 @@
 // Scene IR schema. Normative source: docs/spec/01-scene-ir.md (ADR-001).
 // Lengths are integer millimetres, angles degrees in [0, 360), fractions in [0, 1].
 // Plan coordinates: x right, y up; rotation counter-clockwise positive.
+
 import { z } from "zod";
+import { PROJECT_ID_PATTERN } from "./project-id.js";
 
 // ---- primitives ---------------------------------------------------------
 
@@ -54,6 +56,27 @@ export const FinishRef = z.object({
 
 // ---- entities -----------------------------------------------------------
 
+/**
+ * Who made a thing and who changed it last (ADR-023 D1).
+ *
+ * Not the same as the command layer's `Origin`: "editor" is a place, "person" is who was there, and
+ * undo, redo and restore are not authors at all -- they replay patches that already carry whoever
+ * made the change being replayed. That is why this lives in the document rather than beside it:
+ * undoing an agent's move of a person's sofa gives the sofa back its own stamp for free.
+ */
+export const Author = z.enum(["person", "agent", "import", "unknown"]);
+
+export const Authorship = z.object({
+  createdBy: Author,
+  editedBy: Author,
+  editedAt: Timestamp,
+  /**
+   * A person has made or changed this at some point. Never cleared by a later edit, so an agent that
+   * moves a person's sofa with permission does not thereby make the sofa its own.
+   */
+  touchedByPerson: z.boolean(),
+});
+
 export const Level = z.object({
   id: LevelId,
   name: z.string().min(1),
@@ -65,12 +88,19 @@ export const Level = z.object({
   backgroundImage: z
     .object({ assetRef: z.string(), scaleMmPerPx: z.number().positive(), origin: Point, angle: Deg })
     .nullable(),
+  by: Authorship,
 });
 
 export const WallKind = z.enum(["exterior", "interior", "partition", "glass"]);
+/**
+ * How the plan fills a wall's cut: solid, hatched with one set of diagonals or two, or only its outline, as
+ * drawings tell new, existing and temporary walls apart. The plan alone reads it; nothing in 3D does (W-121).
+ */
+export const WallPattern = z.enum(["solid", "hatch", "cross-hatch", "outline"]);
 export const WallEnd = z.enum(["start", "end"]);
 export const Join = z.object({ wallId: WallId, end: WallEnd });
-export const Skirting = z.object({ thickness: MmPositive, height: MmPositive });
+/** A baseboard. `color` null takes the colour of the side it runs along (W-112). */
+export const Skirting = z.object({ thickness: MmPositive, height: MmPositive, color: Rgb.nullable() });
 
 export const Wall = z.object({
   id: WallId,
@@ -82,10 +112,12 @@ export const Wall = z.object({
   heightAtEnd: MmPositive.nullable(),
   arcExtent: z.number().finite().min(-270).max(270).nullable(),
   kind: WallKind,
+  pattern: WallPattern,
   joins: z.object({ start: Join.nullable(), end: Join.nullable() }),
   finishes: z.object({ left: FinishRef.nullable(), right: FinishRef.nullable(), top: FinishRef.nullable() }),
   skirting: z.object({ left: Skirting.nullable(), right: Skirting.nullable() }),
   properties: z.record(z.string()),
+  by: Authorship,
 });
 
 export const OpeningKind = z.enum(["door", "window", "passage"]);
@@ -105,9 +137,11 @@ export const Opening = z.object({
   recipe: z.object({ style: z.enum(["single", "double", "sliding", "glazed", "plain"]) }).nullable(),
   finishes: z.object({ frame: FinishRef.nullable(), leaf: FinishRef.nullable() }),
   properties: z.record(z.string()),
+  by: Authorship,
 });
 
 export const RoomPurpose = z.enum([
+  // workplaces
   "meeting",
   "huddle",
   "boardroom",
@@ -116,11 +150,39 @@ export const RoomPurpose = z.enum([
   "focus",
   "reception",
   "cafeteria",
+  // homes
+  "bedroom",
+  "living",
+  "kitchen",
+  "dining",
+  "bathroom",
+  "toilet",
+  "foyer",
+  "study",
+  "laundry",
+  "balcony",
+  "garage",
+  // either
   "corridor",
   "utility",
   "storage",
   "restroom",
   "other",
+]);
+
+/** The purposes a dwelling is made of, for briefs, recipes and the design checks that treat a home as one. */
+export const RESIDENTIAL_PURPOSES: ReadonlySet<z.infer<typeof RoomPurpose>> = new Set([
+  "bedroom",
+  "living",
+  "kitchen",
+  "dining",
+  "bathroom",
+  "toilet",
+  "foyer",
+  "study",
+  "laundry",
+  "balcony",
+  "garage",
 ]);
 
 export const Room = z.object({
@@ -139,6 +201,7 @@ export const Room = z.object({
   source: z.enum(["manual", "detected", "imported"]),
   boundingWallIds: z.array(WallId),
   properties: z.record(z.string()),
+  by: Authorship,
 });
 
 export const PrimitiveRecipe = z.discriminatedUnion("kind", [
@@ -150,6 +213,10 @@ export const PrimitiveRecipe = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("video-bar"), size: Size3 }),
   z.object({ kind: z.literal("ceiling-speaker"), diameter: MmPositive }),
   z.object({ kind: z.literal("ceiling-mic"), size: Size3 }),
+  /** A bed: base, mattress and a headboard at the back (local +y). */
+  z.object({ kind: z.literal("bed"), size: Size3 }),
+  /** A sofa: seat, back at local +y, an arm at each end. */
+  z.object({ kind: z.literal("sofa"), size: Size3 }),
 ]);
 
 export const MountKind = z.enum(["floor", "wall", "ceiling", "table", "item"]);
@@ -181,6 +248,7 @@ export const Item = z.object({
   visible: z.boolean(),
   tags: z.array(z.string()),
   properties: z.record(z.string()),
+  by: Authorship,
 });
 
 export const ArrangementRule = z.object({
@@ -202,9 +270,10 @@ export const Zone = z.object({
   rule: ArrangementRule.nullable(),
   generatedItemIds: z.array(ItemId),
   properties: z.record(z.string()),
+  by: Authorship,
 });
 
-const annotationBase = { id: AnnotationId, levelId: LevelId };
+const annotationBase = { id: AnnotationId, levelId: LevelId, by: Authorship };
 export const Annotation = z.discriminatedUnion("kind", [
   z.object({ ...annotationBase, kind: z.literal("scale-bar"), from: Point, to: Point, lengthMm: MmPositive }),
   z.object({ ...annotationBase, kind: z.literal("north"), position: Point, angle: Deg }),
@@ -235,6 +304,12 @@ export const Provenance = z.object({
 });
 
 export const Meta = z.object({
+  /**
+   * The project's own identity (ADR-020 D1), twelve base36 characters. It lives in the document so that
+   * a link to a project survives the folder being moved, renamed or copied to another machine; a
+   * registry keyed by location cannot do that.
+   */
+  id: z.string().regex(PROJECT_ID_PATTERN, "a project id is twelve characters, 0-9 and a-z"),
   name: z.string().min(1),
   createdAt: Timestamp,
   updatedAt: Timestamp,
@@ -248,7 +323,7 @@ export const Meta = z.object({
 export const ProductSnapshot = z.object({ id: ProductId, snapshotAt: Timestamp }).passthrough();
 export const TextureSnapshot = z.object({ id: TextureId }).passthrough();
 
-export const SCHEMA_VERSION = 1 as const;
+export const SCHEMA_VERSION = 5 as const;
 
 export const Project = z.object({
   schemaVersion: z.literal(SCHEMA_VERSION),
@@ -271,10 +346,13 @@ export type Level = z.infer<typeof Level>;
 export type Wall = z.infer<typeof Wall>;
 export type Join = z.infer<typeof Join>;
 export type Opening = z.infer<typeof Opening>;
+export type WallPattern = z.infer<typeof WallPattern>;
 export type Room = z.infer<typeof Room>;
 export type Item = z.infer<typeof Item>;
 export type Zone = z.infer<typeof Zone>;
 export type Annotation = z.infer<typeof Annotation>;
+export type Author = z.infer<typeof Author>;
+export type Authorship = z.infer<typeof Authorship>;
 export type Point = z.infer<typeof Point>;
 export type Size3 = z.infer<typeof Size3>;
 export type FinishRef = z.infer<typeof FinishRef>;

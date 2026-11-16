@@ -14,6 +14,8 @@ export const CARDS_DIR = fileURLToPath(new URL("./cards/", import.meta.url));
 export interface ExpectedRoom {
   name?: string;
   purpose?: string;
+  /** Any of these purposes: a meeting room of four is as often a huddle, toilets a restroom. */
+  purposeIn?: string[];
   minCapacity?: number;
   /** Inclusive range in square metres. */
   areaM2?: [number, number];
@@ -32,7 +34,37 @@ export interface TaskCard {
     minWalls?: number;
     /** Null leaves validation unchecked. */
     maxValidationErrors?: number | null;
+    /**
+     * At most this many warnings of each code (ADR-024 D6).
+     *
+     * The placement faults a run can pass `validate` with and still be a bad drawing: a room with a
+     * side no wall runs along, a wardrobe across a door, a bed with nothing behind its head. They
+     * are warnings because a person dragging their own furniture must not be refused, so a card is
+     * where the agent is held to them.
+     */
+    maxWarnings?: Record<string, number>;
+    /**
+     * Tools the run must have called, and tools it must not have (ADR-027). A picture that is not a
+     * plan must be looked at and not read; an open office must come from the recipe and not from
+     * two grids.
+     */
+    calls?: { must?: string[]; never?: string[] };
   };
+  /** For the live loop (tools/eval/live.ts, ADR-028 D11): how blank a side of the building may be. */
+  look?: { maxEmptySide?: number };
+  /**
+   * A file to attach to the first message, as a person would: a plan to read (PRD P2-2, P2-3).
+   * The path is relative to the repository.
+   */
+  attach?: { path: string; mime: string };
+  /** What a read of that plan should produce, at least: the fixture's own counts. */
+  read?: { walls?: number; rooms?: number; openings?: number };
+  /**
+   * What to answer when the run asks something, since nobody is watching: the first answer whose
+   * key appears in the question wins, and "*" answers anything else. A scale question is the one
+   * that matters -- a raster plan commits only when a person confirms its scale (ADR-011 D3).
+   */
+  answers?: Record<string, string>;
 }
 
 export function loadCards(ids?: readonly string[]): TaskCard[] {
@@ -71,6 +103,8 @@ export interface CardScore {
   completionTokens: number;
   seconds: number;
   validationErrors: number;
+  /** How many of each warning code the finished drawing has, for the codes a card names. */
+  warningCounts: Record<string, number>;
   walls: number;
   rooms: number;
   items: number;
@@ -93,11 +127,12 @@ export interface ScoreMeta {
   transcript: string | null;
 }
 
-function roomMatches(project: Project, want: ExpectedRoom, taken: Set<string>): string | null {
+export function roomMatches(project: Project, want: ExpectedRoom, taken: Set<string>): string | null {
   const hit = project.rooms.find((r) => {
     if (taken.has(r.id)) return false;
     if (want.name && (r.name ?? "").trim().toLowerCase() !== want.name.toLowerCase()) return false;
     if (want.purpose && r.purpose !== want.purpose) return false;
+    if (want.purposeIn && !want.purposeIn.includes(r.purpose)) return false;
     if (want.minCapacity !== undefined && (r.capacity ?? 0) < want.minCapacity) return false;
     if (want.areaM2) {
       const a = derive.roomArea(r) / 1e6;
@@ -108,10 +143,10 @@ function roomMatches(project: Project, want: ExpectedRoom, taken: Set<string>): 
   return hit?.id ?? null;
 }
 
-const describeRoom = (w: ExpectedRoom) =>
+export const describeRoom = (w: ExpectedRoom) =>
   [
     w.name ? `"${w.name}"` : null,
-    w.purpose ?? null,
+    w.purpose ?? (w.purposeIn ? w.purposeIn.join(" or ") : null),
     w.minCapacity !== undefined ? `${w.minCapacity}+ seats` : null,
     w.areaM2 ? `${w.areaM2[0]}-${w.areaM2[1]} m2` : null,
   ]
@@ -137,7 +172,14 @@ export function scoreCard(card: TaskCard, session: Session, run: AgentRun, meta:
     if ((counts.get(c) ?? 0) < n) missing.push(`${n} ${c} (found ${counts.get(c) ?? 0})`);
   if (card.expect.minWalls !== undefined && project.walls.length < card.expect.minWalls)
     missing.push(`${card.expect.minWalls} walls (found ${project.walls.length})`);
-  const validationErrors = session.registry.problems().filter((p) => p.severity === "error").length;
+  const problems = session.registry.problems();
+  const validationErrors = problems.filter((p) => p.severity === "error").length;
+  const warningCounts: Record<string, number> = {};
+  for (const [code, limit] of Object.entries(card.expect.maxWarnings ?? {})) {
+    const n = problems.filter((p) => p.severity === "warning" && p.code === code).length;
+    warningCounts[code] = n;
+    if (n > limit) missing.push(`at most ${limit} ${code} (found ${n})`);
+  }
   let bomLines = 0;
   let bomVerified: number | null = null;
   if (session.ctx.rules && project.items.length > 0) {
@@ -152,6 +194,9 @@ export function scoreCard(card: TaskCard, session: Session, run: AgentRun, meta:
     bomLines = products.length;
     if (bomLines > 0) bomVerified = products.filter((l) => l.status === "verified").length / bomLines;
   }
+  const called = new Set(run.events.flatMap((e) => (e.type === "tool.started" ? [e.name] : [])));
+  for (const name of card.expect.calls?.must ?? []) if (!called.has(name)) missing.push(`a call to ${name}`);
+  for (const name of card.expect.calls?.never ?? []) if (called.has(name)) missing.push(`no call to ${name}`);
   const maxErrors = card.expect.maxValidationErrors;
   const pass =
     run.reason === "done" &&
@@ -174,6 +219,7 @@ export function scoreCard(card: TaskCard, session: Session, run: AgentRun, meta:
     completionTokens: run.usage.completionTokens,
     seconds: Math.round(meta.seconds),
     validationErrors,
+    warningCounts,
     walls: project.walls.length,
     rooms: project.rooms.length,
     items: project.items.length,

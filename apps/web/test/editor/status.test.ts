@@ -8,6 +8,7 @@ import {
   formatMm,
   paletteSections,
   parseDegrees,
+  parseHexColour,
   parseMm,
   pointerText,
   problemSummary,
@@ -71,6 +72,14 @@ describe("lengths in words and figures", () => {
     expect(formatDegrees(33.29999)).toBe("33.3");
     expect(formatDegrees(-0.01)).toBe("0");
     expect(parseDegrees(formatDegrees(-12.34))).toBe(-12.3);
+  });
+
+  it("reads a typed colour as the model stores it, upper case with a hash", () => {
+    expect(parseHexColour("#e8e6e1")).toBe("#E8E6E1");
+    expect(parseHexColour("E8E6E1")).toBe("#E8E6E1");
+    expect(parseHexColour(" f00 ")).toBe("#FF0000");
+    for (const text of ["", "#", "red", "#12345", "#1234567", "#GGGGGG", "rgb(0,0,0)"])
+      expect(parseHexColour(text), text).toBeNull();
   });
 
   it("states where the pointer is, and says nothing when it is off the plan", () => {

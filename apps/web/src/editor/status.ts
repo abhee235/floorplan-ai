@@ -61,6 +61,9 @@ export function formatDegrees(deg: number): string {
 // prints the same, but Object.is tells them apart, and so does a deep-equal of a command built from it.
 const roundTenth = (n: number): number => (Math.sign(n) * Math.round(Math.abs(n) * 10)) / 10 + 0;
 
+// A typed colour is read the model's way, the same as the agent's finish_wall tool reads it.
+export { parseHexColour } from "@fpv/ir";
+
 /** A length for a screen reader: plain digits, which are read as a number rather than spelled out. */
 export function describeLength(mm: number): string {
   return `${Math.round(mm)} millimetres`;

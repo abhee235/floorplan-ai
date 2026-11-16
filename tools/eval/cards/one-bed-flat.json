@@ -1,0 +1,18 @@
+{
+  "id": "one-bed-flat",
+  "title": "a one bedroom flat, the smallest dwelling that has to work",
+  "task": "build a one bedroom flat with an open kitchen and a bathroom",
+  "maxSteps": 26,
+  "expect": {
+    "rooms": [
+      { "purpose": "bedroom", "areaM2": [9, 20] },
+      { "purpose": "living", "areaM2": [12, 30] },
+      { "purpose": "kitchen", "areaM2": [5, 16] },
+      { "purpose": "bathroom", "areaM2": [3, 9] }
+    ],
+    "categories": ["bed", "sanitary"],
+    "minCounts": { "bed": 1 },
+    "maxValidationErrors": 0,
+    "maxWarnings": { "room.unenclosed": 0, "item.needs-wall": 0, "item.blocks-opening": 1 }
+  }
+}

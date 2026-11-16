@@ -233,11 +233,34 @@ describe("expand", () => {
     expect(expand(item.changes, item.project).ground).toBe(true);
   });
 
-  it("S-011 S-019 S-027 O-103 rejected: the model has no wall pattern, light power, opening pitch or pending-update state", () => {
+  it("W-121 S-011 a wall's plan pattern alone redraws the plan and rebuilds nothing in 3D", () => {
     const p = fixture();
-    const wall = p.walls[0] as (typeof p.walls)[number];
+    const hatched = run(p, {
+      type: "wall.modify",
+      payload: { wallId: "wall_000002", changes: { pattern: "hatch" } },
+    });
+    expect(hatched.project.walls.find((w) => w.id === "wall_000002")?.pattern).toBe("hatch");
+    // only the wall, marked as a plan change: its neighbours and its openings are not listed
+    expect(hatched.changes.updated).toEqual([{ type: "wall", id: "wall_000002", aspect: "plan" }]);
+    const rs = expand(hatched.changes, hatched.project);
+    expect(rs.walls.size + rs.rooms.size + rs.items.size).toBe(0);
+    expect([...rs.layers]).toEqual(["structure"]);
+    expect(rs.bounds).toBe(false);
+    // with anything else in the same change, the wall rebuilds as any wall change does
+    const both = run(p, {
+      type: "wall.modify",
+      payload: { wallId: "wall_000002", changes: { pattern: "outline", thickness: 150 } },
+    });
+    expect([...expand(both.changes, both.project).walls].sort()).toEqual([
+      "wall_000001",
+      "wall_000002",
+      "wall_000003",
+    ]);
+  });
+
+  it("S-019 S-027 O-103 rejected: the model has no light power, opening pitch or pending-update state", () => {
+    const p = fixture();
     const opening = p.openings[0] as (typeof p.openings)[number];
-    expect("pattern" in wall).toBe(false);
     expect("pitch" in opening || "roll" in opening).toBe(false);
     expect(p.items.some((i) => "power" in i)).toBe(false);
     // expand is synchronous and pure: the same change set always yields the same rebuild set

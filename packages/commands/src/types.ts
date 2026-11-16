@@ -23,8 +23,10 @@ import {
   RoomId,
   RoomPurpose,
   Size3,
+  Skirting,
   WallId,
   WallKind,
+  WallPattern,
   ZoneId,
 } from "@fpv/ir";
 import { z } from "zod";
@@ -92,11 +94,13 @@ export const WallModify = z.object({
       heightAtEnd: MmPositive.nullable(),
       arcExtent: z.number().finite().min(-270).max(270).nullable(),
       kind: WallKind,
+      pattern: WallPattern,
       finishes: z.object({
         left: FinishRef.nullable(),
         right: FinishRef.nullable(),
         top: FinishRef.nullable(),
       }),
+      skirting: z.object({ left: Skirting.nullable(), right: Skirting.nullable() }),
       properties: z.record(z.string()),
     })
     .partial(),
@@ -168,6 +172,8 @@ export const RoomCreate = z.object({
   purpose: RoomPurpose.optional(),
   capacity: z.number().int().min(0).nullable().optional(),
   gapToleranceMm: MmNonNegative.optional(),
+  /** Free-form properties, e.g. `enclosure: "open"` for a zone a design meant to leave unwalled. */
+  properties: z.record(z.string()).optional(),
 });
 
 export const RoomDetectAll = z.object({
@@ -309,7 +315,9 @@ export const ItemDistribute = z.object({ itemIds: z.array(ItemId).min(3), axis: 
 export const ItemArrange = z.object({
   target: z.union([
     z.object({ roomId: RoomId }),
-    z.object({ zoneId: ZoneId }),
+    // `polygon` reshapes the zone as it lays it out again, so growing a cluster and filling the room it
+    // gained is one command and one entry in the history.
+    z.object({ zoneId: ZoneId, polygon: Polygon.optional() }),
     z.object({ polygon: Polygon, levelId: LevelId }),
   ]),
   rule: ArrangementRule,

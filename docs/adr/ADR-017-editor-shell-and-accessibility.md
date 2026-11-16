@@ -35,6 +35,39 @@ Nothing floats over the canvas except the zoom cluster, the command palette and
 transient drawing feedback. Panels are always present rather than summoned:
 discoverability beats canvas area for a tool people use daily.
 
+Amendment 2026-09-19: a menu bar — File, Edit, View, 3D, Help. The editor had
+no menus at all, so anything without a button or a key was reachable only by
+knowing it was there; the session log could be read only from a terminal, and
+settings had nowhere to live.
+
+It takes no new row: the plan is the working surface and rows above it come out
+of the work. A warning strip once took one and had to be undone, and the
+objection applies harder to permanent furniture.
+
+The two existing rows divide by kind instead, as a desktop application does.
+The top row holds the project name, the menus and nothing else — things you
+browse. The row beneath holds the things you press: the level, the history,
+the active tool's own settings, and, at the far right, what is on screen. Left
+to right it runs from the most general to the most particular, and the only
+part that changes as you work is the tool's, in the middle.
+
+Both rows carried controls at first and the top one read as a crowded strip
+rather than as a menu bar; the controls moved down. Undo, Redo and the view
+switch keep buttons rather than living only in a menu: the first two are the
+most-pressed controls in an editor, and the switch reports the current mode as
+well as setting it, which a closed menu cannot. Import and Export gave their
+buttons up to the File menu, so the chrome holds fewer controls than before.
+
+Only the modifier sentence is allowed to truncate when the row is narrow. It is
+guidance; every control beside it keeps its full width.
+
+Every line is a registered command, addressed by id (ADR-018 D3), and a menu
+naming a command the editor does not have fails a test. This is not
+bureaucracy: the bar shipped an Export button wired to `file.export`, which was
+registered nowhere, so every click did nothing at all and said nothing. One
+list of commands feeds the menus, the palette, the shortcut sheet and the key
+handler, so a command cannot be in one and missing from another.
+
 ### D2. Tools are modes with their own options bar
 
 Select, wall, room, opening, item, measure, annotate, and pan. One letter each
@@ -42,6 +75,15 @@ Select, wall, room, opening, item, measure, annotate, and pan. One letter each
 the options bar under the app bar: its defaults (wall thickness and kind),
 the snapping switches, and a plain sentence naming the modifiers. Snapping is
 a preference the modifier keys invert (W-082): Alt bypasses, Shift aligns.
+
+Amendment 2026-09-18 (P3-6): a ninth tool, desk cluster on Z, between item and
+measure. It is the only tool whose gesture is a sweep rather than a chain: a
+cluster is an area, so you drag the part of the floor that will hold desks and
+it fills as you drag, saying how many fit. A click with no drag fills the room
+under the pointer, and with a room selected Enter does the same without a
+pointer. What it lays out is whatever the catalog tab has picked, or a plain
+desk. It asks for exactly the number that fits rather than a number typed in
+advance, because the gesture means "fill this".
 
 ### D3. The properties panel is the selection
 
@@ -51,6 +93,24 @@ A multiple selection shows the fields the entities share. Every length is a
 number in millimetres, right-aligned, tabular; degrees for angles. Problems for
 the selection are stated in words, not codes. The panel is also where the
 catalog and the level list live, as sibling tabs.
+
+Amendment 2026-09-17 (P3-5): the panel takes its shape from a design tool's,
+to keep a selection on one screen, but keeps this app's own parts. Under a
+title, each group is a band with a heading at 13 px over a grid of at most two
+fields to a line; a name, a surface's colour and material, or any value that
+needs the room takes the whole line. Every field is the app's own component,
+26 px high, its value at 13 px and its caption at 12 px, on a quiet fill with
+no border until the pointer is on it; a value that is only read has neither. Every number carries a
+letter at its left edge saying which number it is — X, W, HE — and that letter
+is the one handle for dragging the value; the arrow keys step it from the field
+itself. Lengths are left-aligned and tabular, with the unit inside the field.
+The level's own values show only while nothing is selected.
+
+A refused value is marked, not written about: the field turns its border red and
+shows a red mark inside its right edge, and the reason is a tooltip on hovering
+or focusing that mark. A sentence printed under the field would push every cell
+below it down as values are typed and let go again. The reason stays the field's
+accessible description either way, and D5's assertive region still says it.
 
 ### D4. Every gesture has a keyboard equal
 

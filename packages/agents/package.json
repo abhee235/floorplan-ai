@@ -10,6 +10,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
     "@fpv/catalog": "workspace:*",
     "@fpv/importers": "workspace:*",
     "@fpv/ir": "workspace:*",

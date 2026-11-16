@@ -1,6 +1,8 @@
 // Bridge client (spec 06 part B): one WebSocket to the host, request ids with promises, and the
 // snapshot / changes stream feeding the replica. The socket is injected so tests run without a network.
 import {
+  type AgentEventMsg,
+  type AgentStateMsg,
   CLOSE_VERSION_MISMATCH,
   type DraftMsg,
   type HostMessage,
@@ -33,11 +35,18 @@ export interface RenderHandler {
 export interface BridgeClientOptions {
   clientVersion: string;
   capabilities: Capability[];
+  /**
+   * The project this tab wants, from its URL (ADR-020 D4). Absent means "whatever was opened last",
+   * which is what a host started with a single project has always given.
+   */
+  project?: string | null;
   /** Answers render requests when the client advertised the render capability. */
   onRender?: RenderHandler;
   onStatus?: (status: BridgeStatus) => void;
   /** A plan draft opened for review, or closed (draftId null). */
   onDraft?: (msg: DraftMsg) => void;
+  /** What the agent is doing, and what it is (ADR-022). */
+  onAgent?: (msg: AgentEventMsg | AgentStateMsg) => void;
 }
 
 export type BridgeStatus = "connecting" | "open" | "closed" | "version-mismatch";
@@ -45,6 +54,15 @@ export type BridgeStatus = "connecting" | "open" | "closed" | "version-mismatch"
 export class BridgeClient {
   private seq = 0;
   private pending = new Map<string, { resolve: (m: ResultMsg) => void; reject: (e: Error) => void }>();
+  /**
+   * Frames written before the socket finished connecting, sent in order once it has.
+   *
+   * A WebSocket refuses `send` while it is CONNECTING, and the editor asks for things the moment it
+   * renders: the catalog searched on every page load and the answer was an error message about a
+   * socket, shown to the person, on every single load. Whoever asks should not have to know what the
+   * socket is doing — the alternative was every caller learning to wait, and only some of them ever did.
+   */
+  private waiting: string[] = [];
   status: BridgeStatus = "connecting";
   welcome: Extract<HostMessage, { type: "welcome" }> | null = null;
 
@@ -55,16 +73,26 @@ export class BridgeClient {
   ) {
     socket.onopen = () => {
       this.setStatus("open");
-      void this.request({
+      // The hello goes first and on its own: everything else is refused until the host has had it.
+      // Caught rather than voided: `void` ignores the value, not a rejection, and a socket that closes
+      // before the hello is answered rejects this one along with everything else pending. Nobody is
+      // waiting on it — a failed hello is already a closed socket, which the status says — so the
+      // rejection would otherwise surface as an unhandled error in the console.
+      this.request({
         type: "hello",
         clientVersion: options.clientVersion,
         protocolVersion: PROTOCOL_VERSION,
         capabilities: options.capabilities,
-      });
+        ...(options.project ? { project: options.project } : {}),
+      }).catch(() => {});
+      this.flush();
     };
     socket.onmessage = (ev) => this.handle(String(ev.data));
     socket.onclose = (ev) => {
       this.setStatus(ev.code === CLOSE_VERSION_MISMATCH ? "version-mismatch" : "closed");
+      // Anything still waiting for the socket to open never will; its promise is in `pending` and is
+      // rejected here with everything else, so nothing is left hanging on a socket that has gone.
+      this.waiting = [];
       for (const p of this.pending.values()) p.reject(new Error(`bridge closed: ${ev.reason || ev.code}`));
       this.pending.clear();
     };
@@ -76,13 +104,33 @@ export class BridgeClient {
     this.options.onStatus?.(s);
   }
 
-  /** Send a message that expects exactly one result. */
+  /** Start, cancel, answer or catch up on an agent run (ADR-022). */
+  agent(body: Record<string, unknown>): Promise<ResultMsg> {
+    return this.request({ type: "agent", ...body });
+  }
+
+  /** Send a message that expects exactly one result; it waits for the socket if it has to. */
   request(body: Record<string, unknown>): Promise<ResultMsg> {
     const id = `c${(this.seq += 1)}`;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      this.socket.send(JSON.stringify({ id, ...body }));
+      this.post(JSON.stringify({ id, ...body }));
     });
+  }
+
+  /** Out now, or held until the socket opens. Order is kept either way. */
+  private post(frame: string): void {
+    if (this.status === "connecting") {
+      this.waiting.push(frame);
+      return;
+    }
+    this.socket.send(frame);
+  }
+
+  private flush(): void {
+    const frames = this.waiting;
+    this.waiting = [];
+    for (const frame of frames) this.socket.send(frame);
   }
 
   command(command: unknown): Promise<ResultMsg> {
@@ -105,6 +153,22 @@ export class BridgeClient {
   }
   requestSnapshot(): Promise<ResultMsg> {
     return this.request({ type: "get", what: "snapshot" });
+  }
+  /** Open, make, attach to, list or let go of a project (ADR-020 D4). */
+  workspace(body: Record<string, unknown>): Promise<ResultMsg> {
+    return this.request({ type: "workspace", ...body });
+  }
+  /**
+   * Tell the host what the person did, for the session log (ADR-019 D4). The one message that expects no
+   * result: there is nothing to wait for, and a gesture with nowhere to go is dropped rather than queued.
+   */
+  gesture(gestures: { what: string; detail?: Record<string, unknown> }[]): void {
+    if (this.status !== "open" || gestures.length === 0) return;
+    try {
+      this.socket.send(JSON.stringify({ type: "gesture", gestures }));
+    } catch {
+      // the log is never worth an exception in the editor
+    }
   }
 
   handle(text: string): void {
@@ -149,6 +213,12 @@ export class BridgeClient {
       case "problems":
         this.replica.setProblems(msg.problems);
         return;
+      case "project.state":
+        this.replica.setProjectState(msg);
+        return;
+      case "workspace.state":
+        this.replica.setOpenProjects(msg.open);
+        return;
       case "selection":
         this.replica.setSelection(msg.ids);
         return;
@@ -157,6 +227,10 @@ export class BridgeClient {
         return;
       case "draft":
         this.options.onDraft?.(msg);
+        return;
+      case "agent.event":
+      case "agent.state":
+        this.options.onAgent?.(msg);
         return;
       default:
         return;

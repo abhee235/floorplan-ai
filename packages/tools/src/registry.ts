@@ -1,8 +1,8 @@
 // The registry: one definition per tool, called in-process by the app's agent and, through the
 // optional MCP adapter in the host, by external agents (ADR-005 D1, ADR-006 D1).
 import { checkDesign } from "@fpv/catalog";
-import { type ChangeSet, CommandError } from "@fpv/commands";
-import { type Problem, validate } from "@fpv/ir";
+import { type ChangeSet, CommandError, type Origin } from "@fpv/commands";
+import { type Problem, type Project, validate } from "@fpv/ir";
 import type { z } from "zod";
 import { sizesFor, type ToolContext } from "./context.js";
 import {
@@ -23,9 +23,42 @@ export interface ToolCall {
   warn(message: string): void;
   /** Report the change set of a mutation so the envelope carries it. */
   changed(cs: ChangeSet | null): void;
+  /**
+   * Who asked for this call, for the commands it applies.
+   *
+   * Every tool used to write as "agent", including the ones the editor itself calls -- the catalog
+   * panel's search, the file picker's import. The session log then said an agent had done what a
+   * person did, which is the one question a log of this kind exists to answer (ADR-019 D2).
+   */
+  origin: Origin;
+  /**
+   * Another tool, called as this one was: the same origin, the same consent, the same grant. This
+   * is how batch runs a list of tool calls without knowing what any of them does.
+   */
+  tools: { call(name: string, args: unknown): Promise<ToolResult> };
 }
 
 export type AnyObjectSchema = z.ZodObject<z.ZodRawShape>;
+
+/** What a caller says about itself. Anything that does not say is the agent, which is the common case. */
+export interface CallOptions {
+  origin?: Origin;
+  /**
+   * Entity ids this call may change although a person made or touched them (ADR-023 D3).
+   *
+   * The run's selection when it started, plus whatever a consent question has since released.
+   * Empty and absent mean the same thing, and both are the safe answer.
+   */
+  released?: ReadonlySet<string>;
+  /**
+   * The only tools this caller may reach (ADR-022 D1a). Absent means all of them.
+   *
+   * A role is what it can do, not what it was asked to do. Telling the architect in its prompt not
+   * to draw is how a mid-sized model comes to draw anyway; taking create_walls away from it is how
+   * it does not. The refusal is an ordinary tool error, so the model reads it and corrects itself.
+   */
+  granted?: ReadonlySet<string>;
+}
 
 export interface ToolDef<I extends AnyObjectSchema = AnyObjectSchema, O = unknown> {
   name: string;
@@ -42,7 +75,24 @@ export interface ToolDef<I extends AnyObjectSchema = AnyObjectSchema, O = unknow
   run(args: z.infer<I>, call: ToolCall): O | Promise<O>;
 }
 
-export const TIMEOUTS = { read: 5_000, command: 10_000, render: 30_000, slow: 120_000 } as const;
+/**
+ * How long a tool may take before the loop gives up on it.
+ *
+ * `subrun` is the odd one out and deliberately enormous. A tool that runs a nested agent is not a
+ * computation that can hang; it is many model turns, each of which the host already allows five
+ * minutes because a tool-calling turn on a local model takes them. It bounds itself three ways
+ * already -- a step budget, a round budget and the abort signal a person's Cancel raises -- so this
+ * is a backstop against a wedged process, not a limit on the work. At 120 seconds it was neither:
+ * a local model could not finish an architect sub-run inside it, and every design failed on the
+ * clock rather than on its merits.
+ */
+export const TIMEOUTS = {
+  read: 5_000,
+  command: 10_000,
+  render: 30_000,
+  slow: 120_000,
+  subrun: 1_800_000,
+} as const;
 
 /** Define a tool with defaults filled in; keeps each tool file short. */
 export function defineTool<I extends AnyObjectSchema, O>(
@@ -67,8 +117,49 @@ const LOW_PROFILE = new Set([
   "batch",
   "project",
   "export",
+  // A weak model still has to be able to say the whole brief. A storey, a plan to read, and the colour
+  // of a pane of glass are not advanced moves — they are the difference between "three storeys with
+  // tinted windows" being buildable and being refused for want of a tool nobody was told about.
+  "add_level",
+  "import_plan",
+  "finish_opening",
+  "finish_wall",
+  // A weak model that cannot place ninety chairs one call at a time can often write the loop that does
+  // (ADR-030 D7).
+  "run_code",
+  // and the two a weak model needs most: they are what turn "three bedrooms and a hall" into
+  // something measured, drawn in one step and impossible to get half right.
+  "design_layout",
+  "plan_rooms",
+  "check_design",
+  "build_design",
+  "query_design",
+  "revise_design",
+  "preview_design",
+  "tidy_design",
+  // What the model reads before it designs (ADR-027): simple, non-mutating, and a weak model with a
+  // picture attached needs the first as much as a strong one.
+  "look_at",
+  "web_search",
+  "read_page",
 ]);
 const MEDIUM_HIDDEN = new Set(["modify_wall"]);
+
+/**
+ * Fields one entity recomputes because another changed, which nobody chose: a wall's mitres, a
+ * room's list of its walls, the room an item is found to stand in, and the stamp itself.
+ */
+const DERIVED = new Set(["joins", "boundingWallIds", "roomId", "by"]);
+
+/** The same entity but for the fields nobody edits directly. */
+function sameButForDerived(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const k of keys) {
+    if (DERIVED.has(k)) continue;
+    if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) return false;
+  }
+  return true;
+}
 
 export class Registry {
   private readonly tools = new Map<string, ToolDef>();
@@ -99,9 +190,32 @@ export class Registry {
   }
 
   /** Call a tool by name with raw arguments; never throws. */
-  async call(name: string, rawArgs: unknown): Promise<ToolResult> {
+  async call(name: string, rawArgs: unknown, options: CallOptions = {}): Promise<ToolResult> {
     const started = Date.now();
-    const result = await this.invoke(name, rawArgs);
+    const origin = options.origin ?? "agent";
+    const before = this.ctx.store.historyPosition;
+    const was = this.ctx.store.project;
+    let result =
+      options.granted && !options.granted.has(name)
+        ? fail(
+            {
+              code: "tool.not-granted",
+              message: `${name} is not one of the tools this step may use`,
+              entityId: null,
+              hint: `use one of: ${[...options.granted].sort().join(", ")}`,
+            },
+            [],
+          )
+        : await this.invoke(name, rawArgs, origin, options);
+    if (result.ok && origin === "agent") {
+      const trespass = this.trespass(was, result.changed, options.released);
+      if (trespass) {
+        // Take the call back before answering. A tool does not know what it will touch until it
+        // has, and the store knows how to undo; the model then asks, and repeats the call.
+        while (this.ctx.store.historyPosition > before) this.ctx.store.undo();
+        result = fail(trespass, result.warnings);
+      }
+    }
     this.ctx.transcript?.record({
       seq: (this.seq += 1),
       tool: name,
@@ -109,11 +223,17 @@ export class Registry {
       result,
       at: this.ctx.now(),
       durationMs: Date.now() - started,
+      origin,
     });
     return result;
   }
 
-  private async invoke(name: string, rawArgs: unknown): Promise<ToolResult> {
+  private async invoke(
+    name: string,
+    rawArgs: unknown,
+    origin: Origin,
+    options: CallOptions,
+  ): Promise<ToolResult> {
     const warnings: string[] = [];
     const def = this.tools.get(name);
     if (!def) {
@@ -137,7 +257,23 @@ export class Registry {
         args = Object.fromEntries(Object.entries(args).filter(([k]) => known.has(k)));
       }
     }
-    const parsed = def.input.safeParse(args);
+    let parsed = def.input.safeParse(args);
+    // Models that fill in every field send "", null or [] for the ones they do not use, and the call
+    // is refused on a field it never meant to give. Live runs lost rooms and furniture this way. A
+    // filler where the call fails is taken as the field left out; a call that parses is never touched.
+    if (!parsed.success && typeof args === "object" && args !== null && !Array.isArray(args)) {
+      const emptied = withoutFillers(
+        args as Record<string, unknown>,
+        parsed.error.issues.map((i) => i.path),
+      );
+      if (emptied.dropped.length) {
+        const again = def.input.safeParse(emptied.args);
+        if (again.success) {
+          warnings.push(`Empty values taken as left out: ${emptied.dropped.join(", ")}`);
+          parsed = again;
+        }
+      }
+    }
     if (!parsed.success) {
       const issues = parsed.error.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`);
       return fail(
@@ -157,6 +293,8 @@ export class Registry {
       changed: (cs) => {
         changed = cs;
       },
+      origin,
+      tools: { call: (inner, args) => this.call(inner, args, options) },
     };
     try {
       const value = await withTimeout(Promise.resolve(def.run(parsed.data, call)), def.timeoutMs, name);
@@ -200,6 +338,61 @@ export class Registry {
     }
   }
 
+  /**
+   * The person's work this change set touched without leave, as the error to answer with (ADR-023 D4).
+   *
+   * The rule is enforced here rather than in the prompt because a rule that lives only in a prompt
+   * is a rule the model keeps most of the time, and "most of the time" is exactly the failure that
+   * costs a person their trust in the thing.
+   */
+  private trespass(
+    was: Project,
+    changed: ChangeSet | null,
+    released: ReadonlySet<string> = new Set(),
+  ): { code: string; message: string; entityId: string | null; hint: string } | null {
+    if (!changed) return null;
+    // "meta" is the project itself, which nobody authored: it is how a restore reports that the
+    // whole document was replaced, and an undo is not a change of authorship.
+    const suspects = [...changed.updated, ...changed.removed].filter(
+      (r) => r.type !== "meta" && !released.has(r.id),
+    );
+    if (suspects.length === 0) return null;
+    const now = this.ctx.store.project;
+    const index = (p: Project) => {
+      const m = new Map<string, Record<string, unknown>>();
+      for (const list of [p.levels, p.walls, p.openings, p.rooms, p.items, p.zones, p.annotations])
+        for (const e of list as unknown as Record<string, unknown>[]) m.set(e.id as string, e);
+      return m;
+    };
+    const before = index(was);
+    const after = index(now);
+    const theirs = suspects
+      .filter((r) => {
+        // A removed entity is gone from the project, so it is read from the copy taken before the
+        // call; one neither copy knows is left alone rather than guessed at.
+        const by = (before.get(r.id) ?? after.get(r.id))?.by as
+          | { touchedByPerson: boolean; createdBy: string }
+          | undefined;
+        if (!by || !(by.touchedByPerson || by.createdBy === "import")) return false;
+        const old = before.get(r.id);
+        const fresh = after.get(r.id);
+        // Still theirs, but did this call really change it? Moving one wall re-mitres the walls it
+        // joins, and creating a room adopts the items standing in it. Asking leave for those would
+        // be asking about work nobody did, which teaches a person to wave the question away.
+        return !old || !fresh || !sameButForDerived(old, fresh);
+      })
+      .map((r) => r.id);
+    if (theirs.length === 0) return null;
+    const named = theirs.slice(0, 3).join(", ");
+    const more = theirs.length > 3 ? ` and ${theirs.length - 3} more` : "";
+    return {
+      code: "consent.needed",
+      message: `${named}${more} ${theirs.length === 1 ? "was" : "were"} made or changed by the person; ask before changing ${theirs.length === 1 ? "it" : "them"}`,
+      entityId: theirs[0] ?? null,
+      hint: "call ask_user with kind 'consent' and these ids, then make this call again",
+    };
+  }
+
   /** IR validation plus the rules pack's design rules (spec 07 section 4) when a pack is loaded. */
   problems(): Problem[] {
     const project = this.ctx.store.project;
@@ -207,6 +400,39 @@ export class Registry {
     if (this.ctx.rules) out.push(...checkDesign(project, this.ctx.rules, { catalog: this.ctx.catalog }));
     return out;
   }
+}
+
+const isFiller = (v: unknown): boolean =>
+  v === null ||
+  v === "" ||
+  (Array.isArray(v) && v.length === 0) ||
+  (typeof v === "object" && v !== null && !Array.isArray(v) && Object.keys(v).length === 0);
+
+/**
+ * The arguments without the empty values ("", null, [], {}) that a validation failure points at, or at
+ * a field above it. Only fields of objects are dropped: an empty item in a list is kept, and refused.
+ */
+export function withoutFillers(
+  args: Record<string, unknown>,
+  paths: readonly (string | number)[][],
+): { args: Record<string, unknown>; dropped: string[] } {
+  const out = structuredClone(args);
+  const dropped: string[] = [];
+  for (const path of paths) {
+    for (let n = path.length; n >= 1; n -= 1) {
+      let parent: unknown = out;
+      for (const key of path.slice(0, n - 1)) parent = (parent as Record<string | number, unknown>)?.[key];
+      const key = path[n - 1] as string | number;
+      if (typeof parent !== "object" || parent === null || Array.isArray(parent)) continue;
+      const box = parent as Record<string | number, unknown>;
+      if (key in box && isFiller(box[key])) {
+        delete box[key];
+        dropped.push(path.slice(0, n).join("."));
+        break;
+      }
+    }
+  }
+  return { args: out, dropped };
 }
 
 function fail(error: ToolFail["error"], warnings: string[]): ToolFail {

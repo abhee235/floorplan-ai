@@ -1,8 +1,8 @@
 // What a tool runs against: the store, the catalog, and optional services (ADR-005 D1, ADR-006 D2).
 // Everything here is an in-process object; nothing is a network client.
 
-import type { RulesPack, VerifyOutcome, VerifyRequest } from "@fpv/catalog";
-import type { Store } from "@fpv/commands";
+import type { PageFetcher, RulesPack, SearchProvider, VerifyOutcome, VerifyRequest } from "@fpv/catalog";
+import type { Origin, Store } from "@fpv/commands";
 import type { PlanDraft, PlanPreview } from "@fpv/importers";
 import type { PrimitiveRecipe, Project, Size3 } from "@fpv/ir";
 import { derive } from "@fpv/ir";
@@ -46,6 +46,10 @@ export interface CatalogSearch {
   byCategory?(category: string): readonly unknown[];
   /** The strict snapshot for a project's catalogRefs, when the catalog can make one (spec 02 section 1.1). */
   snapshot?(ids: readonly string[], snapshotAt: string): Record<string, Record<string, unknown>>;
+  /** A texture record, for a project's texture snapshots (spec 02 section 2). */
+  texture?(id: string): object | null;
+  /** Every texture the catalog has, for the editor's pickers. */
+  textures?(): readonly object[];
 }
 
 export interface RenderRequest {
@@ -109,6 +113,26 @@ export interface PlanReader {
   read(req: PlanReadRequest): Promise<PlanReadOutcome>;
 }
 
+/** A file somebody attached to a message for the agent. */
+export interface Attachment {
+  id: string;
+  name: string;
+  mime: string;
+  bytes: Uint8Array;
+}
+
+/**
+ * The files attached to the conversation, by id.
+ *
+ * A model names an id and never carries the bytes: an image inside a tool call would be echoed back
+ * through the conversation on every turn, which is how a context window is spent on something the
+ * host already has.
+ */
+export interface AttachmentStore {
+  get(id: string): Attachment | null;
+  list(): readonly { id: string; name: string; mime: string; size: number }[];
+}
+
 export interface OpenOptions {
   /** Load the newer recovery file instead of project.json (ADR-012 D6). */
   recover?: boolean;
@@ -133,6 +157,24 @@ export interface ProjectFiles {
   recoveryAt(): string | null;
   open(path: string, options?: OpenOptions): Promise<OpenInfo>;
   save(path: string | null, options?: { signal?: AbortSignal }): Promise<{ path: string; bytes: number }>;
+  /** Whether the file on disk no longer matches the manifest hash; absent when the host cannot tell. */
+  readonly modifiedOutside?: boolean;
+  /**
+   * Stop pointing at the open project's directory, because there is no longer a project there to point
+   * at: `project new` replaces the whole document, and what is now open has never been saved anywhere.
+   *
+   * Without this a new project inherits the previous one's path, and the next save writes a blank
+   * project over it without asking. That is exactly what happened the first time File > New was
+   * wired up to a Save shortcut.
+   */
+  forget?(): void;
+  /**
+   * Called when what is open, or whether it is saved, changes — an open, a save, a recovery file
+   * written. The viewer bridge uses it to tell connected tabs, because none of these move the store's
+   * history and so none of them appear in the change stream. Optional: a session without files, or one
+   * whose files nobody is watching, works exactly as before.
+   */
+  watch?(listener: () => void): () => void;
 }
 
 /**
@@ -160,11 +202,69 @@ export interface TranscriptEntry {
   result: unknown;
   at: string;
   durationMs: number;
+  /** Who asked: the editor, the agent, an import. Absent in entries recorded before this was carried. */
+  origin?: Origin;
 }
 
 /** Every tool call is recorded for cross-provider replay (ADR-007 D4). */
 export interface TranscriptRecorder {
   record(entry: TranscriptEntry): void;
+}
+
+/**
+ * A run of a second role, asked for by the model through a tool (ADR-022 D1).
+ *
+ * Declared here and implemented in `@fpv/agents`, injected by the host, because a tool may not
+ * import the agent runner and a sub-run is a run of that runner. It is the same seam Cascade uses
+ * for the same reason.
+ */
+export interface SubagentRequest {
+  role: "architect";
+  /** What to design, in the person's words. */
+  brief: string;
+  /** Anything already agreed with the person, so a sub-run inherits the parent's consent. */
+  released?: readonly string[];
+  /**
+   * A design to continue from, with the errors it still has: an earlier architect's closest
+   * attempt. The architect fixes it rather than starting again (ADR-028 D10).
+   */
+  from?: { designId: string; errors: readonly string[] };
+}
+
+export interface SubagentResult {
+  /** The design it settled on, ready for build_design; null when it did not reach one. */
+  designId: string | null;
+  /** Its own account of what it did. All that returns to the parent: the rest stays in its context. */
+  text: string;
+  /** Errors the checker still reported when the round budget ran out, for an honest answer. */
+  unresolved: string[];
+  /** The last design it checked, passed or not, so a next architect can continue from it. */
+  lastDesignId: string | null;
+  /**
+   * Whether the design it answers with was looked at before it was handed on: previewed by a model
+   * that can see, its walk read by one that cannot (ADR-028 D11). Absent from callers that predate it.
+   */
+  looked?: boolean;
+  /** The LOOK verdict it wrote, when it wrote one. */
+  verdict?: string | null;
+  /** What ended the sub-run, when something other than an answer did. */
+  error?: string | null;
+  steps: number;
+  rounds: number;
+  reason: string;
+}
+
+export interface SubagentRunner {
+  run(request: SubagentRequest): Promise<SubagentResult>;
+}
+
+/**
+ * The web, when the host has a search provider configured: the same search and the same guarded
+ * fetcher the product verifier uses. Without it the web tools are not advertised and refuse if called.
+ */
+export interface WebAccess {
+  search: SearchProvider;
+  fetcher: PageFetcher;
 }
 
 export interface ToolContext {
@@ -179,7 +279,13 @@ export interface ToolContext {
   writer: ExportWriter | null;
   /** Reads plan files for import_plan; absent or null in a session without one. */
   plans?: PlanReader | null;
+  /** Files attached to the agent's conversation; absent in a session nobody is talking to. */
+  attachments?: AttachmentStore | null;
+  /** Search and a guarded fetcher (ADR-027 D4); absent or null when the host has no search provider. */
+  web?: WebAccess | null;
   transcript: TranscriptRecorder | null;
+  /** Runs another role in its own context; absent in a session with no agent behind it. */
+  subagent?: SubagentRunner | null;
   now(): string;
 }
 
@@ -191,7 +297,14 @@ export function sizesFor(project: Project, catalog: CatalogSearch): derive.SizeS
       const s = snapshots.product(id);
       if (s) return s;
       const p = catalog.product(id);
-      return p ? { dims: p.dims, deformable: p.deformable ?? false } : null;
+      return p
+        ? {
+            dims: p.dims,
+            deformable: p.deformable ?? false,
+            category: p.category,
+            assetKey: typeof p.assetKey === "string" ? p.assetKey : null,
+          }
+        : null;
     },
   };
 }
@@ -230,6 +343,28 @@ export const RECIPE_TEMPLATES: readonly CatalogHit[] = [
   hit("recipe:ceiling-mic:600x600x50", "Ceiling microphone array 600", "ceiling-mic", {
     kind: "ceiling-mic",
     size: { w: 600, d: 600, h: 50 },
+  }),
+  hit("recipe:bed:1500x2000x900", "Double bed 1500 x 2000", "bed", {
+    kind: "bed",
+    size: { w: 1500, d: 2000, h: 900 },
+  }),
+  hit("recipe:bed:900x2000x900", "Single bed 900 x 2000", "bed", {
+    kind: "bed",
+    size: { w: 900, d: 2000, h: 900 },
+  }),
+  hit("recipe:sofa:2000x900x850", "Three-seat sofa 2000", "sofa", {
+    kind: "sofa",
+    size: { w: 2000, d: 900, h: 850 },
+  }),
+  hit("recipe:box:1800x600x2100", "Wardrobe 1800 x 600 x 2100", "wardrobe", {
+    kind: "box",
+    size: { w: 1800, d: 600, h: 2100 },
+    label: "Wardrobe",
+  }),
+  hit("recipe:box:2400x600x900", "Kitchen run 2400 x 600 (worktop with units under)", "kitchen-run", {
+    kind: "box",
+    size: { w: 2400, d: 600, h: 900 },
+    label: "Kitchen run",
   }),
   hit("recipe:box:600x400x500", "Generic box 600 x 400 x 500 (credenza, cabinet, unit)", "box", {
     kind: "box",
@@ -282,8 +417,12 @@ export function searchRecipes(
 }
 
 /** An in-memory catalog: enough for tests and for a session without the SQLite catalog (phase 1). */
-export function memoryCatalog(products: readonly CatalogProduct[] = []): CatalogSearch {
+export function memoryCatalog(
+  products: readonly CatalogProduct[] = [],
+  textures: readonly { id: string }[] = [],
+): CatalogSearch {
   const byId = new Map(products.map((p) => [p.id, p]));
+  const textureById = new Map(textures.map((t) => [t.id, t]));
   const toHit = (p: CatalogProduct): CatalogHit => ({
     id: p.id,
     name: p.name,
@@ -321,6 +460,12 @@ export function memoryCatalog(products: readonly CatalogProduct[] = []): Catalog
     byCategory(category) {
       return products.filter((p) => p.category === category);
     },
+    texture(id) {
+      return textureById.get(id) ?? null;
+    },
+    textures() {
+      return textures;
+    },
   };
 }
 
@@ -331,6 +476,10 @@ export function catalogSourceOf(catalog: CatalogSearch, now: () => string) {
       if (catalog.snapshot) return catalog.snapshot([productId], now())[productId] ?? null;
       const p = catalog.product(productId);
       return p ? { ...p, snapshotAt: now() } : null;
+    },
+    texture(textureId: string): Record<string, unknown> | null {
+      const t = catalog.texture?.(textureId);
+      return t ? { ...t } : null;
     },
   };
 }

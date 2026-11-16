@@ -1,6 +1,6 @@
 # ADR-007: Provider abstraction over OpenAI-compatible APIs; agent runner; Claude Code for development
 
-Status: Proposed
+Status: Proposed; D1 superseded by ADR-029 (2026-09-24)
 Date: 2026-09-14
 Supersedes: section 5.6 of 00-brainstorm.md
 Related: ADR-005 (host), ADR-006 (tools), ADR-011 (plan reader)
@@ -17,6 +17,9 @@ which tools and prompts work on which models.
 ## Decision
 
 ### D1. One provider interface, OpenAI-compatible wire format
+
+**Superseded by ADR-029 on 2026-09-24.** OpenAI refuses reasoning with tools on this wire, and the
+conversation kept in its shape made every other wire a translation of it. Kept below as the record.
 
 ```
 Provider {
@@ -36,6 +39,81 @@ Anthropic SDK is not a runtime dependency.
 Configuration is a JSON file or environment: `{ baseUrl, apiKey, model,
 profile overrides }`. Multiple named providers can be configured; the app
 picks one per role (reader, designer, verifier).
+
+**Amended 2026-09-20: one file a person edits, and it is `.env`.** Two places
+to configure a model is one too many, and the owner went looking in the wrong
+one. The rule, which the code already followed and now says out loud:
+
+- **`.env` is the file people edit, and it wins.** Every setting a model needs
+  is expressible there: which provider, which model, the address, the key, the
+  reliability profile, the per-call timeout, the output cap and the context.
+  When a role is configured there, the JSON file is not consulted for it at
+  all. It is also where the keys already live, so there is one file to protect.
+- **`<data>/config.json` is for what `.env` cannot say**, which is several
+  named providers with per-role profiles, and it is where a settings screen
+  would write if one is ever built. A person editing by hand should never need
+  it.
+- The precedence is one direction and never negotiated, so a setting that looks
+  ignored has exactly one explanation.
+
+This is why there is no model-management screen: the thing a screen would have
+been for is one file with comments in it, and a screen that wrote a different
+file would have made the confusion worse rather than better.
+
+**Amended 2026-09-20: one interface, two wires, and the second one is not
+optional.** The interface above is unchanged. What changes is the claim that
+one wire format reaches every server worth reaching, because on the server this
+project is built to run on it does not.
+
+The context a model is loaded with cannot be set over the OpenAI chat
+completions format. That format has no field for it, so Ollama's compatibility
+layer has nothing to map, and it ignores `num_ctx` at the top level and inside
+an options object alike while accepting fields it has never heard of in
+silence. Ollama's own documentation says so, listing fifteen supported fields,
+none of them a context field, and pointing anyone who needs one at a model file
+instead. Measured here on Ollama 0.32, four requests asking four different ways
+all loaded the same 131,072 tokens.
+
+That would be a tolerable limitation if the number did not matter. It matters
+more than anything else about a local model. A 35B build of 18.6 GB whose
+architecture declares 262,144 tokens is sized for that declaration, the cache
+overflows the card, the host allocation fails, and the server answers 500 --
+which reads as "this machine cannot run this model" and is not true. Asked
+natively for 16,384 the same build loads with 14 GB on the card and answers
+normally. The setting is the difference between the model running and not.
+
+Nor can it be had by the side door. Warming a model natively at 16,384 and then
+sending one ordinary request on the compatible wire reloads it at 131,072 and
+discards the warm-up. There is no arrangement in which we keep one wire and
+still choose the number.
+
+So Ollama gets a native transport, behind the same `Provider` interface, and
+these lines are drawn:
+
+- The interface, the runner, the roles and every caller are unchanged. A
+  transport is a detail of one provider, not a second abstraction for callers
+  to know about.
+- It is chosen by what the server is, not by what the user asked for. An
+  address that answers Ollama's version endpoint is Ollama; everything else
+  stays on the compatible wire, which remains the default and the only wire for
+  OpenAI, OpenRouter, vLLM and LM Studio. D1's point was never the format for
+  its own sake; it was one code path for every hosted vendor, and that holds.
+- It carries the context we ask for, the output cap, and nothing else that the
+  compatible path does not already carry. A second wire is a second set of
+  quirks to learn, and the way to keep that cheap is to send as little down it
+  as possible.
+- The context we ask for comes from the profile's `contextTokens`, which until
+  now was a number nothing in the loop read. A wire that can carry it is the
+  reason to start computing it honestly, and the budget that spends it is
+  ADR-022 D8.
+
+Two things fall out that are worth having for their own sake. The native reply
+reports how long the prompt took to evaluate and how long generation took,
+separately, which is the measurement a local run needs and the compatible wire
+cannot give. And a probe of the model's own description tells us what context
+it was built with and what its model file overrides, so the number we ask for
+can be a decision rather than a guess -- capped, because a model that declares
+262,144 tokens is telling us what it was trained for, not what will fit.
 
 ### D2. Structured output is ours, not the vendor's
 
@@ -152,6 +230,27 @@ usage is recorded per session and shown in the app.
   abstractions hide the tool-call details we need to tune.
 - **Relying on vendor structured output.** Rejected: uneven support and
   behaviour across the providers we must run on.
+
+Considered again on 2026-09-20, when the context problem forced the question:
+
+- **Tell people to build a model file with the context baked in.** This is what
+  Ollama's documentation advises and it does work; one of the models installed
+  here is built that way. Rejected as the answer because it puts the setting
+  outside the app, where the app cannot see it, cannot change it per run and
+  cannot explain it. A person who picks a model from a list should not have to
+  rebuild it before it will load, and telling them to is telling them the tool
+  does not work.
+- **Move every provider to its own native wire.** Rejected: it is the same
+  three-code-paths mistake D1 rejected at the start, and it buys nothing. The
+  hosted vendors speak the compatible format natively and have no equivalent
+  setting to reach for.
+- **Ask for a large context and let the server sort it out.** Rejected by the
+  failure that started this: sizing for a declared 262,144 tokens is exactly
+  what made a model that fits refuse to load. The number has to be chosen, and
+  chosen small enough to leave room for the weights.
+- **Warm the model up natively, then use the compatible wire.** Rejected on
+  measurement rather than taste: the next compatible request reloads the model
+  at its own size and throws the warm-up away.
 
 ## Consequences
 

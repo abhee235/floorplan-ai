@@ -1396,10 +1396,10 @@
   },
   {
     "from": "S-011",
-    "disposition": "reject",
+    "disposition": "adopt",
     "package": "engine",
     "phase": 0,
-    "note": "no wall pattern in the IR"
+    "note": "wall pattern added in schema 3; a pattern-only change redraws the plan and rebuilds nothing"
   },
   {
     "from": "S-012",

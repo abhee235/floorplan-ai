@@ -14,6 +14,7 @@ export {
   type AssetRegistry,
   assetKeyFor,
   buildItems,
+  drawnAs,
   type ItemBuildContext,
   identity,
   itemMatrix,
@@ -26,8 +27,29 @@ export {
   translation,
 } from "./items.js";
 export { MeshBuilder, partArea, partBounds } from "./mesh.js";
-export { MATERIAL_COLOURS, materialColour, materialKeyOf, materialRoughness } from "./palette.js";
-export { buildRecipe, recipeAssetKey } from "./recipes.js";
+export {
+  type FinishLike,
+  finishedMaterialKey,
+  MATERIAL_COLOURS,
+  type MaterialLook,
+  type MaterialTexture,
+  materialColour,
+  materialKeyOf,
+  materialLook,
+  materialRoughness,
+  roughnessForShininess,
+  type TextureSize,
+  type TextureSource,
+  textureSourceOf,
+} from "./palette.js";
+export { buildRecipe, buildRecipeParts, fallbackRecipe, recipeAssetKey, recipeSlotKey } from "./recipes.js";
 export { buildRooms, ceilingElevation, type RoomBuildContext } from "./rooms.js";
 export * from "./types.js";
-export { buildWalls, type WallBuildContext, type WallElevations, wallElevations } from "./walls.js";
+export {
+  buildWalls,
+  type SkirtingOutline,
+  skirtingOutlines,
+  type WallBuildContext,
+  type WallElevations,
+  wallElevations,
+} from "./walls.js";

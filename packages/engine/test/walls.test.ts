@@ -26,6 +26,29 @@ describe("wall faces", () => {
     }
   });
 
+  it("W-106 each side wears its own finish; the caps keep the plain wall material", () => {
+    const finish = (color: string | null, shininess: number | null) => ({
+      color,
+      textureId: null,
+      placement: null,
+      mirrorForLeftSide: false,
+      shininess,
+    });
+    const walls = project.walls.map((w) =>
+      w.id === "wall_000002"
+        ? { ...w, finishes: { left: finish("#FF0000", null), right: null, top: finish(null, 0.5) } }
+        : w,
+    );
+    const painted = buildWalls(walls, project.openings, ctx);
+    const key = (kind: string) => partsOf(painted, "wall_000002", kind)[0]?.materialKey;
+    expect(key("wall-left")).toBe("wall-side|#FF0000|");
+    expect(key("wall-right")).toBe("wall-side");
+    expect(key("wall-top")).toBe("wall-top||0.5");
+    expect(key("wall-end-start")).toBe("wall-side");
+    // the neighbours are untouched
+    expect(partsOf(painted, "wall_000001", "wall-left")[0]?.materialKey).toBe("wall-side");
+  });
+
   it("O-051 O-052 O-065 O-066 the door cuts both faces of its wall; no sill at sill 0; head and jambs exist", () => {
     const left = partsOf(parts, "wall_000001", "wall-left")[0];
     const right = partsOf(parts, "wall_000001", "wall-right")[0];
@@ -182,5 +205,23 @@ describe("openings and slopes", () => {
   it("W-134 walls on another level are not built", () => {
     const w = defaultWall("wall_zz0005", "level_zzzzzz", { x: 0, y: 0 }, { x: 4000, y: 0 });
     expect(buildWalls([w], [], ctx)).toHaveLength(0);
+  });
+});
+
+describe("glass walls", () => {
+  it("W-106 a glass wall is glass on both faces and framed at its top, ends and reveals", () => {
+    const walls = project.walls.map((w) => (w.id === "wall_000001" ? { ...w, kind: "glass" as const } : w));
+    const parts = buildWalls(walls, project.openings, ctx);
+    const key = (id: string, kind: string) => partsOf(parts, id, kind)[0]?.materialKey;
+    expect(key("wall_000001", "wall-left")).toBe("wall-glass");
+    expect(key("wall_000001", "wall-right")).toBe("wall-glass");
+    expect(key("wall_000001", "wall-top")).toBe("wall-glass-frame");
+    expect(key("wall_000001", "wall-end-start")).toBe("wall-glass-frame");
+    // the door set into it is framed in the same metal
+    expect(key("opening_000001", "opening-jamb")).toBe("wall-glass-frame");
+    expect(key("opening_000001", "opening-head")).toBe("wall-glass-frame");
+    // and a solid neighbour is unchanged
+    expect(key("wall_000002", "wall-left")).toBe("wall-side");
+    expect(key("wall_000002", "wall-end-start")).toBe("wall-side");
   });
 });

@@ -100,6 +100,14 @@ export interface ProjectFileStoreOptions {
   autosaveMs?: number;
   /** Override for tests: pretend the volume has this many free bytes. */
   freeBytes?: (dir: string) => Promise<number | null>;
+  /**
+   * Told about each project this session opens or saves, so File ▸ Open recent has something to offer.
+   * The hook lives here rather than at the call sites because a project is opened and saved from four
+   * of them — the command line, the editor, the MCP adapter and the in-app agent — and a list that only
+   * some of them updated would be worse than none. Keeping it a callback leaves this class knowing
+   * nothing about where the list is written.
+   */
+  remember?: (entry: { id: string; address: string; name: string; at: string }) => void;
 }
 
 /** Owns the on-disk form of the open project; implements the tools' ProjectFiles hook. */
@@ -113,6 +121,8 @@ export class ProjectFileStore implements ProjectFiles {
   private readonly appVersion: string;
   private readonly autosaveMs: number;
   private readonly free: (dir: string) => Promise<number | null>;
+  private readonly note: ((entry: { id: string; address: string; name: string; at: string }) => void) | null;
+  private readonly watchers = new Set<() => void>();
   /** Transient flags of the open project (P-011 reversed: never written). */
   modifiedOutside = false;
   manifestMissing = false;
@@ -122,6 +132,36 @@ export class ProjectFileStore implements ProjectFiles {
     this.appVersion = options.appVersion ?? "0.0.1";
     this.autosaveMs = options.autosaveMs ?? AUTOSAVE_MS;
     this.free = options.freeBytes ?? freeBytes;
+    this.note = options.remember ?? null;
+  }
+
+  /**
+   * Be told when what is open, or whether it is saved, changes. None of these move the store's history,
+   * so none of them reach a replica through the change stream (ADR-012 D8).
+   */
+  watch(listener: () => void): () => void {
+    this.watchers.add(listener);
+    return () => this.watchers.delete(listener);
+  }
+
+  private changed(): void {
+    // A listener that throws is its own problem; it must not fail the save that told it.
+    for (const w of this.watchers)
+      try {
+        w();
+      } catch {
+        // deliberately ignored
+      }
+  }
+
+  /** Remember a project as lately used, by its own id; never worth failing an open or a save over. */
+  private remember(address: string, project: { meta: { id: string; name: string } }): void {
+    if (!this.note) return;
+    try {
+      this.note({ id: project.meta.id, address, name: project.meta.name, at: this.now() });
+    } catch {
+      // deliberately ignored
+    }
   }
 
   /** The store whose project is saved; set once the session exists. */
@@ -133,9 +173,20 @@ export class ProjectFileStore implements ProjectFiles {
   path(): string | null {
     return this.dir;
   }
+
+  /** Let go of the open project's directory; a new project has never been saved anywhere (ADR-012 D8). */
+  forget(): void {
+    this.dir = null;
+    this.savedAt = null;
+    this.recovery = null;
+    this.modifiedOutside = false;
+    this.manifestMissing = false;
+    this.changed();
+  }
   lastSavedAt(): string | null {
     return this.savedAt;
   }
+  /** Unsaved work from an EARLIER session, found when this project was opened; null once it is saved. */
   recoveryAt(): string | null {
     return this.recovery;
   }
@@ -197,6 +248,8 @@ export class ProjectFileStore implements ProjectFiles {
     } catch {
       this.savedAt = null;
     }
+    this.remember(dir, parsed.project);
+    this.changed();
     return {
       project: parsed.project,
       path: dir,
@@ -257,15 +310,23 @@ export class ProjectFileStore implements ProjectFiles {
     this.modifiedOutside = false;
     this.manifestMissing = false;
     store.markSaved();
+    this.remember(dir, store.project);
+    this.changed();
     return { path: dir, bytes };
   }
 
-  /** Write recovery.json when the project is modified and has a directory (ADR-012 D6). */
+  /**
+   * Write recovery.json when the project is modified and has a directory (ADR-012 D6).
+   *
+   * `recovery` is deliberately NOT set here. It means "there is unsaved work from an earlier session
+   * that you could take back", which is a question worth putting to someone; this session's own
+   * autosave is not. Setting it made the editor offer the recovery every sixty seconds, and each offer
+   * tore down whatever menu or dialog happened to be open at the time.
+   */
   async writeRecovery(): Promise<boolean> {
     const store = this.requireStore();
     if (!this.dir || !store.modified) return false;
     await writeAtomic(join(this.dir, RECOVERY_FILE), serialize(store.project));
-    this.recovery = this.now();
     return true;
   }
 

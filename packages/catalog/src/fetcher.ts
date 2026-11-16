@@ -73,43 +73,68 @@ export function httpPageFetcher(options: HttpFetcherOptions = {}): PageFetcher {
     if (bad) throw new FetchRefused(`${host} resolves to a private or local address (${bad})`);
   }
 
+  /** The response after redirects, every hop guarded, read up to a cap. */
+  async function get(
+    input: string,
+    accept: string,
+    cap: number,
+    signal?: AbortSignal,
+  ): Promise<{ url: string; res: Response; bytes: Uint8Array; truncated: boolean }> {
+    const timer = AbortSignal.timeout(timeoutMs);
+    const combined = signal ? AbortSignal.any([signal, timer]) : timer;
+    let url = new URL(input);
+    for (let hop = 0; ; hop += 1) {
+      await guard(url);
+      const res = await f(url.toString(), {
+        redirect: "manual",
+        signal: combined,
+        headers: { "user-agent": userAgent, accept },
+      });
+      if (res.status >= 300 && res.status < 400 && res.headers.get("location")) {
+        if (hop >= maxRedirects) throw new FetchRefused(`more than ${maxRedirects} redirects from ${input}`);
+        url = new URL(res.headers.get("location") as string, url);
+        continue;
+      }
+      const { bytes, truncated } = await readCapped(res, cap);
+      return { url: url.toString(), res, bytes, truncated };
+    }
+  }
+
   return {
     async fetch(input, { signal } = {}) {
-      const timer = AbortSignal.timeout(timeoutMs);
-      const combined = signal ? AbortSignal.any([signal, timer]) : timer;
-      let url = new URL(input);
-      for (let hop = 0; ; hop += 1) {
-        await guard(url);
-        const res = await f(url.toString(), {
-          redirect: "manual",
-          signal: combined,
-          headers: {
-            "user-agent": userAgent,
-            accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5",
-          },
-        });
-        if (res.status >= 300 && res.status < 400 && res.headers.get("location")) {
-          if (hop >= maxRedirects)
-            throw new FetchRefused(`more than ${maxRedirects} redirects from ${input}`);
-          url = new URL(res.headers.get("location") as string, url);
-          continue;
-        }
-        const { body, truncated } = await readCapped(res, maxBytes);
-        const page: FetchedPage = {
-          url: url.toString(),
-          status: res.status,
-          contentType: res.headers.get("content-type") ?? "",
-          body,
-          truncated,
-        };
-        return page;
-      }
+      const got = await get(
+        input,
+        "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5",
+        maxBytes,
+        signal,
+      );
+      const page: FetchedPage = {
+        url: got.url,
+        status: got.res.status,
+        contentType: got.res.headers.get("content-type") ?? "",
+        body: new TextDecoder("utf-8").decode(got.bytes),
+        truncated: got.truncated,
+      };
+      return page;
+    },
+    async fetchBytes(input, { signal, maxBytes: cap } = {}) {
+      const got = await get(input, "image/*,*/*;q=0.5", cap ?? maxBytes, signal);
+      return {
+        url: got.url,
+        status: got.res.status,
+        contentType: got.res.headers.get("content-type") ?? "",
+        bytes: got.bytes,
+        truncated: got.truncated,
+      };
     },
   };
 }
 
-async function readCapped(res: Response, maxBytes: number): Promise<{ body: string; truncated: boolean }> {
-  if (!res.body) return { body: await res.text(), truncated: false };
+async function readCapped(
+  res: Response,
+  maxBytes: number,
+): Promise<{ bytes: Uint8Array; truncated: boolean }> {
+  if (!res.body) return { bytes: new Uint8Array(await res.arrayBuffer()), truncated: false };
   const reader = res.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
@@ -132,5 +157,5 @@ async function readCapped(res: Response, maxBytes: number): Promise<{ body: stri
     bytes.set(c, at);
     at += c.byteLength;
   }
-  return { body: new TextDecoder("utf-8").decode(bytes), truncated };
+  return { bytes, truncated };
 }

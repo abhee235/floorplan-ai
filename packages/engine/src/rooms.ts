@@ -4,11 +4,14 @@ import { difference, type MultiPoly, ringToMulti } from "@fpv/geometry";
 import type { Level, Point, Room } from "@fpv/ir";
 import { poly } from "@fpv/ir";
 import { MeshBuilder } from "./mesh.js";
+import { finishedMaterialKey, type TextureSource } from "./palette.js";
 import { type GeometryPart, MM_PER_M } from "./types.js";
 
 export interface RoomBuildContext {
   level: Level;
   isLowest: boolean;
+  /** Texture sizes, for floors and ceilings that wear a texture; without it a texture is left off. */
+  textures?: TextureSource;
 }
 
 /** Ceiling elevation: the room override or the level height (ADR-001; R-068..R-071 reversed). */
@@ -74,7 +77,9 @@ export function buildRooms(rooms: readonly Room[], ctx: RoomBuildContext): Geome
     if (r.floorVisible) {
       const floor = new MeshBuilder();
       for (const p of area) floor.addHorizontal(p.outer, p.holes, floorZ, true);
-      if (!floor.isEmpty) out.push(floor.toPart(r.id, "floor", "floor"));
+      // the floor and the ceiling wear the room's own finishes, as a wall side wears its own
+      if (!floor.isEmpty)
+        out.push(floor.toPart(r.id, "floor", finishedMaterialKey("floor", r.finishes.floor, ctx.textures)));
       if (!ctx.isLowest) {
         // R-063, R-064: underside and slab sides only above the lowest level
         const bottom = new MeshBuilder();
@@ -92,7 +97,10 @@ export function buildRooms(rooms: readonly Room[], ctx: RoomBuildContext): Geome
       const ceiling = new MeshBuilder();
       const z = ceilingElevation(r, ctx.level);
       for (const p of area) ceiling.addHorizontal(p.outer, p.holes, z, false);
-      if (!ceiling.isEmpty) out.push(ceiling.toPart(r.id, "ceiling", "ceiling"));
+      if (!ceiling.isEmpty)
+        out.push(
+          ceiling.toPart(r.id, "ceiling", finishedMaterialKey("ceiling", r.finishes.ceiling, ctx.textures)),
+        );
     }
   });
   return out;

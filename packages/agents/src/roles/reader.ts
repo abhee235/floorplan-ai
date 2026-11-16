@@ -15,7 +15,7 @@ import {
   refineRasterDraft,
 } from "@fpv/importers";
 import { completeJson } from "../json.js";
-import type { Provider, Usage } from "../provider.js";
+import type { Provider, Usage } from "../llm/provider.js";
 
 export interface RasterImage {
   /** data:<mime>;base64,<bytes> */

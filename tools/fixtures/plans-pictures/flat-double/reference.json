@@ -1,0 +1,645 @@
+{
+  "note": "The reference for flat-double: what the picture shows, from tools/eval/pictures/specs.ts.",
+  "walls": [
+    {
+      "id": "w0",
+      "start": {
+        "x": 0,
+        "y": 0
+      },
+      "end": {
+        "x": 12000,
+        "y": 0
+      },
+      "thickness": 250,
+      "kind": "exterior"
+    },
+    {
+      "id": "w1",
+      "start": {
+        "x": 12000,
+        "y": 0
+      },
+      "end": {
+        "x": 12000,
+        "y": 9000
+      },
+      "thickness": 250,
+      "kind": "exterior"
+    },
+    {
+      "id": "w2",
+      "start": {
+        "x": 12000,
+        "y": 9000
+      },
+      "end": {
+        "x": 0,
+        "y": 9000
+      },
+      "thickness": 250,
+      "kind": "exterior"
+    },
+    {
+      "id": "w3",
+      "start": {
+        "x": 0,
+        "y": 9000
+      },
+      "end": {
+        "x": 0,
+        "y": 0
+      },
+      "thickness": 250,
+      "kind": "exterior"
+    },
+    {
+      "id": "w4",
+      "start": {
+        "x": 0,
+        "y": 5000
+      },
+      "end": {
+        "x": 12000,
+        "y": 5000
+      },
+      "thickness": 120,
+      "kind": "interior"
+    },
+    {
+      "id": "w5",
+      "start": {
+        "x": 6000,
+        "y": 5000
+      },
+      "end": {
+        "x": 6000,
+        "y": 9000
+      },
+      "thickness": 120,
+      "kind": "interior"
+    },
+    {
+      "id": "w6",
+      "start": {
+        "x": 0,
+        "y": 3800
+      },
+      "end": {
+        "x": 4500,
+        "y": 3800
+      },
+      "thickness": 120,
+      "kind": "interior"
+    },
+    {
+      "id": "w7",
+      "start": {
+        "x": 7000,
+        "y": 3800
+      },
+      "end": {
+        "x": 12000,
+        "y": 3800
+      },
+      "thickness": 120,
+      "kind": "interior"
+    },
+    {
+      "id": "w8",
+      "start": {
+        "x": 4500,
+        "y": 0
+      },
+      "end": {
+        "x": 4500,
+        "y": 3800
+      },
+      "thickness": 120,
+      "kind": "interior"
+    },
+    {
+      "id": "w9",
+      "start": {
+        "x": 7000,
+        "y": 0
+      },
+      "end": {
+        "x": 7000,
+        "y": 3800
+      },
+      "thickness": 120,
+      "kind": "interior"
+    },
+    {
+      "id": "w10",
+      "start": {
+        "x": 4500,
+        "y": 2800
+      },
+      "end": {
+        "x": 7000,
+        "y": 2800
+      },
+      "thickness": 120,
+      "kind": "interior"
+    }
+  ],
+  "openings": [
+    {
+      "wallId": "w3",
+      "position": 0.5111111111111111,
+      "kind": "door",
+      "width": 1000
+    },
+    {
+      "wallId": "w4",
+      "position": 0.25,
+      "kind": "door",
+      "width": 900
+    },
+    {
+      "wallId": "w4",
+      "position": 0.625,
+      "kind": "passage",
+      "width": 1200
+    },
+    {
+      "wallId": "w4",
+      "position": 0.875,
+      "kind": "passage",
+      "width": 1000
+    },
+    {
+      "wallId": "w6",
+      "position": 0.7777777777777778,
+      "kind": "door",
+      "width": 900
+    },
+    {
+      "wallId": "w10",
+      "position": 0.5,
+      "kind": "door",
+      "width": 800
+    },
+    {
+      "wallId": "w7",
+      "position": 0.2,
+      "kind": "door",
+      "width": 900
+    },
+    {
+      "wallId": "w2",
+      "position": 0.75,
+      "kind": "window",
+      "width": 1500
+    },
+    {
+      "wallId": "w2",
+      "position": 0.375,
+      "kind": "window",
+      "width": 1200
+    },
+    {
+      "wallId": "w2",
+      "position": 0.125,
+      "kind": "window",
+      "width": 1500
+    },
+    {
+      "wallId": "w0",
+      "position": 0.18333333333333332,
+      "kind": "window",
+      "width": 1500
+    },
+    {
+      "wallId": "w0",
+      "position": 0.4791666666666667,
+      "kind": "window",
+      "width": 600
+    },
+    {
+      "wallId": "w0",
+      "position": 0.7916666666666666,
+      "kind": "window",
+      "width": 1500
+    },
+    {
+      "wallId": "w1",
+      "position": 0.7777777777777778,
+      "kind": "window",
+      "width": 1200
+    }
+  ],
+  "rooms": [
+    {
+      "name": "Living room",
+      "polygon": [
+        {
+          "x": 0,
+          "y": 5000
+        },
+        {
+          "x": 6000,
+          "y": 5000
+        },
+        {
+          "x": 6000,
+          "y": 9000
+        },
+        {
+          "x": 0,
+          "y": 9000
+        }
+      ]
+    },
+    {
+      "name": "Kitchen",
+      "polygon": [
+        {
+          "x": 6000,
+          "y": 5000
+        },
+        {
+          "x": 9000,
+          "y": 5000
+        },
+        {
+          "x": 9000,
+          "y": 9000
+        },
+        {
+          "x": 6000,
+          "y": 9000
+        }
+      ]
+    },
+    {
+      "name": "Dining",
+      "polygon": [
+        {
+          "x": 9000,
+          "y": 5000
+        },
+        {
+          "x": 12000,
+          "y": 5000
+        },
+        {
+          "x": 12000,
+          "y": 9000
+        },
+        {
+          "x": 9000,
+          "y": 9000
+        }
+      ]
+    },
+    {
+      "name": "Hall",
+      "polygon": [
+        {
+          "x": 0,
+          "y": 3800
+        },
+        {
+          "x": 12000,
+          "y": 3800
+        },
+        {
+          "x": 12000,
+          "y": 5000
+        },
+        {
+          "x": 0,
+          "y": 5000
+        }
+      ]
+    },
+    {
+      "name": "Bedroom 1",
+      "polygon": [
+        {
+          "x": 0,
+          "y": 0
+        },
+        {
+          "x": 4500,
+          "y": 0
+        },
+        {
+          "x": 4500,
+          "y": 3800
+        },
+        {
+          "x": 0,
+          "y": 3800
+        }
+      ]
+    },
+    {
+      "name": "Bathroom",
+      "polygon": [
+        {
+          "x": 4500,
+          "y": 0
+        },
+        {
+          "x": 7000,
+          "y": 0
+        },
+        {
+          "x": 7000,
+          "y": 2800
+        },
+        {
+          "x": 4500,
+          "y": 2800
+        }
+      ]
+    },
+    {
+      "name": "Bedroom 2",
+      "polygon": [
+        {
+          "x": 7000,
+          "y": 0
+        },
+        {
+          "x": 12000,
+          "y": 0
+        },
+        {
+          "x": 12000,
+          "y": 3800
+        },
+        {
+          "x": 7000,
+          "y": 3800
+        }
+      ]
+    }
+  ],
+  "items": [
+    {
+      "position": {
+        "x": 2200,
+        "y": 1150
+      },
+      "rotation": 180,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "bed"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 350,
+        "y": 2600
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "box"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 9300,
+        "y": 1100
+      },
+      "rotation": 180,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "bed"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 11300,
+        "y": 2900
+      },
+      "rotation": 90,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "table"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 10650,
+        "y": 2900
+      },
+      "rotation": 90,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "chair"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 2500,
+        "y": 5600
+      },
+      "rotation": 180,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "sofa"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 2500,
+        "y": 6800
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "table"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 2500,
+        "y": 8650
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "box"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 4900,
+        "y": 6800
+      },
+      "rotation": 270,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "chair"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 7500,
+        "y": 8570
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "box"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 6450,
+        "y": 5500
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "box"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 10500,
+        "y": 6900
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "cylinder"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 9650,
+        "y": 6900
+      },
+      "rotation": 90,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "chair"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 11350,
+        "y": 6900
+      },
+      "rotation": 270,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "chair"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 10500,
+        "y": 6050
+      },
+      "rotation": 180,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "chair"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 10500,
+        "y": 7750
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "chair"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 4900,
+        "y": 1400
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "box"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 6550,
+        "y": 500
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "box"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 6500,
+        "y": 2450
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "box"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 11550,
+        "y": 4400
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "cylinder"
+        }
+      }
+    }
+  ]
+}

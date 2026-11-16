@@ -8,6 +8,7 @@
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",
     "@fpv/assets": "workspace:*",
+    "@fpv/catalog": "workspace:*",
     "@fpv/commands": "workspace:*",
     "@fpv/engine": "workspace:*",
     "@fpv/geometry": "workspace:*",

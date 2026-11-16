@@ -1,7 +1,7 @@
 // Result fragments shared by tools (spec 04 section 1). Views carry the derived numbers a model would
 // otherwise compute: lengths, compass sides, areas, footprints, free wall segments.
 import type { Item, Opening, Point, PrimitiveRecipe, Project, Room, Wall } from "@fpv/ir";
-import { derive, poly } from "@fpv/ir";
+import { derive, finishNameOf, poly } from "@fpv/ir";
 import { z } from "zod";
 import type { CatalogSearch } from "./context.js";
 
@@ -9,6 +9,36 @@ const PointS = z.object({ x: z.number(), y: z.number() });
 const Size3S = z.object({ w: z.number(), d: z.number(), h: z.number() });
 const CompassS = z.enum(["north", "south", "east", "west"]);
 const RectS = z.object({ minX: z.number(), minY: z.number(), maxX: z.number(), maxY: z.number() });
+
+/**
+ * Who made this and whether a person has had a hand in it (ADR-023 D3).
+ *
+ * Present on a view only when the answer is "not yours to change freely", so a model reading a
+ * scene of its own work sees nothing extra, and the one line it does see is the one that matters.
+ */
+export const ByS = z.object({
+  createdBy: z.enum(["person", "agent", "import", "unknown"]),
+  editedBy: z.enum(["person", "agent", "import", "unknown"]),
+  /** True means ask before changing this (ask_user, kind consent). */
+  askFirst: z.boolean(),
+});
+
+/** The stamp as a view field, or nothing when the agent may change the thing without asking. */
+function byOf(e: { by?: { createdBy: string; editedBy: string; touchedByPerson: boolean } }): {
+  by?: z.infer<typeof ByS>;
+} {
+  const by = e.by;
+  if (!by) return {};
+  const askFirst = by.touchedByPerson || by.createdBy === "import";
+  if (!askFirst) return {};
+  return {
+    by: {
+      createdBy: by.createdBy as "person",
+      editedBy: by.editedBy as "person",
+      askFirst,
+    },
+  };
+}
 
 export const WallViewS = z.object({
   id: z.string(),
@@ -20,10 +50,26 @@ export const WallViewS = z.object({
   thickness: z.number(),
   height: z.number(),
   kind: z.string(),
+  /** Present only when the plan fills the wall other than solid. */
+  pattern: z.string().optional(),
   arcExtent: z.number().nullable(),
   compass: z.object({ left: CompassS, right: CompassS }),
   joins: z.object({ start: z.string().nullable(), end: z.string().nullable() }),
   openingIds: z.array(z.string()),
+  by: ByS.optional(),
+  /** Present only when a face has a colour, a finish or a baseboard, so plain walls stay short. */
+  faces: z
+    .array(
+      z.object({
+        facing: CompassS,
+        colour: z.string().nullable(),
+        finish: z.enum(["matt", "satin", "gloss"]),
+        baseboard: z
+          .object({ height: z.number(), depth: z.number(), colour: z.string().nullable() })
+          .nullable(),
+      }),
+    )
+    .optional(),
 });
 export type WallView = z.infer<typeof WallViewS>;
 
@@ -39,6 +85,7 @@ export const OpeningViewS = z.object({
   hinge: CompassS.nullable(),
   swingDirection: z.enum(["left", "right"]).nullable(),
   productId: z.string().nullable(),
+  by: ByS.optional(),
 });
 export type OpeningView = z.infer<typeof OpeningViewS>;
 
@@ -63,6 +110,7 @@ export const RoomViewS = z.object({
   ceilingHeight: z.number(),
   source: z.string(),
   stale: z.boolean(),
+  by: ByS.optional(),
 });
 export type RoomView = z.infer<typeof RoomViewS>;
 
@@ -88,6 +136,7 @@ export const ItemViewS = z.object({
   parentId: z.string().nullable(),
   mount: z.object({ kind: z.string(), targetId: z.string().nullable(), height: z.number().nullable() }),
   verified: z.boolean(),
+  by: ByS.optional(),
 });
 export type ItemView = z.infer<typeof ItemViewS>;
 
@@ -109,6 +158,7 @@ export function wallView(p: Project, w: Wall): WallView {
     thickness: w.thickness,
     height: level ? derive.wallHeight(w, level) : (w.height ?? 0),
     kind: w.kind,
+    ...(w.pattern === "solid" ? {} : { pattern: w.pattern }),
     arcExtent: w.arcExtent,
     compass: {
       left: derive.wallCompassSide(w, "left", p.meta.north),
@@ -116,6 +166,26 @@ export function wallView(p: Project, w: Wall): WallView {
     },
     joins: { start: w.joins.start?.wallId ?? null, end: w.joins.end?.wallId ?? null },
     openingIds: p.openings.filter((o) => o.wallId === w.id).map((o) => o.id),
+    ...byOf(w),
+    ...facesOf(p, w),
+  };
+}
+
+/** A wall's faces by compass, for walls where a face carries anything; nothing otherwise. */
+function facesOf(p: Project, w: Wall): { faces?: NonNullable<WallView["faces"]> } {
+  const sides = (["left", "right"] as const).filter((s) => w.finishes[s] || w.skirting[s]);
+  if (sides.length === 0) return {};
+  return {
+    faces: sides.map((s) => {
+      const f = w.finishes[s];
+      const b = w.skirting[s];
+      return {
+        facing: derive.wallCompassSide(w, s, p.meta.north),
+        colour: f?.color ?? null,
+        finish: finishNameOf(f?.shininess ?? null),
+        baseboard: b ? { height: b.height, depth: b.thickness, colour: b.color } : null,
+      };
+    }),
   };
 }
 
@@ -133,6 +203,7 @@ export function openingView(p: Project, o: Opening): OpeningView {
     hinge: w ? derive.openingHingeCompass(o, w, p.meta.north) : null,
     swingDirection: o.swing?.direction ?? null,
     productId: o.productId,
+    ...byOf(o),
   };
 }
 
@@ -144,33 +215,23 @@ export function roomWalls(p: Project, r: Room): Wall[] {
   return p.walls.filter((w) => w.levelId === r.levelId && wallTouchesRoom(w, r));
 }
 
-function distanceToRing(pt: Point, ring: readonly Point[]): number {
-  let best = Number.POSITIVE_INFINITY;
-  for (let i = 0; i < ring.length; i += 1) {
-    const a = ring[i] as Point;
-    const b = ring[(i + 1) % ring.length] as Point;
-    best = Math.min(best, poly.distancePointSegment(pt, a, b));
-  }
-  return best;
-}
-
 function wallTouchesRoom(w: Wall, r: Room): boolean {
-  const tol = w.thickness / 2 + 10;
-  // a corner of the wall centreline sits diagonally off the room corner, half the thickness in both axes
-  const cornerTol = (w.thickness / 2) * Math.SQRT2 + 10;
-  const mid = derive.pointAlongWall(w, 0.5);
-  return (
-    distanceToRing(w.start, r.polygon) <= cornerTol &&
-    distanceToRing(w.end, r.polygon) <= cornerTol &&
-    distanceToRing(mid, r.polygon) <= tol
-  );
+  const run = derive.roomWallRun(w, r);
+  return run !== null && run.toMm - run.fromMm >= derive.MIN_WALL_SHARE_MM;
 }
 
-/** Which side of the wall the room lies on, by probing just off the centreline at the midpoint. */
+/**
+ * Which side of the wall the room lies on, by probing off the centreline in the middle of the
+ * stretch they share -- not the middle of the wall, which for a shared wall can be in another room.
+ */
 export function roomSideOfWall(w: Wall, r: Room): derive.Side {
-  const mid = derive.pointAlongWall(w, 0.5);
+  const len = derive.wallLength(w);
+  const run = derive.roomWallRun(w, r);
+  const t = run && len > 0 ? Math.min(1, Math.max(0, (run.fromMm + run.toMm) / 2 / len)) : 0.5;
+  const mid = derive.pointAlongWall(w, t);
   const n = derive.wallSideNormal(w, "left");
-  const d = w.thickness / 2 + 10;
+  // far enough to clear the wall's face and any gap the room was drawn with
+  const d = w.thickness / 2 + derive.WALL_ROOM_GAP_MM + 10;
   const leftProbe = { x: mid.x + n.x * d, y: mid.y + n.y * d };
   return derive.roomContains(r, leftProbe) ? "left" : "right";
 }
@@ -186,19 +247,30 @@ export function roomWallCompass(p: Project, w: Wall, r: Room): derive.Compass {
 export function roomWallInterval(w: Wall, r: Room): { fromMm: number; toMm: number } {
   const len = derive.wallLength(w);
   if (len === 0) return { fromMm: 0, toMm: 0 };
-  const dx = (w.end.x - w.start.x) / len;
-  const dy = (w.end.y - w.start.y) / len;
-  const tol = w.thickness / 2 + 10;
-  let lo = Number.POSITIVE_INFINITY;
-  let hi = Number.NEGATIVE_INFINITY;
-  for (const v of r.polygon) {
-    if (poly.distancePointSegment(v, w.start, w.end) > tol) continue;
-    const u = (v.x - w.start.x) * dx + (v.y - w.start.y) * dy;
-    lo = Math.min(lo, u);
-    hi = Math.max(hi, u);
-  }
-  if (!Number.isFinite(lo) || hi - lo < 1) return { fromMm: 0, toMm: r1(len) };
-  return { fromMm: r1(Math.max(0, lo)), toMm: r1(Math.min(len, hi)) };
+  const run = derive.roomWallRun(w, r);
+  return run ? { fromMm: r1(run.fromMm), toMm: r1(run.toMm) } : { fromMm: 0, toMm: r1(len) };
+}
+
+/**
+ * The openings in a room's own stretch of its walls.
+ *
+ * Not every opening on every wall it touches. An exterior wall can run the length of the building,
+ * and a real run asked for the server room's openings, was told of all seven windows on the two
+ * walls that corner room shared with half the building, and deleted every window there was.
+ */
+export function roomOpenings(
+  p: Project,
+  r: Room,
+  walls: readonly Wall[] = roomWalls(p, r),
+): Project["openings"] {
+  const byId = new Map(walls.map((w) => [w.id, w]));
+  return p.openings.filter((o) => {
+    const w = byId.get(o.wallId);
+    if (!w) return false;
+    const mine = roomWallInterval(w, r);
+    const at = derive.openingAlongInterval(o, w);
+    return at.to > mine.fromMm && at.from < mine.toMm;
+  });
 }
 
 export function roomView(p: Project, r: Room, sizes: derive.SizeSource, stale = false): RoomView {
@@ -216,7 +288,7 @@ export function roomView(p: Project, r: Room, sizes: derive.SizeSource, stale = 
     perimeterMm: r1(derive.roomPerimeter(r)),
     bounds: { minX: b.minX, minY: b.minY, maxX: b.maxX, maxY: b.maxY },
     walls: walls.map((w) => ({ wallId: w.id, compass: roomWallCompass(p, w, r), ...roomWallInterval(w, r) })),
-    openingIds: p.openings.filter((o) => wallIds.has(o.wallId)).map((o) => o.id),
+    openingIds: roomOpenings(p, r, walls).map((o) => o.id),
     itemIds: p.items
       .filter(
         (i) =>
@@ -227,6 +299,7 @@ export function roomView(p: Project, r: Room, sizes: derive.SizeSource, stale = 
     ceilingHeight: r.ceilingHeight ?? level?.height ?? 0,
     source: r.source,
     stale,
+    ...byOf(r),
   };
 }
 
@@ -292,11 +365,29 @@ export function itemView(
     parentId: it.parentId,
     mount: it.mount,
     verified,
+    ...byOf(it),
   };
 }
 
 /** Intervals along a room wall not blocked by openings or by items standing against it (spec 04 describe_room). */
-export function freeSegments(p: Project, r: Room, sizes: derive.SizeSource, minMm = 300): FreeSegment[] {
+/**
+ * What a free run of wall is free of.
+ *
+ * By default every opening takes its span out, which is what `describe_room` should say: a wall
+ * with a window in it is not free for a bookcase. A caller placing something lower than the sill
+ * passes `blocks` to say otherwise, because a bed under a window is where a bed goes.
+ */
+export interface FreeSegmentOptions {
+  blocks?(opening: Opening): boolean;
+}
+
+export function freeSegments(
+  p: Project,
+  r: Room,
+  sizes: derive.SizeSource,
+  minMm = 300,
+  options: FreeSegmentOptions = {},
+): FreeSegment[] {
   const out: FreeSegment[] = [];
   const items = p.items.filter(
     (i) => i.levelId === r.levelId && (i.roomId === r.id || derive.roomContains(r, i.position)),
@@ -311,6 +402,7 @@ export function freeSegments(p: Project, r: Room, sizes: derive.SizeSource, minM
     const blocked: { a: number; b: number }[] = [];
     for (const o of p.openings) {
       if (o.wallId !== w.id) continue;
+      if (options.blocks && !options.blocks(o)) continue;
       const iv = derive.openingAlongInterval(o, w);
       blocked.push({ a: iv.from, b: iv.to });
     }
@@ -338,8 +430,12 @@ export function freeSegments(p: Project, r: Room, sizes: derive.SizeSource, minM
   return out;
 }
 
-/** Prefer a door-free wall opposite the door, else the wall with the longest free run. */
-export function suggestedDisplayWall(p: Project, r: Room, free: FreeSegment[]): derive.Compass | null {
+/**
+ * The wall a room without a screen is laid out from: a door-free wall opposite the door, else the
+ * wall with the longest free run. A reception's desk faces its door from here, with its back to
+ * whatever window that wall has, which for a desk is the ordinary thing.
+ */
+export function wallFacingTheDoor(p: Project, r: Room, free: FreeSegment[]): derive.Compass | null {
   const walls = roomWalls(p, r);
   const doorWalls = new Set(
     p.openings
@@ -362,6 +458,57 @@ export function suggestedDisplayWall(p: Project, r: Room, free: FreeSegment[]): 
     if (facing) return facing.compass;
   }
   return candidates[0]?.compass ?? null;
+}
+
+/** Free wall a display of about 65 inches needs, with a little either side. */
+const DISPLAY_RUN_MM = 1600;
+
+/**
+ * The wall a display goes on (ADR-028 D12): never glass and never a side with a window in it;
+ * plaster before an outside wall; a wall without a door before one with; then opposite the door;
+ * then the longest free run. Null when no wall qualifies: every one is glass or has a window.
+ *
+ * It used to be "opposite the door", which in a room off a corridor is the outside wall, and the
+ * owner found most meeting rooms' screens on their windows. A screen against a window is backlit:
+ * the far end of the table reads it against daylight. A glass wall takes no mount at all.
+ */
+export function suggestedDisplayWall(p: Project, r: Room, free: FreeSegment[]): derive.Compass | null {
+  const walls = roomWalls(p, r);
+  const byId = new Map(walls.map((w) => [w.id, w]));
+  const mine = (o: Opening) => byId.has(o.wallId);
+  const doorWalls = new Set(p.openings.filter((o) => o.kind !== "window" && mine(o)).map((o) => o.wallId));
+  const sideOf = (id: string) => roomWallCompass(p, byId.get(id) as Wall, r);
+  const windowSides = new Set(
+    p.openings.filter((o) => o.kind === "window" && mine(o)).map((o) => sideOf(o.wallId)),
+  );
+  const opposite: Record<derive.Compass, derive.Compass> = {
+    north: "south",
+    south: "north",
+    east: "west",
+    west: "east",
+  };
+  const doorSides = new Set([...doorWalls].map(sideOf));
+  const facingDoor = (c: derive.Compass) => [...doorSides].some((d) => opposite[d] === c);
+  const candidates = free.filter((f) => {
+    const w = byId.get(f.wallId);
+    return w !== undefined && w.kind !== "glass" && !windowSides.has(f.compass);
+  });
+  if (candidates.length === 0) return null;
+  const rank = (f: FreeSegment): number[] => [
+    f.lengthMm >= DISPLAY_RUN_MM ? 0 : 1,
+    byId.get(f.wallId)?.kind === "exterior" ? 1 : 0,
+    doorWalls.has(f.wallId) ? 1 : 0,
+    facingDoor(f.compass) ? 0 : 1,
+    -f.lengthMm,
+  ];
+  const better = (a: FreeSegment, b: FreeSegment) => {
+    const x = rank(a);
+    const y = rank(b);
+    for (let i = 0; i < x.length; i += 1)
+      if ((x[i] as number) !== (y[i] as number)) return (x[i] as number) - (y[i] as number);
+    return 0;
+  };
+  return [...candidates].sort(better)[0]?.compass ?? null;
 }
 
 /** Nearest-edge distance between two point sets treated as closed rings (or single points). */

@@ -1,6 +1,6 @@
 // Annotation, project meta, provenance, and catalog refresh reducers (spec 03 section 4).
 import type { Annotation, Project } from "@fpv/ir";
-import { Annotation as AnnotationSchema, normalizeDeg } from "@fpv/ir";
+import { Annotation as AnnotationSchema, normalizeDeg, UNKNOWN_AUTHOR } from "@fpv/ir";
 import { type Changes, type Ctx, levelById } from "../context.js";
 import { missingRef, precondition } from "../errors.js";
 import type { PayloadOf } from "../types.js";
@@ -12,7 +12,12 @@ export function annotationAdd(
   changes: Changes,
 ): Annotation {
   levelById(p, payload.annotation.levelId);
-  const a = { ...payload.annotation, id: ctx.ids.next("annot") } as Annotation;
+  // the stamp is the command layer's to write, so the payload never carries one (ADR-023 D2)
+  const a = {
+    ...payload.annotation,
+    id: ctx.ids.next("annot"),
+    by: { ...UNKNOWN_AUTHOR },
+  } as Annotation;
   const parsed = AnnotationSchema.safeParse(a);
   if (!parsed.success)
     throw precondition(

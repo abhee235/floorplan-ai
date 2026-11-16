@@ -98,6 +98,7 @@ is that order and is re-sorted on load. There is always at least one level.
 
 ```ts
 export const WallKind = z.enum(["exterior", "interior", "partition", "glass"]);
+export const WallPattern = z.enum(["solid", "hatch", "cross-hatch", "outline"]);
 export const Join = z.object({ wallId: WallId, end: z.enum(["start", "end"]) });
 
 export const Wall = z.object({
@@ -110,9 +111,10 @@ export const Wall = z.object({
   heightAtEnd: MmPositive.nullable(),  // null: same as height; sloped top when different
   arcExtent: z.number().finite().min(-270).max(270).nullable(),   // degrees; null or 0: straight; sign per ADR-014 D4
   kind: WallKind,
+  pattern: WallPattern,                // how the plan fills the cut; nothing in 3D reads it (W-121; schema 3)
   joins: z.object({ start: Join.nullable(), end: Join.nullable() }),
   finishes: z.object({ left: FinishRef.nullable(), right: FinishRef.nullable(), top: FinishRef.nullable() }),
-  skirting: z.object({ left: z.object({ thickness: MmPositive, height: MmPositive }).nullable(), right: z.object({ thickness: MmPositive, height: MmPositive }).nullable() }),
+  skirting: z.object({ left: Skirting.nullable(), right: Skirting.nullable() }),  // Skirting = { thickness: MmPositive, height: MmPositive, color: Rgb.nullable() }; null colour takes the side's (schema 2)
   properties: z.record(z.string()),
 });
 ```
@@ -147,13 +149,90 @@ An opening always cuts both faces of its wall. Its depth is the wall
 thickness; the product's embed fractions describe where the frame sits
 within that depth (spec 02).
 
+### 4.3a Authorship (every entity, schema version 5)
+
+```ts
+export const Author = z.enum(["person", "agent", "import", "unknown"]);
+export const Authorship = z.object({
+  createdBy: Author,
+  editedBy: Author,               // whoever wrote it last
+  editedAt: Timestamp,
+  touchedByPerson: z.boolean(),   // never cleared by a later edit
+});
+// on Level, Wall, Opening, Room, Item, Zone and Annotation:
+  by: Authorship,
+```
+
+Written by `apply`, from the origin the store was given, over the entities the
+change set names as added or updated (ADR-023 D2). Reducers do not write it and
+payload schemas do not accept it, so the stamp always says who actually held
+the store's handle.
+
+`Author` is not the command layer's `Origin`: `editor` becomes `person`, and
+`undo`, `redo` and `restore` are not authors at all. They replay patches that
+already carry the stamps of the change being replayed, so undoing an agent's
+move of a person's sofa restores the person's own stamp without anyone writing
+it. That is the reason the field is in the document rather than beside it.
+
+`touchedByPerson` is what the agent reads before changing anything (ADR-023
+D3). It is sticky: an agent that changes a person's sofa with permission does
+not thereby make the sofa its own.
+
+Migration 4 to 5 marks everything in an older file `createdBy: "unknown"`,
+`editedBy: "unknown"`, `touchedByPerson: true`, dated from the project's own
+`createdAt`. Nobody can know who drew a wall last year, and of the two possible
+mistakes only one is recoverable: an agent that asks once about an old file
+wastes a question, an agent that assumes an old file is its own rearranges work
+somebody spent a week on.
+
+### 4.3b Design (ADR-022 D2)
+
+Not part of a project: the artefact the architect produces and `check_design`
+measures, in `packages/ir/src/design.ts` because everything that touches it
+already depends on the IR.
+
+```ts
+export const DesignRoom = z.object({
+  key: RoomKey,                      // "bed1": the model's own name, kept between rounds
+  name: z.string(),                  // what a person calls it
+  purpose: RoomPurpose,
+  rect: { x, y, w, d },              // the CLEAR INSIDE, mm; walls go outside it
+  capacity: z.number().int().nullable(),
+  doorsTo: z.array(z.string()),      // room keys, or "outside"
+  window: z.boolean(),
+});
+export const Design = z.object({
+  brief: z.string(), kind: z.enum(["dwelling", "workplace", "mixed"]),
+  levelId: z.string().nullable(),
+  shell: { x, y, w, d, wallMm, interiorWallMm },   // the OUTSIDE of the building
+  rooms: z.array(DesignRoom).min(1),
+  circulation: z.array(RoomKey), assumptions: z.array(z.string()),
+});
+```
+
+Rectangles, for three reasons: a room a person can name is a rectangle nearly
+always; a rectangle is checkable in arithmetic the model can also do, so it can
+correct itself; and a set of rectangles draws deterministically. An L-shaped
+room is two keys with a door between them.
+
+Helpers beside it, used by both the checker and the builder: `rectOverlap`,
+`sharedEdge` (the wall two rooms have in common, which is what a door needs)
+and `onOutsideWall`.
+
 ### 4.4 Room
 
 ```ts
 export const RoomPurpose = z.enum([
-  "meeting", "huddle", "boardroom", "training", "open-office", "focus", "reception",
-  "cafeteria", "corridor", "utility", "storage", "restroom", "other",
+  // workplaces
+  "meeting", "huddle", "boardroom", "training", "open-office", "focus", "reception", "cafeteria",
+  // homes
+  "bedroom", "living", "kitchen", "dining", "bathroom", "toilet", "foyer", "study",
+  "laundry", "balcony", "garage",
+  // either
+  "corridor", "utility", "storage", "restroom", "other",
 ]);
+// RESIDENTIAL_PURPOSES is the middle group as a Set: what furnishing and the design
+// checks read to tell a dwelling's rooms from a workplace's.
 
 export const Room = z.object({
   id: RoomId,
@@ -334,17 +413,31 @@ block. Codes, first release:
 | `room.hole-outside` | error | a hole not contained in the polygon |
 | `room.degenerate` | warning | area below 100000 mm² (0.1 m²) |
 | `room.stale` | warning | detected room whose bounding walls changed since detection |
+| `room.unenclosed` | warning | 500 mm or more of a room edge has no wall running along it |
 | `item.size-not-deformable` | error | `size` set but the product is not deformable |
 | `item.parent-cycle` | error | parentId chain loops |
 | `item.parent-level` | error | parent on another level |
 | `item.outside-room` | warning | roomId set but centre not inside the room polygon |
 | `item.in-wall` | warning | footprint fully inside a wall footprint (F-089) |
 | `item.overlap` | warning | footprints of two floor-mounted items on one level overlap by more than 10 percent of the smaller |
+| `item.blocks-opening` | warning | a floor-mounted item within 250 mm of a wall's face covers part of a door, or of a window whose sill it is taller than |
+| `item.needs-wall` | warning | a bed, wardrobe, sofa or kitchen run whose back is more than 250 mm from the nearest wall face |
 | `item.mount-target` | error | mount kind wall or item without a resolving targetId |
 | `item.elevation-range` | warning | elevation plus height above the level height plus 1000 mm |
 | `zone.rule-orphan` | warning | generatedItemIds reference items that no longer exist |
 | `catalog.unverified` | warning | an item references a product whose snapshot status is not verified |
 | `catalog.missing-snapshot` | error | an item references a product with no entry in catalogRefs |
+
+The last three are new in phase 3 and are all warnings, deliberately. `apply`
+refuses a command that introduces an error (ADR-004 D4), and a person dragging
+their own sofa across a doorway must not be refused: the editor is theirs. The
+agent's checker reads the same problems and treats them as blocking, so the
+same measurement is advice to a person and a gate to an agent (ADR-022 D3).
+
+`room.unenclosed` compares each room edge against the stretch of every wall
+that runs along it (`derive.roomWallRun`), so one long wall shared by three
+rooms bounds all three. Gaps shorter than 500 mm are ignored: a wall a little
+short of a corner is not a missing wall.
 
 Problems for a whole entity list include `related` ids so the plan view can
 highlight all of them.
@@ -400,8 +493,12 @@ projectBounds(project): Rect
   fields under `properties.__unknown` per entity, rejects NaN and Infinity,
   and returns problems from a shape parse as a single `file.shape` error
   with the zod path.
-- Migrations live in `packages/ir/migrations/<from>-to-<to>.ts`, pure, with
+- Migrations are registered in `packages/ir/src/migrations.ts` by the version they upgrade from, pure, with
   a fixture pair each.
+- Schema 2 (2026-09-17): baseboards gained `color`; version 1 files get `color: null` on every
+  baseboard they have, which draws them exactly as before.
+- Schema 3 (2026-09-17): walls gained `pattern`; version 2 files get `"solid"` on every wall, which is
+  how the plan drew every wall before.
 
 ## 9. Ledger coverage for this spec
 

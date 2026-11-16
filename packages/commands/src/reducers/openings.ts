@@ -1,7 +1,14 @@
 // Opening reducers (spec 03 section 2; ledger O-038..O-050 reversed: openings are bound by wall id).
 import type { Opening, Project } from "@fpv/ir";
 import { defaultOpening, derive, normalizeOpening } from "@fpv/ir";
-import { type Changes, type Ctx, ensureSnapshot, openingById, wallById } from "../context.js";
+import {
+  type Changes,
+  type Ctx,
+  ensureSnapshot,
+  openingById,
+  requireTextures,
+  wallById,
+} from "../context.js";
 import { precondition } from "../errors.js";
 import type { PayloadOf } from "../types.js";
 
@@ -73,6 +80,7 @@ export function openingModify(
   const o = openingById(p, payload.openingId);
   const c = payload.changes;
   if (c.productId !== undefined) requireSnapshot(p, ctx, c.productId, o.id);
+  if (c.finishes) requireTextures(p, ctx, [c.finishes.frame, c.finishes.leaf], o.id);
   Object.assign(o, c);
   Object.assign(o, normalizeOpening(o));
   changes.update("opening", o.id);

@@ -11,6 +11,7 @@ Ledger coverage: section 7
 ```ts
 export const Category = z.enum([
   "display", "video-bar", "camera", "ceiling-mic", "table-mic", "ceiling-speaker", "soundbar",
+  // homes: "bed", "wardrobe", "kitchen-run", "sanitary" join table, desk, chair, sofa, appliance
   "amplifier", "dsp", "controller", "touch-panel", "scheduler", "mount", "cable", "connector",
   "switch", "rack", "table", "desk", "chair", "sofa", "storage", "whiteboard", "door", "window",
   "partition", "lighting", "appliance", "plant", "other",
@@ -121,7 +122,7 @@ Rules in spec 07 read these keys.
 export const Texture = z.object({
   id: TextureId,                           // "<library>/<slug>"
   name: z.string().min(1),
-  image: z.string(),                       // asset file reference by hash: "sha256:<hex>"
+  image: z.string(),                       // a library file by hash, "sha256:<hex>", or "generated:<name>" for one the app draws
   widthMm: MmPositive,
   heightMm: MmPositive,
   transparent: z.boolean(),
@@ -131,6 +132,20 @@ export const Texture = z.object({
 });
 export const TextureSnapshot = Texture;  // whole record, small
 ```
+
+The app draws a set of textures itself (`@fpv/assets` GENERATED_TEXTURES: wood,
+carpet, concrete, tiles, brick, fabric, felt), seeded and tiling, installed as
+the library `generated` beside the seed products; they have no files and so
+no licence to track. The host serves every texture's image at
+`/textures/<library>/<slug>`: a drawn one rendered and encoded on first use, a
+library one from the installed copy. A finish that names a texture copies its
+record into the project's `textures` on first use, as a product is copied
+into `catalogRefs`; a texture the catalog does not have is refused with
+`catalog.missing-texture`. A textured surface is drawn white under its image,
+repeated every `widthMm` by `heightMm` (engine UVs are metres); picking a
+texture clears the surface's colour and typing a colour clears its texture.
+The glTF export does not embed images yet and writes a textured surface in
+its plain colour.
 
 ## 3. Asset manifest
 
@@ -183,12 +198,30 @@ entries; `licence.id` never NC, ND, or copyleft; `attribution` required when
 | Category | Fallback recipe |
 |---|---|
 | table, desk | table |
-| chair, sofa | chair |
+| chair | chair |
+| sofa | sofa |
+| bed | bed |
 | display | display |
 | video-bar, soundbar | video-bar |
 | ceiling-speaker | ceiling-speaker |
 | ceiling-mic | ceiling-mic |
 | everything else | box |
+
+A product without a model of its own is drawn as that recipe, built at the
+product's size, and takes the recipe's material slots, so its parts can be
+finished like any recipe's (P3-5). Recipes are built one part per slot:
+
+| Recipe | Slots |
+|---|---|
+| table | top, legs |
+| chair | fabric, frame |
+| display | screen, frame |
+| bed | mattress, frame |
+| sofa | fabric, frame |
+| box, cylinder, video-bar, ceiling-speaker, ceiling-mic | body |
+
+A product whose model the viewer has not loaded is a white box at its size
+(S-042).
 
 ## 4. Library package
 
@@ -238,6 +271,8 @@ model with spaces, dashes and case ignored; every query word in name, model,
 make or variant; tags and aliases, with the synonym table (tv, screen, couch
 and the like) applied; FTS ranking with each word as a prefix. Limit at most
 20; `total` counts the whole ordered list and `cursor` pages through it.
+An empty query lists the catalog to browse it: a category's products by name
+when a category is given, otherwise every product by category and name.
 Rejected products answer only to their exact id. Ambiguity returns all hits
 with id, category, dims and the tier that matched. The store is reached
 through the Node-only `@fpv/catalog/store` entry (ADR-002); `node:sqlite`

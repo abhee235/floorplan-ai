@@ -7,7 +7,16 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { apply, type Ctx } from "@fpv/commands";
-import { derive, Project, type Project as ProjectT, sequentialIdGenerator, WallKind } from "@fpv/ir";
+import { buildWalls } from "@fpv/engine";
+import {
+  derive,
+  Project,
+  type Project as ProjectT,
+  RoomPurpose,
+  sequentialIdGenerator,
+  WallKind,
+  WallPattern,
+} from "@fpv/ir";
 import { describe, expect, it } from "vitest";
 import {
   CURVE_LIMIT,
@@ -16,7 +25,14 @@ import {
   type EditOutcome,
   type Fact,
   HEIGHT_RANGE,
+  NAME_LIMIT,
+  OPENING_KINDS,
+  PAINT,
+  ROOM_PURPOSES,
+  SKIRTING_DEPTH,
+  SKIRTING_DEPTH_RANGE,
   THICKNESS_RANGE,
+  WALL_PATTERNS,
 } from "../../src/editor/selection.js";
 import { formatMm } from "../../src/editor/status.js";
 import { WALL_KINDS } from "../../src/editor/tools.js";
@@ -70,34 +86,52 @@ describe("describing a selected entity", () => {
     expect(d?.title).toBe("Wall");
     expect(d?.facts.map((f) => f.label)).toEqual([
       "Kind",
+      "Plan pattern",
       "Start X",
       "Start Y",
       "End X",
       "End Y",
-      "Curve",
       "Length",
       "Thickness",
       "Height",
       "Height at end",
+      "Curve",
+      "Material, left side",
+      "Colour, left side",
+      "Finish, left side",
+      "Baseboard height, left side",
+      "Material, right side",
+      "Colour, right side",
+      "Finish, right side",
+      "Baseboard height, right side",
     ]);
     // a real length, grouped as a drawing writes it, not a placeholder
     expect(d?.facts.find((f) => f.label === "Length")?.value).toBe(`8${NARROW}000`);
   });
 
-  it("groups a wall's rows as position, shape, size and height, with its kind ahead (ADR-017 D3)", () => {
+  it("groups a wall's rows as position, shape and size, and its sides, with its kind and pattern ahead (ADR-017 D3)", () => {
     const p = fixture();
     const d = describeEntity(p, (p.walls[0] as { id: string }).id);
     expect(d?.facts.map((f) => f.group ?? null)).toEqual([
+      null,
       null,
       "Position",
       "Position",
       "Position",
       "Position",
-      "Shape",
-      "Size",
-      "Size",
-      "Height",
-      "Height",
+      "Shape and size",
+      "Shape and size",
+      "Shape and size",
+      "Shape and size",
+      "Shape and size",
+      "Left side, facing north",
+      "Left side, facing north",
+      "Left side, facing north",
+      "Left side, facing north",
+      "Right side, facing south",
+      "Right side, facing south",
+      "Right side, facing south",
+      "Right side, facing south",
     ]);
   });
 
@@ -105,7 +139,7 @@ describe("describing a selected entity", () => {
     const p = fixture();
     const d = describeEntity(p, (p.walls[0] as { id: string }).id);
     const printed = d?.facts.map((f) => [f.caption ?? f.label, f.prefix ?? null]);
-    expect(printed?.slice(1, 5)).toEqual([
+    expect(printed?.slice(2, 6)).toEqual([
       ["Start", "X"],
       ["", "Y"],
       ["End", "X"],
@@ -115,15 +149,28 @@ describe("describing a selected entity", () => {
     for (const f of d?.facts ?? []) expect(f.label.startsWith(f.caption ?? f.label), f.label).toBe(true);
   });
 
-  it("describes a room by its corners, area and purpose", () => {
+  it("describes a room by its name, purpose, seats, size, floor and ceiling", () => {
     const p = withRoom();
     const room = p.rooms[0];
     expect(room).toBeDefined();
     const d = describeEntity(p, (room as { id: string }).id);
     expect(d?.kind).toBe("room");
-    expect(d?.facts.map((f) => f.label)).toEqual(["Corners", "Area", "Purpose"]);
+    expect(d?.facts.map((f) => f.label)).toEqual([
+      "Name of room",
+      "Purpose",
+      "Capacity",
+      "Area",
+      "Corners",
+      "Material of floor",
+      "Colour of floor",
+      "Show floor",
+      "Height of ceiling",
+      "Material of ceiling",
+      "Colour of ceiling",
+      "Show ceiling",
+    ]);
     // square metres, and a detected room of a six-wall plan is not zero
-    const area = Number(d?.facts[1]?.value.replace(" m²", ""));
+    const area = Number(d?.facts.find((f) => f.label === "Area")?.value.replace(" m²", ""));
     expect(area).toBeGreaterThan(0);
   });
 
@@ -339,6 +386,26 @@ describe("picking a wall's kind", () => {
   });
 });
 
+describe("picking how the plan fills a wall (W-121)", () => {
+  it("offers every pattern the model has, each with a picture of itself, and starts solid", () => {
+    const p = fixture();
+    const row = rowOf(p, W1, "Plan pattern");
+    expect(row).toMatchObject({ value: "solid", choices: WALL_PATTERNS });
+    expect(WALL_PATTERNS.map((c) => c.value)).toEqual([...WallPattern.options]);
+    for (const c of WALL_PATTERNS) expect(c.swatch).toBe(c.value);
+  });
+
+  it("sends the pick as a change to the plan alone", () => {
+    const p = fixture();
+    const { project, updated } = run(p, typed(p, W1, "Plan pattern", "cross-hatch"));
+    expect(wallOf(project, W1).pattern).toBe("cross-hatch");
+    expect(updated).toEqual([{ type: "wall", id: W1, aspect: "plan" }]);
+    expect(outcomeOf(project, W1, "Plan pattern", "cross-hatch")).toMatchObject({ ok: true, command: null });
+    expect(outcomeOf(p, W1, "Plan pattern", "outline")).toMatchObject({ said: "Outline" });
+    expect(outcomeOf(p, W1, "Plan pattern", "dotted")).toMatchObject({ ok: false });
+  });
+});
+
 /** What editing a row asks for, whatever it is: a command, nothing, or a refusal. */
 const outcomeOf = (p: ProjectT, id: string, label: string, text: string): EditOutcome =>
   (rowOf(p, id, label).edit as (text: string) => EditOutcome)(text);
@@ -407,7 +474,7 @@ describe("typing a wall's height (W-092, W-094)", () => {
   it("shows a wall that follows the level as empty, standing for the level's height", () => {
     const row = rowOf(fixture(), W1, "Height");
     expect(row.value).toBe("");
-    expect(row.empty).toEqual({ shown: `level · 2${NARROW}700 mm`, action: "Follow the level's height" });
+    expect(row.empty).toEqual({ shown: `2${NARROW}700 (level)`, action: "Follow the level's height" });
     expect(row.hint).toBe("Empty follows the level, 2700 millimetres.");
   });
 
@@ -458,7 +525,7 @@ describe("typing the height at a wall's end", () => {
   it("shows a flat top as an empty end, standing for the start's height", () => {
     const row = rowOf(fixture(), W1, "Height at end");
     expect(row.value).toBe("");
-    expect(row.empty).toEqual({ shown: `same · 2${NARROW}700 mm`, action: "Make the top flat" });
+    expect(row.empty).toEqual({ shown: `2${NARROW}700 (flat)`, action: "Make the top flat" });
     expect(row.hint).toBe("Empty keeps the top flat, at the start's 2700 millimetres.");
   });
 
@@ -494,5 +561,762 @@ describe("typing the height at a wall's end", () => {
   it("sends nothing for the start's height on a top that is already flat", () => {
     expect(outcomeOf(fixture(), W1, "Height at end", "2700")).toMatchObject({ ok: true, command: null });
     expect(outcomeOf(fixture(), W1, "Height at end", "")).toMatchObject({ ok: true, command: null });
+  });
+});
+
+describe("painting a wall's sides (W-106)", () => {
+  const W2 = "wall_000002"; // runs north, so its left faces west
+  const blank = { color: null, textureId: null, placement: null, mirrorForLeftSide: false, shininess: null };
+  const finishesOf = (p: ProjectT, id: string) => wallOf(p, id).finishes;
+
+  it("names each side by the way it faces, since left and right are invisible on a plan", () => {
+    const groups = describeEntity(fixture(), W2)?.facts.map((f) => f.group);
+    expect(groups).toContain("Left side, facing west");
+    expect(groups).toContain("Right side, facing east");
+  });
+
+  it("shows an unpainted side as empty, standing for the default colour, and matt", () => {
+    const colour = rowOf(fixture(), W1, "Colour, left side");
+    expect(colour.value).toBe("");
+    expect(colour.caption).toBe("Colour");
+    expect(colour.colour).toEqual({ effective: "#E8E6E1" });
+    expect(colour.empty).toEqual({ shown: "default", action: "Use the default colour" });
+    expect(rowOf(fixture(), W1, "Finish, left side")).toMatchObject({
+      value: "matt",
+      choices: expect.any(Array),
+    });
+  });
+
+  it("paints one side, leaves the other alone, and the wall builds with that colour", () => {
+    const p = fixture();
+    const command = typed(p, W1, "Colour, left side", "f00");
+    expect(command.payload).toEqual({
+      wallId: W1,
+      changes: { finishes: { left: { ...blank, color: "#FF0000" }, right: null, top: null } },
+    });
+    const { project } = run(p, command);
+    expect(finishesOf(project, W1).left?.color).toBe("#FF0000");
+    expect(finishesOf(project, W1).right).toBeNull();
+    const level = project.levels[0] as ProjectT["levels"][number];
+    const parts = buildWalls(project.walls, project.openings, { level, isLowest: true, isHighest: true });
+    const side = (kind: string) => parts.find((x) => x.entityId === W1 && x.part === kind)?.materialKey;
+    expect(side("wall-left")).toBe("wall-side|#FF0000|");
+    expect(side("wall-right")).toBe("wall-side");
+  });
+
+  it("keeps what the other side already wears when this one changes", () => {
+    const p = run(fixture(), typed(fixture(), W1, "Colour, left side", "#00FF00")).project;
+    const { project } = run(p, typed(p, W1, "Colour, right side", "#0000FF"));
+    expect(finishesOf(project, W1).left?.color).toBe("#00FF00");
+    expect(finishesOf(project, W1).right?.color).toBe("#0000FF");
+  });
+
+  it("sends nothing for the colour already there, and refuses what is not a colour", () => {
+    const p = run(fixture(), typed(fixture(), W1, "Colour, left side", "#ABCDEF")).project;
+    expect(outcomeOf(p, W1, "Colour, left side", "abcdef")).toMatchObject({ ok: true, command: null });
+    expect(outcomeOf(p, W1, "Colour, left side", "teal")).toEqual({
+      ok: false,
+      message: "Colour needs a hex value, such as #E8E6E1.",
+    });
+  });
+
+  it("gives a side back to the default when its colour is emptied, storing no finish at all", () => {
+    const p = run(fixture(), typed(fixture(), W1, "Colour, left side", "#ABCDEF")).project;
+    const { project } = run(p, typed(p, W1, "Colour, left side", ""));
+    expect(finishesOf(project, W1).left).toBeNull();
+    // but a side that is still glossy keeps its finish, with only the colour gone
+    const glossy = run(p, typed(p, W1, "Finish, left side", "gloss")).project;
+    const cleared = run(glossy, typed(glossy, W1, "Colour, left side", "")).project;
+    expect(finishesOf(cleared, W1).left).toEqual({ ...blank, shininess: 0.6 });
+  });
+
+  it("sets the finish as a shininess, and matt as none", () => {
+    const p = fixture();
+    const satin = run(p, typed(p, W1, "Finish, left side", "satin")).project;
+    expect(finishesOf(satin, W1).left).toEqual({ ...blank, shininess: 0.25 });
+    expect(rowOf(satin, W1, "Finish, left side").value).toBe("satin");
+    const matt = run(satin, typed(satin, W1, "Finish, left side", "matt")).project;
+    expect(finishesOf(matt, W1).left).toBeNull();
+    expect(outcomeOf(p, W1, "Finish, left side", "matt")).toMatchObject({ ok: true, command: null });
+  });
+
+  it("shows a shininess set by someone else as the nearest of the three finishes", () => {
+    const at = (shininess: number) =>
+      rowOf(
+        modified(fixture(), { finishes: { left: { ...blank, shininess }, right: null, top: null } }),
+        W1,
+        "Finish, left side",
+      ).value;
+    expect([at(0.05), at(0.2), at(0.5), at(1)]).toEqual(["matt", "satin", "gloss", "gloss"]);
+  });
+});
+
+describe("giving a wall's sides a baseboard (ADR-014 D8)", () => {
+  const skirtingOf = (p: ProjectT, id: string) => wallOf(p, id).skirting;
+  const labelsOf = (p: ProjectT) => (describeEntity(p, W1)?.facts ?? []).map((f) => f.label);
+
+  it("shows no baseboard as an empty height standing for none, with no depth to set", () => {
+    const row = rowOf(fixture(), W1, "Baseboard height, left side");
+    expect(row).toMatchObject({
+      value: "",
+      caption: "Baseboard height",
+      unit: "mm",
+      group: "Left side, facing north",
+    });
+    expect(row.empty).toEqual({ shown: "none", action: "Remove the baseboard" });
+    expect(labelsOf(fixture())).not.toContain("Baseboard depth, left side");
+  });
+
+  it("adds a baseboard of the usual depth when a height is typed, and the wall builds it", () => {
+    const p = fixture();
+    const command = typed(p, W1, "Baseboard height, left side", "100");
+    expect(command.payload).toEqual({
+      wallId: W1,
+      changes: { skirting: { left: { thickness: SKIRTING_DEPTH, height: 100, color: null }, right: null } },
+    });
+    const { project } = run(p, command);
+    expect(skirtingOf(project, W1)).toEqual({
+      left: { thickness: 12, height: 100, color: null },
+      right: null,
+    });
+    const level = project.levels[0] as ProjectT["levels"][number];
+    const parts = buildWalls(project.walls, project.openings, { level, isLowest: true, isHighest: true });
+    expect(parts.some((x) => x.entityId === W1 && x.part === "skirting-left")).toBe(true);
+    // and now there is a depth to set
+    expect(labelsOf(project)).toContain("Baseboard depth, left side");
+    expect(rowOf(project, W1, "Baseboard depth, left side")).toMatchObject({
+      value: "12",
+      caption: "Baseboard depth",
+    });
+  });
+
+  it("changes the depth and keeps the height, and the other side is left alone", () => {
+    const p = run(fixture(), typed(fixture(), W1, "Baseboard height, right side", "80")).project;
+    const q = run(p, typed(p, W1, "Baseboard height, left side", "100")).project;
+    const { project } = run(q, typed(q, W1, "Baseboard depth, left side", "18"));
+    expect(skirtingOf(project, W1)).toEqual({
+      left: { thickness: 18, height: 100, color: null },
+      right: { thickness: 12, height: 80, color: null },
+    });
+  });
+
+  it("removes the baseboard when its height is emptied", () => {
+    const p = run(fixture(), typed(fixture(), W1, "Baseboard height, left side", "100")).project;
+    const { project } = run(p, typed(p, W1, "Baseboard height, left side", ""));
+    expect(skirtingOf(project, W1).left).toBeNull();
+    expect(labelsOf(project)).not.toContain("Baseboard depth, left side");
+    expect(outcomeOf(fixture(), W1, "Baseboard height, left side", "")).toMatchObject({
+      ok: true,
+      command: null,
+    });
+  });
+
+  it("W-100 refuses a baseboard taller than the wall, naming the wall's height", () => {
+    expect(outcomeOf(fixture(), W1, "Baseboard height, left side", "2701")).toEqual({
+      ok: false,
+      message: "Baseboard height must be from 1 to 2700 mm.",
+    });
+    // a sloping wall is as tall as its taller end
+    const sloped = modified(fixture(), { height: 3000, heightAtEnd: 2000 });
+    expect(outcomeOf(sloped, W1, "Baseboard height, left side", "3000")).toMatchObject({ ok: true });
+  });
+
+  it("refuses a depth that is not a skirting board's", () => {
+    const p = run(fixture(), typed(fixture(), W1, "Baseboard height, left side", "100")).project;
+    expect(outcomeOf(p, W1, "Baseboard depth, left side", "0")).toEqual({
+      ok: false,
+      message: `Baseboard depth must be from 1 to ${SKIRTING_DEPTH_RANGE.max} mm.`,
+    });
+  });
+
+  it("gives a baseboard a colour of its own, and hands it back to its side when emptied", () => {
+    const p = run(fixture(), typed(fixture(), W1, "Baseboard height, left side", "100")).project;
+    const colour = rowOf(p, W1, "Baseboard colour, left side");
+    expect(colour).toMatchObject({
+      value: "",
+      caption: "Baseboard colour",
+      group: "Left side, facing north",
+    });
+    // unpainted side: the swatch shows the baseboard off-white
+    expect(colour.colour).toEqual({ effective: "#F6F5F1" });
+    expect(colour.empty).toEqual({ shown: "as side", action: "Use the side's colour" });
+    const white = run(p, typed(p, W1, "Baseboard colour, left side", "fff")).project;
+    expect(skirtingOf(white, W1).left).toEqual({ thickness: 12, height: 100, color: "#FFFFFF" });
+    // the height keeps the colour when it changes
+    const taller = run(white, typed(white, W1, "Baseboard height, left side", "150")).project;
+    expect(skirtingOf(taller, W1).left?.color).toBe("#FFFFFF");
+    const back = run(taller, typed(taller, W1, "Baseboard colour, left side", "")).project;
+    expect(skirtingOf(back, W1).left?.color).toBeNull();
+    expect(outcomeOf(back, W1, "Baseboard colour, left side", "white")).toEqual({
+      ok: false,
+      message: "Colour needs a hex value, such as #FFFFFF.",
+    });
+  });
+
+  it("shows the side's colour on the swatch of a baseboard that takes it", () => {
+    const painted = modified(fixture(), {
+      finishes: {
+        left: {
+          color: "#123456",
+          textureId: null,
+          placement: null,
+          mirrorForLeftSide: false,
+          shininess: null,
+        },
+        right: null,
+        top: null,
+      },
+    });
+    const p = run(painted, typed(painted, W1, "Baseboard height, left side", "100")).project;
+    expect(rowOf(p, W1, "Baseboard colour, left side").colour).toEqual({ effective: "#123456" });
+  });
+});
+
+describe("editing a room (ADR-017 D3)", () => {
+  const roomOf = (p: ProjectT) => p.rooms[0] as ProjectT["rooms"][number];
+  const idOf = (p: ProjectT) => roomOf(p).id;
+
+  it("names a room, trims the name, and clears it when emptied", () => {
+    const p = withRoom();
+    const id = idOf(p);
+    const name = rowOf(p, id, "Name of room");
+    expect(name).toMatchObject({ value: "", align: "left", caption: "Name" });
+    const named = run(p, typed(p, id, "Name of room", "  Board room  ")).project;
+    expect(roomOf(named).name).toBe("Board room");
+    expect(describeEntity(named, id)?.title).toBe("Board room");
+    expect(outcomeOf(named, id, "Name of room", "Board room")).toMatchObject({ ok: true, command: null });
+    expect(roomOf(run(named, typed(named, id, "Name of room", "")).project).name).toBeNull();
+    expect(outcomeOf(p, id, "Name of room", "x".repeat(NAME_LIMIT + 1))).toMatchObject({ ok: false });
+  });
+
+  it("offers every purpose the model has, and sets one", () => {
+    const p = withRoom();
+    expect(ROOM_PURPOSES.map((c) => c.value).sort()).toEqual([...RoomPurpose.options].sort());
+    const { project } = run(p, typed(p, idOf(p), "Purpose", "boardroom"));
+    expect(roomOf(project).purpose).toBe("boardroom");
+  });
+
+  it("sets and clears the seats, and refuses what is not a whole number of them", () => {
+    const p = withRoom();
+    const id = idOf(p);
+    const seated = run(p, typed(p, id, "Capacity", "12")).project;
+    expect(roomOf(seated).capacity).toBe(12);
+    expect(outcomeOf(seated, id, "Capacity", "1")).toMatchObject({ said: "1 seat" });
+    expect(roomOf(run(seated, typed(seated, id, "Capacity", "")).project).capacity).toBeNull();
+    for (const bad of ["-1", "2.5", "a dozen"])
+      expect(outcomeOf(p, id, "Capacity", bad), bad).toEqual({
+        ok: false,
+        message: "Capacity needs a whole number of seats, such as 8.",
+      });
+    expect(outcomeOf(p, id, "Capacity", "10001")).toMatchObject({ ok: false });
+  });
+
+  it("gives the ceiling a height of its own, and follows the level again when emptied", () => {
+    const p = withRoom();
+    const id = idOf(p);
+    expect(rowOf(p, id, "Height of ceiling").empty).toEqual({
+      shown: `2${NARROW}700 (level)`,
+      action: "Follow the level's height",
+    });
+    const low = run(p, typed(p, id, "Height of ceiling", "2400")).project;
+    expect(roomOf(low).ceilingHeight).toBe(2400);
+    expect(roomOf(run(low, typed(low, id, "Height of ceiling", "")).project).ceilingHeight).toBeNull();
+  });
+
+  it("paints the floor and the ceiling, storing no finish once a colour is emptied", () => {
+    const p = withRoom();
+    const id = idOf(p);
+    expect(rowOf(p, id, "Colour of floor").colour).toEqual({ effective: "#C9C2B8" });
+    const wood = run(p, typed(p, id, "Colour of floor", "8b5e3c")).project;
+    expect(roomOf(wood).finishes.floor?.color).toBe("#8B5E3C");
+    expect(roomOf(wood).finishes.ceiling).toBeNull();
+    expect(roomOf(run(wood, typed(wood, id, "Colour of floor", "")).project).finishes.floor).toBeNull();
+  });
+
+  it("hides and shows the floor and the ceiling from a yes-or-no row", () => {
+    const p = withRoom();
+    const id = idOf(p);
+    const row = rowOf(p, id, "Show ceiling");
+    expect(row).toMatchObject({ toggle: true, value: "true", caption: "Show", group: "Ceiling" });
+    const open = run(p, typed(p, id, "Show ceiling", "false")).project;
+    expect(roomOf(open).ceilingVisible).toBe(false);
+    expect(outcomeOf(open, id, "Show ceiling", "false")).toMatchObject({ ok: true, command: null });
+    expect(outcomeOf(p, id, "Show floor", "maybe")).toMatchObject({ ok: false });
+  });
+});
+
+describe("editing a door or a window (ADR-017 D3)", () => {
+  // The fixture's one door sits in the middle of W1, which runs west to east with north at 90°: its
+  // hinge is at the west end and it opens to the north side.
+  const DOOR = "opening_000001";
+  const openingOf = (p: ProjectT, id = DOOR) =>
+    p.openings.find((o) => o.id === id) as ProjectT["openings"][number];
+  const labels = (p: ProjectT, id = DOOR) => describeEntity(p, id)?.facts.map((f) => f.label);
+  const withWindow = (): { p: ProjectT; id: string } => {
+    const { project } = run(fixture(), {
+      type: "opening.add",
+      payload: { wallId: W1, kind: "window", atMm: 6000 },
+    });
+    return { p: project, id: (project.openings.at(-1) as { id: string }).id };
+  };
+
+  it("lists a door's kind, its gaps to each end by compass, its size, its finishes and its swing", () => {
+    const p = fixture();
+    // The leaf is what fills the hole and the frame is what surrounds it: a white frame around a dark
+    // leaf is the ordinary case, so they are dressed separately.
+    expect(labels(p)).toEqual([
+      "Kind",
+      "From west end",
+      "From east end",
+      "Width",
+      "Height",
+      "Material of leaf",
+      "Colour of leaf",
+      "Material of frame",
+      "Colour of frame",
+      "Hinge",
+      "Opens to",
+    ]);
+    expect(rowOf(p, DOOR, "Kind").choices).toEqual(OPENING_KINDS);
+    expect(rowOf(p, DOOR, "From west end").value).toBe(`3${NARROW}550`);
+    expect(rowOf(p, DOOR, "From east end").value).toBe(`3${NARROW}550`);
+    expect(rowOf(p, DOOR, "Hinge")).toMatchObject({ value: "start" });
+    expect(rowOf(p, DOOR, "Hinge").choices?.map((c) => c.label)).toEqual([
+      "West end",
+      "East end",
+      "No swing",
+    ]);
+    expect(rowOf(p, DOOR, "Opens to").choices?.map((c) => c.label)).toEqual(["North side", "South side"]);
+  });
+
+  it("names the ends of a wall running the other way the other way round", () => {
+    // W3 runs from (8000, 3000) to (5000, 3000): east to west
+    const { project } = run(fixture(), {
+      type: "opening.add",
+      payload: { wallId: "wall_000003", kind: "window", atMm: 1000 },
+    });
+    const id = (project.openings.at(-1) as { id: string }).id;
+    expect(labels(project, id)?.slice(1, 3)).toEqual(["From east end", "From west end"]);
+    expect(rowOf(project, id, "From east end").value).toBe("400");
+  });
+
+  it("moves an opening by the gap to either end, keeping its width", () => {
+    const p = fixture();
+    const west = run(p, typed(p, DOOR, "From west end", "100")).project;
+    expect(openingOf(west).position).toBeCloseTo(550 / 8000, 9);
+    expect(rowOf(west, DOOR, "From west end").value).toBe("100");
+    const east = run(p, typed(p, DOOR, "From east end", "100")).project;
+    expect(rowOf(east, DOOR, "From east end").value).toBe("100");
+    expect(openingOf(east).width).toBe(900);
+    expect(outcomeOf(p, DOOR, "From west end", "3550")).toMatchObject({ ok: true, command: null });
+    for (const bad of ["-1", "7101"])
+      expect(outcomeOf(p, DOOR, "From west end", bad), bad).toEqual({
+        ok: false,
+        message: "From west end must be from 0 to 7100 mm.",
+      });
+  });
+
+  it("refuses to move or widen an opening into its neighbour or past an end, saying which", () => {
+    const { p } = withWindow(); // the window spans 5400 to 6600
+    expect(outcomeOf(p, DOOR, "From west end", "4600")).toEqual({
+      ok: false,
+      message: "The door would overlap the window beside it.",
+    });
+    expect(outcomeOf(p, DOOR, "Width", "3000")).toMatchObject({
+      ok: false,
+      message: expect.stringContaining("overlap"),
+    });
+    const nearWest = run(p, typed(p, DOOR, "From west end", "100")).project;
+    expect(outcomeOf(nearWest, DOOR, "Width", "1200")).toEqual({
+      ok: false,
+      message: "The door would run past the west end of the wall.",
+    });
+    // about the middle: a wider door keeps its centre
+    const wide = run(p, typed(p, DOOR, "Width", "1000")).project;
+    expect(openingOf(wide)).toMatchObject({ width: 1000, position: 0.5 });
+  });
+
+  it("keeps an opening's top inside the wall", () => {
+    const p = fixture();
+    expect(outcomeOf(p, DOOR, "Height", "2800")).toEqual({
+      ok: false,
+      message: "The top of the door would be above the wall, which is 2700 mm high.",
+    });
+    expect(openingOf(run(p, typed(p, DOOR, "Height", "2400")).project).height).toBe(2400);
+    const { p: w, id } = withWindow(); // 1200 high on a 900 sill
+    expect(rowOf(w, id, "Sill").value).toBe("900");
+    expect(outcomeOf(w, id, "Sill", "1600")).toMatchObject({ ok: false });
+    expect(openingOf(run(w, typed(w, id, "Sill", "1500")).project, id).sill).toBe(1500);
+    expect(openingOf(run(w, typed(w, id, "Sill", "0")).project, id).sill).toBe(0);
+  });
+
+  it("turns a door into a window and back, which drops the swing and then gives one again", () => {
+    const p = fixture();
+    const window = run(p, typed(p, DOOR, "Kind", "window")).project;
+    expect(openingOf(window)).toMatchObject({ kind: "window", swing: null, sill: 0 });
+    expect(labels(window)).toContain("Sill");
+    expect(labels(window)).not.toContain("Hinge");
+    expect(describeEntity(window, DOOR)?.title).toBe("Window");
+    const door = run(window, typed(window, DOOR, "Kind", "door")).project;
+    expect(openingOf(door).swing).toEqual({ hinge: "start", direction: "left" });
+    // A window is glazed, so its fill is offered as glazing rather than as a leaf.
+    expect(labels(window)).toContain("Material of glazing");
+    expect(labels(window)).not.toContain("Material of leaf");
+    const passage = run(p, typed(p, DOOR, "Kind", "passage")).project;
+    // A passage has nothing in it, so it is offered a frame and no fill at all.
+    expect(labels(passage)).toEqual([
+      "Kind",
+      "From west end",
+      "From east end",
+      "Width",
+      "Height",
+      "Material of frame",
+      "Colour of frame",
+    ]);
+  });
+
+  it("hinges a door at either end, or at neither, and swings it to either side", () => {
+    const p = fixture();
+    const east = run(p, typed(p, DOOR, "Hinge", "end")).project;
+    expect(openingOf(east).swing).toEqual({ hinge: "end", direction: "left" });
+    const south = run(east, typed(east, DOOR, "Opens to", "right")).project;
+    expect(openingOf(south).swing).toEqual({ hinge: "end", direction: "right" });
+    const sliding = run(south, typed(south, DOOR, "Hinge", "none")).project;
+    expect(openingOf(sliding).swing).toBeNull();
+    expect(labels(sliding)).not.toContain("Opens to");
+    expect(rowOf(sliding, DOOR, "Hinge").value).toBe("none");
+    expect(openingOf(run(sliding, typed(sliding, DOOR, "Hinge", "start")).project).swing).toEqual({
+      hinge: "start",
+      direction: "left",
+    });
+  });
+});
+
+describe("editing an item (ADR-017 D3)", () => {
+  const BOX = {
+    kind: "recipe",
+    recipe: { kind: "box", size: { w: 600, d: 400, h: 500 }, label: "" },
+  } as const;
+  const CHAIR = "acme-chair";
+  const place = (p: ProjectT, ref: unknown): { p: ProjectT; id: string } => {
+    const { project } = run(p, {
+      type: "item.place",
+      payload: { levelId: L, ref, position: { x: 2000, y: 2000 }, rotation: 0, magnetism: false },
+    });
+    return { p: project, id: (project.items.at(-1) as { id: string }).id };
+  };
+  const itemOf = (p: ProjectT, id: string) => p.items.find((i) => i.id === id) as ProjectT["items"][number];
+  /** A project whose catalogue snapshot holds a chair that comes in one size. */
+  const withChair = (name?: string): ProjectT => {
+    const p = fixture();
+    p.catalogRefs[CHAIR] = {
+      id: CHAIR,
+      snapshotAt: "2026-09-15T00:00:00.000Z",
+      ...(name ? { name } : {}),
+      dims: { w: 600, d: 600, h: 900 },
+      deformable: false,
+    };
+    return p;
+  };
+
+  it("lists an item's room, placement, size and mirroring, and names it by what it is", () => {
+    const { p, id } = place(fixture(), BOX);
+    expect(describeEntity(p, id)?.facts.map((f) => f.label)).toEqual([
+      "Room",
+      "Position X",
+      "Position Y",
+      "Rotation",
+      "Elevation",
+      "Width",
+      "Depth",
+      "Height",
+      "Mirrored",
+      "Material of body",
+      "Colour of body",
+      "Finish of body",
+    ]);
+    expect(describeEntity(p, id)?.title).toBe("Box");
+    expect(rowOf(p, id, "Room").value).toBe("None");
+    expect(rowOf(p, id, "Position X")).toMatchObject({
+      value: `2${NARROW}000`,
+      caption: "Position",
+      prefix: "X",
+    });
+    const inRoom = place(withRoom(), { ...BOX, recipe: { ...BOX.recipe, label: "Lectern" } });
+    expect(rowOf(inRoom.p, inRoom.id, "Room").value).toBe("Unnamed room");
+    expect(describeEntity(inRoom.p, inRoom.id)?.title).toBe("Lectern");
+    const table = place(fixture(), {
+      kind: "recipe",
+      recipe: { kind: "table", size: { w: 1800, d: 900, h: 750 }, shape: "rect" },
+    });
+    expect(describeEntity(table.p, table.id)?.title).toBe("Table");
+  });
+
+  it("moves an item to exactly the typed point, without snapping", () => {
+    const { p, id } = place(fixture(), BOX);
+    const x = run(p, typed(p, id, "Position X", "2500")).project;
+    expect(itemOf(x, id).position).toEqual({ x: 2500, y: 2000 });
+    // 70 mm from the wall at y = 0 is inside the distance a drag would snap from
+    const y = run(x, typed(x, id, "Position Y", "270")).project;
+    expect(itemOf(y, id).position).toEqual({ x: 2500, y: 270 });
+    expect(typed(p, id, "Position X", "2500").payload).toMatchObject({ dx: 500, dy: 0, magnetism: false });
+  });
+
+  it("turns an item to any typed angle, kept between 0 and 360", () => {
+    const { p, id } = place(fixture(), BOX);
+    expect(itemOf(run(p, typed(p, id, "Rotation", "-90")).project, id).rotation).toBe(270);
+    expect(itemOf(run(p, typed(p, id, "Rotation", "450")).project, id).rotation).toBe(90);
+    expect(outcomeOf(p, id, "Rotation", "360")).toMatchObject({ ok: true, command: null, said: "0 degrees" });
+    expect(outcomeOf(p, id, "Rotation", "a quarter")).toEqual({
+      ok: false,
+      message: "Rotation needs a number of degrees, such as 90.",
+    });
+  });
+
+  it("raises, sinks and mirrors an item", () => {
+    const { p, id } = place(fixture(), BOX);
+    expect(itemOf(run(p, typed(p, id, "Elevation", "750")).project, id).elevation).toBe(750);
+    expect(itemOf(run(p, typed(p, id, "Elevation", "-50")).project, id).elevation).toBe(-50);
+    expect(outcomeOf(p, id, "Elevation", "200000")).toMatchObject({ ok: false });
+    const mirrored = run(p, typed(p, id, "Mirrored", "true")).project;
+    expect(itemOf(mirrored, id).mirrored).toBe(true);
+    expect(outcomeOf(p, id, "Mirrored", "true")).toMatchObject({ said: "mirrored" });
+    expect(outcomeOf(mirrored, id, "Mirrored", "true")).toMatchObject({ ok: true, command: null });
+    expect(itemOf(run(mirrored, typed(mirrored, id, "Mirrored", "false")).project, id).mirrored).toBe(false);
+  });
+
+  it("resizes an item one dimension at a time, keeping its back left corner", () => {
+    const { p, id } = place(fixture(), BOX);
+    const wide = run(p, typed(p, id, "Width", "1200")).project;
+    expect(itemOf(wide, id).size).toEqual({ w: 1200, d: 400, h: 500 });
+    // the back left corner was at x 1700; half the new width from it is 2300
+    expect(itemOf(wide, id).position).toEqual({ x: 2300, y: 2000 });
+    const low = run(wide, typed(wide, id, "Height", "250")).project;
+    expect(itemOf(low, id)).toMatchObject({
+      size: { w: 1200, d: 400, h: 250 },
+      position: { x: 2300, y: 2000 },
+    });
+    expect(rowOf(p, id, "Height").hint).toBeUndefined();
+    expect(outcomeOf(p, id, "Depth", "0")).toMatchObject({ ok: false });
+  });
+
+  it("P3-5 colours and finishes each part an item is drawn in, and clears a part back to its default", () => {
+    const { p, id } = place(fixture(), {
+      kind: "recipe",
+      recipe: { kind: "chair", size: { w: 600, d: 600, h: 900 } },
+    });
+    const groups = describeEntity(p, id)
+      ?.facts.filter((f) => f.label.includes(" of "))
+      .map((f) => [f.group, f.caption]);
+    expect(groups).toEqual([
+      ["Fabric", "Material"],
+      ["Fabric", "Colour"],
+      ["Fabric", "Finish"],
+      ["Frame", "Material"],
+      ["Frame", "Colour"],
+      ["Frame", "Finish"],
+    ]);
+    expect(rowOf(p, id, "Colour of fabric")).toMatchObject({ value: "", colour: { effective: "#3F4A5A" } });
+    const red = run(p, typed(p, id, "Colour of fabric", "aa3333")).project;
+    expect(itemOf(red, id).materials.fabric?.color).toBe("#AA3333");
+    expect(rowOf(red, id, "Colour of fabric").colour).toEqual({ effective: "#AA3333" });
+    // the frame is untouched, and a finish joins the colour already there
+    expect(itemOf(red, id).materials.frame).toBeUndefined();
+    const glossy = run(red, typed(red, id, "Finish of fabric", "gloss")).project;
+    expect(itemOf(glossy, id).materials.fabric).toMatchObject({ color: "#AA3333", shininess: 0.6 });
+    const matt = run(glossy, typed(glossy, id, "Finish of fabric", "matt")).project;
+    const plain = run(matt, typed(matt, id, "Colour of fabric", "")).project;
+    expect(itemOf(plain, id).materials).toEqual({});
+    expect(outcomeOf(p, id, "Colour of frame", "steel")).toEqual({
+      ok: false,
+      message: "Colour needs a hex value, such as #2B2D31.",
+    });
+  });
+
+  it("P3-5 shows what the project's copy of the catalog says about a product, and nothing to type", () => {
+    const p = withChair("Task chair");
+    Object.assign(p.catalogRefs[CHAIR] as object, {
+      make: "Acme",
+      model: "TC-1",
+      category: "chair",
+      verification: { status: "verified", confidence: 0.85, sources: [], verifiedAt: null, notes: null },
+      price: { amount: 1234.5, currency: "USD", type: "list" },
+    });
+    const { p: placed, id } = place(p, { kind: "product", productId: CHAIR });
+    const product = describeEntity(placed, id)?.facts.filter((f) => f.group === "Product");
+    expect(product?.map((f) => [f.label, f.value])).toEqual([
+      ["Make", "Acme"],
+      ["Category of product", "Chair"],
+      ["Model", "TC-1"],
+      ["Checked", "Verified, 85% sure"],
+      ["Price", "$1,234.50 list"],
+    ]);
+    expect(product?.every((f) => f.edit === undefined)).toBe(true);
+    // a generic shape is no product
+    const box = place(fixture(), BOX);
+    expect(describeEntity(box.p, box.id)?.facts.some((f) => f.group === "Product")).toBe(false);
+    // an unverified one says what that means
+    // a copy, since a project from the reducer is frozen
+    const doubtful = Project.parse(JSON.parse(JSON.stringify(placed)));
+    Object.assign(doubtful.catalogRefs[CHAIR] as object, {
+      verification: { status: "unverified", confidence: 0, sources: [], verifiedAt: null, notes: null },
+    });
+    expect(rowOf(doubtful, id, "Checked")).toMatchObject({
+      value: "Unverified",
+      hint: "Its size and price may be wrong until it is verified.",
+    });
+  });
+
+  it("P3-5 offers the way back to the size an item has without one of its own", () => {
+    const { p, id } = place(fixture(), BOX);
+    // at its own size there is nothing to go back to
+    expect(rowOf(p, id, "Width").empty).toBeUndefined();
+    const wide = run(p, typed(p, id, "Width", "1200")).project;
+    const width = rowOf(wide, id, "Width");
+    expect(width.empty).toEqual({ shown: "shape size", action: "Use the shape's size" });
+    expect(width.hint).toBe("The back left corner stays where it is. The shape's width is 600 millimetres.");
+    expect(rowOf(wide, id, "Height").hint).toBe("The shape's height is 500 millimetres.");
+    expect(outcomeOf(wide, id, "Depth", "")).toEqual({
+      ok: true,
+      command: { type: "item.resize", payload: { itemId: id, size: null } },
+      said: "back to the shape's size",
+    });
+    const back = run(wide, typed(wide, id, "Height", "")).project;
+    expect(itemOf(back, id).size).toBeNull();
+    expect(rowOf(back, id, "Width")).toMatchObject({ value: "600" });
+    expect(rowOf(back, id, "Width").empty).toBeUndefined();
+  });
+
+  it("shows a one-size product's size without letting it be typed, and names it from the catalogue", () => {
+    const { p, id } = place(withChair("Task chair"), { kind: "product", productId: CHAIR });
+    expect(describeEntity(p, id)?.title).toBe("Task chair");
+    const width = rowOf(p, id, "Width");
+    expect(width).toMatchObject({ value: "600", hint: "This product comes in one size." });
+    expect(width.edit).toBeUndefined();
+    const unnamed = place(withChair(), { kind: "product", productId: CHAIR });
+    expect(describeEntity(unnamed.p, unnamed.id)?.title).toBe(CHAIR);
+  });
+});
+
+describe("choosing what a surface is made of (P3-5)", () => {
+  const OAK = { id: "generated/oak", name: "Oak planks", tags: ["wood", "floor"] };
+  const BRICK = { id: "generated/brick-red", name: "Red brick", tags: ["brick", "wall"] };
+  const FABRIC = { id: "generated/fabric-grey", name: "Grey woven fabric", tags: ["fabric", "upholstery"] };
+  const textures = [OAK, BRICK, FABRIC];
+  const snapshot = (t: { id: string; name: string }, w: number, h: number) => ({
+    ...t,
+    image: `generated:${t.id.split("/")[1]}`,
+    widthMm: w,
+    heightMm: h,
+    transparent: false,
+    creator: null,
+    licence: { id: "generated", author: null, sourceUrl: null, attribution: null },
+  });
+  const catalogCtx: Ctx = {
+    ...ctx,
+    catalog: {
+      product: () => null,
+      texture: (id) =>
+        id === OAK.id ? snapshot(OAK, 880, 1800) : id === BRICK.id ? snapshot(BRICK, 450, 300) : null,
+    },
+  };
+  const runWith = (p: ProjectT, command: EditCommand) => {
+    const r = apply(p, command, catalogCtx);
+    if (!r.ok) throw new Error(r.error.message);
+    return r.project;
+  };
+  const rowWith = (p: ProjectT, id: string, label: string) => {
+    const fact = describeEntity(p, id, { textures })?.facts.find((f) => f.label === label);
+    if (!fact?.edit) throw new Error(`no editable ${label}`);
+    return fact;
+  };
+  const pick = (p: ProjectT, id: string, label: string, value: string) => {
+    const outcome = rowWith(p, id, label).edit?.(value);
+    if (!outcome?.ok || !outcome.command) throw new Error(JSON.stringify(outcome));
+    return runWith(p, outcome.command);
+  };
+
+  it("offers paint and the catalog's textures, those that suit the surface first, each with its picture", () => {
+    const p = fixture();
+    const wall = rowWith(p, W1, "Material, left side");
+    expect(wall).toMatchObject({ value: PAINT, caption: "Material", group: "Left side, facing north" });
+    expect(wall.choices?.map((c) => c.value)).toEqual([PAINT, BRICK.id, FABRIC.id, OAK.id]);
+    expect(wall.choices?.[1]).toEqual({
+      value: BRICK.id,
+      label: "Red brick",
+      image: "/textures/generated/brick-red",
+    });
+    const room = withRoom();
+    const floor = rowWith(room, (room.rooms[0] as { id: string }).id, "Material of floor");
+    expect(floor.choices?.[1]?.value).toBe(OAK.id);
+    // without the list, paint alone, until the project wears something
+    expect(describeEntity(p, W1)?.facts.find((f) => f.label === "Material, left side")?.choices).toEqual([
+      { value: PAINT, label: "Paint" },
+    ]);
+  });
+
+  it("dresses an opening's fill and its frame separately", () => {
+    // A white frame around a dark leaf is the ordinary case, so one finish for both could not say it.
+    const door = "opening_000001";
+    const opening = (p: ProjectT) => p.openings.find((o) => o.id === door);
+    const painted = runWith(fixture(), typed(fixture(), door, "Colour of leaf", "#8B4513"));
+    expect(opening(painted)?.finishes.leaf).toMatchObject({ color: "#8B4513", textureId: null });
+    expect(opening(painted)?.finishes.frame).toBeNull();
+
+    const framed = runWith(painted, typed(painted, door, "Colour of frame", "#222222"));
+    expect(opening(framed)?.finishes.frame).toMatchObject({ color: "#222222" });
+    // and the leaf is still what it was
+    expect(opening(framed)?.finishes.leaf).toMatchObject({ color: "#8B4513" });
+
+    // a texture replaces the colour, exactly as it does on a wall
+    const textured = pick(framed, door, "Material of leaf", BRICK.id);
+    expect(opening(textured)?.finishes.leaf).toMatchObject({ textureId: BRICK.id, color: null });
+  });
+
+  it("puts a texture on a wall side in place of its colour, and paint back in place of the texture", () => {
+    const red = runWith(fixture(), typed(fixture(), W1, "Colour, left side", "#AA3333"));
+    const brick = pick(red, W1, "Material, left side", BRICK.id);
+    expect(wallOf(brick, W1).finishes.left).toMatchObject({ textureId: BRICK.id, color: null });
+    expect(brick.textures[BRICK.id]).toMatchObject({ widthMm: 450 });
+    expect(rowWith(brick, W1, "Material, left side").value).toBe(BRICK.id);
+    expect(rowWith(brick, W1, "Colour, left side").empty?.shown).toBe("material");
+    // the project's copy is offered even when the list is not there
+    expect(
+      describeEntity(brick, W1)
+        ?.facts.find((f) => f.label === "Material, left side")
+        ?.choices?.map((c) => c.value),
+    ).toEqual([PAINT, BRICK.id]);
+    // a colour typed now replaces the texture
+    const outcome = rowWith(brick, W1, "Colour, left side").edit?.("#224466");
+    if (!outcome?.ok || !outcome.command) throw new Error("no colour command");
+    const painted = runWith(brick, outcome.command);
+    expect(wallOf(painted, W1).finishes.left).toMatchObject({ textureId: null, color: "#224466" });
+    // paint on a textured side with no colour leaves no finish at all
+    const bare = pick(pick(fixture(), W1, "Material, left side", BRICK.id), W1, "Material, left side", PAINT);
+    expect(wallOf(bare, W1).finishes.left).toBeNull();
+  });
+
+  it("puts a texture on a floor and on an item's part", () => {
+    const room = withRoom();
+    const roomId = (room.rooms[0] as { id: string }).id;
+    const oak = pick(room, roomId, "Material of floor", OAK.id);
+    expect(oak.rooms[0]?.finishes.floor?.textureId).toBe(OAK.id);
+    const placed = run(oak, {
+      type: "item.place",
+      payload: {
+        levelId: L,
+        ref: { kind: "recipe", recipe: { kind: "table", size: { w: 1800, d: 900, h: 740 }, shape: "rect" } },
+        position: { x: 2000, y: 2000 },
+        rotation: 0,
+        magnetism: false,
+      },
+    }).project;
+    const tableId = (placed.items.at(-1) as { id: string }).id;
+    expect(rowWith(placed, tableId, "Material of top").choices?.[1]?.value).toBe(OAK.id);
+    const wooden = pick(placed, tableId, "Material of top", OAK.id);
+    expect(wooden.items.at(-1)?.materials.top?.textureId).toBe(OAK.id);
+    // a texture the catalog does not have is refused by the host, not by the row
+    const unknown = rowWith(wooden, tableId, "Material of top").edit?.("generated/marble");
+    expect(unknown).toMatchObject({ ok: false });
   });
 });

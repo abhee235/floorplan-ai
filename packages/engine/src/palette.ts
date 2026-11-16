@@ -3,8 +3,18 @@
 
 export const MATERIAL_COLOURS: Readonly<Record<string, number>> = {
   "wall-side": 0xe8e6e1,
+  // the plan's glass blue, lightened: seen through at a third of its strength it reads as a tint
+  "wall-glass": 0xa9cfe4,
+  // anodised aluminium, for the frame a glass partition stands in
+  "wall-glass-frame": 0x7d848c,
   "wall-top": 0xd9d6d0,
+  // an off-white a step lighter than the wall, so a baseboard on an unpainted wall still reads as one
+  "wall-skirting": 0xf6f5f1,
   "opening-reveal": 0xf4f2ee,
+  // A window pane takes the same blue as a glass wall, so a glazed partition and a window read alike.
+  "opening-glass": 0xa9cfe4,
+  // A painted door leaf: a shade off the wall, so a closed door is visible against the wall it is in.
+  "opening-leaf": 0xe0dcd4,
   floor: 0xc9c2b8,
   ceiling: 0xfafafa,
   "floor-side": 0xb5ada2,
@@ -18,10 +28,101 @@ export const MATERIAL_COLOURS: Readonly<Record<string, number>> = {
   "recipe:ceiling-mic": 0xf0f0f0,
   "recipe:box": 0x8f9aa6,
   "recipe:cylinder": 0x8f9aa6,
+  "recipe:bed": 0xd9d3c7,
+  "recipe:sofa": 0x6b7b8c,
+  // recipe parts, as recipeSlotKey names them
+  "table/top": 0x9c7a55,
+  "table/legs": 0x5f6368,
+  "chair/fabric": 0x3f4a5a,
+  "chair/frame": 0x2b2d31,
+  "display/screen": 0x0d0f12,
+  "display/frame": 0x1a1a1a,
+  "video-bar/body": 0x2b2b2b,
+  "ceiling-speaker/body": 0xf0f0f0,
+  "ceiling-mic/body": 0xf0f0f0,
+  "box/body": 0x8f9aa6,
+  "cylinder/body": 0x8f9aa6,
+  "bed/mattress": 0xece7dc,
+  "bed/frame": 0x6e5a48,
+  "sofa/fabric": 0x6b7b8c,
+  "sofa/frame": 0x3a3f46,
   placeholder: 0xffffff,
   failed: 0xff0000,
   item: 0x8f9aa6,
 };
+
+/** What a surface's own finish can change about its material; a FinishRef satisfies it. */
+export interface FinishLike {
+  color: string | null;
+  shininess: number | null;
+  textureId?: string | null;
+}
+
+/** How much of a surface one copy of a texture covers, in millimetres. */
+export interface TextureSize {
+  widthMm: number;
+  heightMm: number;
+}
+
+/** The size of a texture by id, or null when it is not known, as a project's texture snapshots give it. */
+export type TextureSource = (textureId: string) => TextureSize | null;
+
+/** A texture a material wears, with the size one copy of it covers. */
+export interface MaterialTexture extends TextureSize {
+  id: string;
+}
+
+/**
+ * The material key for a surface that may carry a finish: the base key alone, or
+ * `<base>|<colour>|<shininess>` with either part empty, and `|<texture>@<width>x<height>` after them when
+ * the finish names a texture whose size `textures` knows.
+ *
+ * The finish rides in the key rather than beside it because the key is the one thing both consumers already
+ * group by: the viewer caches a material per key and the glTF export writes one per key. A wall painted red
+ * is then a different material everywhere, with no second lookup that one of them could forget. The
+ * texture's size rides along for the same reason: it decides how often the image repeats.
+ */
+export function finishedMaterialKey(
+  base: string,
+  finish: FinishLike | null,
+  textures?: TextureSource,
+): string {
+  const size = finish?.textureId && textures ? textures(finish.textureId) : null;
+  const texture = size && finish?.textureId ? `${finish.textureId}@${size.widthMm}x${size.heightMm}` : null;
+  if (!finish || (finish.color === null && finish.shininess === null && !texture)) return base;
+  const plain = `${base}|${finish.color ?? ""}|${finish.shininess ?? ""}`;
+  return texture ? `${plain}|${texture}` : plain;
+}
+
+/** Texture sizes from a project's snapshots (spec 02 section 2). */
+export function textureSourceOf(project: { textures: Record<string, unknown> }): TextureSource {
+  return (id) => {
+    const t = project.textures[id] as { widthMm?: unknown; heightMm?: unknown } | undefined;
+    return typeof t?.widthMm === "number" && typeof t.heightMm === "number" && t.widthMm > 0 && t.heightMm > 0
+      ? { widthMm: t.widthMm, heightMm: t.heightMm }
+      : null;
+  };
+}
+
+interface KeyParts {
+  base: string;
+  colour: number | null;
+  shininess: number | null;
+  texture: MaterialTexture | null;
+}
+
+function splitKey(key: string): KeyParts {
+  const [base = key, colour = "", shininess = "", texture = ""] = key.split("|");
+  const hex = /^#[0-9A-Fa-f]{6}$/.test(colour) ? Number.parseInt(colour.slice(1), 16) : null;
+  const shine = shininess === "" ? null : Number(shininess);
+  const t = /^(.+)@(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)$/.exec(texture);
+  return {
+    base,
+    colour: hex,
+    shininess: shine !== null && Number.isFinite(shine) ? shine : null,
+    texture: t ? { id: t[1] as string, widthMm: Number(t[2]), heightMm: Number(t[3]) } : null,
+  };
+}
 
 /** Recipe keys carry size and shape ("recipe:table:boat:3600x1400x750"); materials go by kind. */
 export function materialKeyOf(key: string): string {
@@ -29,10 +130,69 @@ export function materialKeyOf(key: string): string {
   return key;
 }
 
+/** Everything a renderer needs to draw a key, in one place so the viewer and the export cannot differ. */
+export interface MaterialLook {
+  /** sRGB. */
+  colour: number;
+  roughness: number;
+  metalness: number;
+  /** 1 is solid; below 1 the surface is seen through and drawn blended. */
+  opacity: number;
+  /** Takes the environment map, when there is one: glass and its frame. Nothing else does, so the rest of
+   *  the scene keeps its flat office look. */
+  reflective: boolean;
+  /**
+   * The image the surface wears, repeated every `widthMm` by `heightMm`; `colour` is then white, so the
+   * image shows its own colours.
+   */
+  texture: MaterialTexture | null;
+  /** The colour the surface has without its texture: what to draw where the image cannot be. */
+  plainColour: number;
+}
+
+/** How a kind of surface differs from the flat, matt, solid default. */
+const LOOKS: Readonly<Record<string, Partial<MaterialLook>>> = {
+  "wall-glass": { roughness: 0.05, opacity: 0.3, reflective: true },
+  // Glazing behaves as glass wherever it is: see-through, smooth, reflective.
+  "opening-glass": { roughness: 0.05, opacity: 0.3, reflective: true },
+  "opening-leaf": { roughness: 0.6 },
+  "wall-glass-frame": { roughness: 0.35, metalness: 0.6, reflective: true },
+  "recipe:display": { roughness: 0.35 },
+  "display/frame": { roughness: 0.35 },
+  "display/screen": { roughness: 0.12 },
+  "table/legs": { roughness: 0.4, metalness: 0.5 },
+  "chair/frame": { roughness: 0.45, metalness: 0.4 },
+};
+
+export function materialLook(key: string): MaterialLook {
+  const { base, colour, shininess, texture } = splitKey(key);
+  const kind = materialKeyOf(base);
+  const look = LOOKS[kind] ?? {};
+  const plainColour = colour ?? MATERIAL_COLOURS[kind] ?? MATERIAL_COLOURS.item ?? 0x8f9aa6;
+  return {
+    colour: texture ? 0xffffff : plainColour,
+    plainColour,
+    texture,
+    // A finish's shininess replaces the kind's roughness: satin or gloss on glass reads as frosted.
+    roughness: shininess !== null ? roughnessForShininess(shininess) : (look.roughness ?? 0.85),
+    metalness: look.metalness ?? 0,
+    opacity: look.opacity ?? 1,
+    reflective: look.reflective ?? false,
+  };
+}
+
 export function materialColour(key: string): number {
-  return MATERIAL_COLOURS[materialKeyOf(key)] ?? MATERIAL_COLOURS.item ?? 0x8f9aa6;
+  return materialLook(key).colour;
+}
+
+/**
+ * Roughness from a finish's shininess: 0 is the flat 0.85 every surface has by default, 1 is a hard gloss
+ * at 0.15. Linear, because shininess is a person's choice of matt, satin or gloss, not a measurement.
+ */
+export function roughnessForShininess(shininess: number): number {
+  return 0.85 - 0.7 * Math.min(1, Math.max(0, shininess));
 }
 
 export function materialRoughness(key: string): number {
-  return materialKeyOf(key) === "recipe:display" ? 0.35 : 0.85;
+  return materialLook(key).roughness;
 }

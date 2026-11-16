@@ -5,7 +5,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { openAICompatible, type ProviderConfig, verifierExtractor } from "@fpv/agents";
+import { createProvider, type ProviderConfig, verifierExtractor } from "@fpv/agents";
 import {
   braveSearch,
   type PageFetcher,
@@ -16,8 +16,9 @@ import {
   verifyProduct,
 } from "@fpv/catalog";
 import { httpPageFetcher } from "@fpv/catalog/store";
-import type { ProductVerifier } from "@fpv/tools";
+import type { ProductVerifier, WebAccess } from "@fpv/tools";
 import { z } from "zod";
+import { wireSettings } from "./env.js";
 
 const ProviderEntry = z.object({
   baseUrl: z.string().url(),
@@ -36,8 +37,22 @@ const ProviderEntry = z.object({
     .partial()
     .optional(),
   timeoutMs: z.number().int().positive().optional(),
+  /** A cap on one reply's length, so a model that thinks forever does not outlast the timeout. */
+  maxTokens: z.number().int().positive().optional(),
   extraBody: z.record(z.unknown()).optional(),
+  /** The wire to speak; absent, the provider's name decides (ADR-029 D2). */
+  api: z.enum(["openai-chat", "openai-responses", "anthropic", "ollama"]).optional(),
+  /** How hard the model is asked to think; absent, the vendor's default (ADR-029 D4). */
+  reasoning: z.enum(["none", "low", "medium", "high"]).optional(),
 });
+
+/** A config.json provider entry's wire settings, as ProviderConfig fields. */
+export function entryWire(entry: z.infer<typeof ProviderEntry>): Pick<ProviderConfig, "api" | "reasoning"> {
+  return {
+    ...(entry.api ? { api: entry.api } : {}),
+    ...(entry.reasoning ? { reasoning: entry.reasoning } : {}),
+  };
+}
 
 const SearchEntry = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("brave"), apiKey: z.string().optional(), apiKeyEnv: z.string().optional() }),
@@ -107,7 +122,11 @@ export function loadHostConfig(options: {
     entry.apiKey ?? (entry.apiKeyEnv ? env[entry.apiKeyEnv] : undefined);
 
   let search: SearchConfig | null = null;
-  const kind = env.FPV_SEARCH ?? parsed.search?.kind;
+  // A SearXNG address with no FPV_SEARCH beside it was the owner's own .env, and it produced "no
+  // search provider" with no word about why. The address says what it is.
+  const kind = env.FPV_SEARCH ?? parsed.search?.kind ?? (env.FPV_SEARCH_URL ? "searxng" : undefined);
+  if (!env.FPV_SEARCH && !parsed.search?.kind && env.FPV_SEARCH_URL)
+    notes.push("FPV_SEARCH_URL is set and FPV_SEARCH is not; taking the search to be searxng");
   if (kind === "brave") {
     const apiKey =
       env.FPV_SEARCH_API_KEY ??
@@ -129,6 +148,7 @@ export function loadHostConfig(options: {
       baseUrl: env.FPV_VERIFIER_BASE_URL,
       model: env.FPV_VERIFIER_MODEL,
       apiKey: env.FPV_VERIFIER_API_KEY ?? null,
+      ...wireSettings(env, "VERIFIER").settings,
     };
   } else if (parsed.roles.verifier) {
     const name = parsed.roles.verifier;
@@ -140,6 +160,7 @@ export function loadHostConfig(options: {
         baseUrl: entry.baseUrl,
         model: entry.model,
         apiKey: keyOf(entry) ?? null,
+        ...entryWire(entry),
         ...(entry.profile ? { profile: entry.profile as NonNullable<ProviderConfig["profile"]> } : {}),
         ...(entry.timeoutMs ? { timeoutMs: entry.timeoutMs } : {}),
         ...(entry.extraBody ? { extraBody: entry.extraBody } : {}),
@@ -154,6 +175,35 @@ export function loadHostConfig(options: {
     },
     file,
     notes,
+  };
+}
+
+/**
+ * Search and a guarded fetcher for the agent's web tools (ADR-027 D4): the same two the verifier is
+ * built from. Null when no search is configured, and then the tools are not advertised.
+ */
+export function createWeb(
+  config: VerifierConfig,
+  parts: { search?: SearchProvider | null; fetcher?: PageFetcher } = {},
+): { web: WebAccess | null; describe: string } {
+  const search =
+    parts.search !== undefined
+      ? parts.search
+      : config.search?.kind === "brave"
+        ? braveSearch({ apiKey: config.search.apiKey })
+        : config.search?.kind === "searxng"
+          ? searxngSearch({ baseUrl: config.search.baseUrl })
+          : null;
+  if (!search)
+    return {
+      web: null,
+      describe: "no web search (set FPV_SEARCH=searxng and FPV_SEARCH_URL, or FPV_SEARCH=brave and a key)",
+    };
+  const fetcher = parts.fetcher ?? httpPageFetcher({ allowPrivate: config.allowPrivatePages });
+  const where = config.search?.kind === "searxng" ? ` at ${new URL(config.search.baseUrl).host}` : "";
+  return {
+    web: { search, fetcher },
+    describe: `${search.id}${where}${search.images ? ", with images" : ""}`,
   };
 }
 
@@ -182,7 +232,7 @@ export function createVerifier(
     parts.extractor !== undefined
       ? parts.extractor
       : config.model
-        ? verifierExtractor(openAICompatible(config.model))
+        ? verifierExtractor(createProvider(config.model))
         : null;
   const fetcher = parts.fetcher ?? httpPageFetcher({ allowPrivate: config.allowPrivatePages });
   const verifier: ProductVerifier = {

@@ -1,13 +1,20 @@
 // Reducer context, change-set builder, and lookup helpers shared by all reducers.
+
 import type { IdGenerator, Item, Level, Opening, Project, Room, Size3, Wall, Zone } from "@fpv/ir";
 import { derive } from "@fpv/ir";
-import { missingRef } from "./errors.js";
+import { missingRef, precondition } from "./errors.js";
+import type { Origin } from "./store.js";
 
 export type EntityType = "level" | "wall" | "opening" | "room" | "item" | "zone" | "annotation" | "meta";
 
 export interface Ref {
   type: EntityType;
   id: string;
+  /**
+   * Set when only how the entity is drawn on the plan changed, so nothing built from it in 3D needs
+   * rebuilding: a wall's pattern (W-121, S-011). Absent for every other change.
+   */
+  aspect?: "plan";
 }
 
 export interface ChangeSet {
@@ -20,12 +27,20 @@ export interface ChangeSet {
 /** Product snapshot lookup used by commands to copy a snapshot into catalogRefs on first use. */
 export interface CatalogSource {
   product(productId: string): Record<string, unknown> | null;
+  /** A texture record by id, to copy into a project the first time a finish uses it (spec 02 section 2). */
+  texture?(textureId: string): Record<string, unknown> | null;
 }
 
 export interface Ctx {
   ids: IdGenerator;
   now(): string;
   catalog?: CatalogSource;
+  /**
+   * Who is asking, for the authorship stamp (ADR-023 D2). The store sets it per command from the
+   * origin it was given; a caller that builds a Ctx by hand gets "editor", which is what a person
+   * sitting in front of the editor is.
+   */
+  origin?: Origin;
 }
 
 export class Changes implements ChangeSet {
@@ -41,9 +56,12 @@ export class Changes implements ChangeSet {
   add(type: EntityType, id: string): void {
     if (!this.has(this.added, type, id)) this.added.push({ type, id });
   }
-  update(type: EntityType, id: string): void {
+  /** Records an update; `aspect` narrows it to the plan, and any unnarrowed update of the same entity wins. */
+  update(type: EntityType, id: string, aspect?: "plan"): void {
     if (this.has(this.added, type, id) || this.has(this.removed, type, id)) return;
-    if (!this.has(this.updated, type, id)) this.updated.push({ type, id });
+    const i = this.updated.findIndex((r) => r.type === type && r.id === id);
+    if (i < 0) this.updated.push(aspect ? { type, id, aspect } : { type, id });
+    else if (!aspect) this.updated[i] = { type, id };
   }
   remove(type: EntityType, id: string): void {
     const i = this.added.findIndex((r) => r.type === type && r.id === id);
@@ -129,6 +147,31 @@ export function sizeOf(p: Project, item: Item): Size3 {
 }
 
 /** Copy a product snapshot into catalogRefs on first use (ADR-008 D5). */
+/**
+ * Copy into the project every texture these finishes name that it does not hold yet, as products are
+ * copied on first use; refuse a texture the catalog does not have either, since validation would.
+ */
+export function requireTextures(
+  p: Project,
+  ctx: Ctx,
+  finishes: readonly ({ textureId: string | null } | null | undefined)[],
+  entityId: string | null,
+): void {
+  for (const f of finishes) {
+    const id = f?.textureId;
+    if (!id || id in p.textures) continue;
+    const snap = ctx.catalog?.texture?.(id);
+    if (!snap)
+      throw precondition(
+        "catalog.missing-texture",
+        `texture "${id}" is not in the catalog`,
+        entityId,
+        "pick one of the catalog's textures",
+      );
+    p.textures[id] = { ...snap, id };
+  }
+}
+
 export function ensureSnapshot(p: Project, ctx: Ctx, productId: string): boolean {
   if (productId in p.catalogRefs) return true;
   const snap = ctx.catalog?.product(productId);

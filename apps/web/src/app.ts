@@ -1,14 +1,51 @@
 // Browser shell: renderer, controls, plan canvases, bridge connection. Everything DOM-bound lives here;
 // the binding, the plan renderer and the bridge client are testable without it.
-import { apply, type ChangeSet } from "@fpv/commands";
+import {
+  type AgentEventMsg,
+  type AgentStateMsg,
+  apply,
+  type ChangeSet,
+  type RenderRequestMsg,
+} from "@fpv/commands";
 import type { Layer } from "@fpv/engine";
 import { SELECTION_PX, WALL_END_PX, wallFootprintUnjoined } from "@fpv/geometry";
-import type { Project, Wall } from "@fpv/ir";
+import type { Item, Point, Project, Room, Size3, Wall } from "@fpv/ir";
 import { derive, sequentialIdGenerator } from "@fpv/ir";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { BridgeClient, bridgeUrl } from "./bridge/client.js";
-import { kindOf, moveCommands, nextSelection } from "./editor/selection.js";
+import { projectAsked } from "./editor/address.js";
+import { recordGesture } from "./editor/gestures.js";
+import {
+  footprintOf,
+  type ItemCommand,
+  type ItemHandle,
+  itemHandleAnchors,
+  itemHandleAt,
+  itemHandleCursor,
+  resizeCommands,
+  rotateCommand,
+} from "./editor/item-handles.js";
+import {
+  addCornerCommands,
+  aimCorner,
+  CORNER_PX,
+  type CornerGuide,
+  cornerMarginMm,
+  crossed,
+  describeCorner,
+  EDGE_DOT_PX,
+  edgeMidpoints,
+  moveCornerCommand,
+  type RoomHandle,
+  removable,
+  removeCornerCommand,
+  roomHandleAt,
+  TOO_FEW,
+  withCornerAt,
+} from "./editor/room-handles.js";
+import { moveCommands, nextSelection } from "./editor/selection.js";
 import {
   handleAnchors,
   handleAt,
@@ -24,7 +61,7 @@ import { Replica } from "./replica.js";
 import { mountReviewPanel } from "./review-panel.js";
 import { frameScheduler, SceneBinding } from "./viewer/binding.js";
 import { clippingFor } from "./viewer/clipping.js";
-import { renderViews } from "./viewer/render.js";
+import { type CapturedImage, renderViews } from "./viewer/render.js";
 
 export const CLIENT_VERSION = "0.0.1";
 
@@ -38,6 +75,31 @@ export interface AppElements {
   importFile?: HTMLInputElement;
   /** Panel for reviewing a plan draft, placed over the plan. */
   review?: HTMLElement;
+  /**
+   * Told the plan's scale, in device pixels per millimetre, whenever it changes: on zoom, fit and resize
+   * as well as on a project change. The zoom readout used to hear only the last, so it sat on the scale
+   * it opened with while the plan zoomed under it.
+   */
+  onScale?: (pixelsPerMm: number) => void;
+  /**
+   * The transient line in the status bar, where the drawing tools already say what a snap caught.
+   *
+   * Optional, like the import elements: a shell that does not pass one simply says nothing, which is
+   * what every component test does.
+   */
+  onHint?: (text: string) => void;
+  /** Spoken feedback; `assertive` is for a refusal, which never waits behind gesture chatter. */
+  onSay?: (text: string, assertive?: boolean) => void;
+  /**
+   * Where the pointer is on the plan, in millimetres, or null once it leaves.
+   *
+   * The status bar has had a place for this since it was written and nothing ever filled it, so the
+   * readout it reserves for coordinates never appeared. The plan element is the only thing that knows
+   * the mapping, so it is the only thing that can say.
+   */
+  onPointer?: (at: { x: number; y: number } | null) => void;
+  /** What the agent is doing, for the chat window (ADR-022). */
+  onAgent?: (msg: AgentEventMsg | AgentStateMsg) => void;
 }
 
 /**
@@ -48,6 +110,12 @@ export interface AppElements {
  */
 const HANDLE_COLOUR = "#1e88e5";
 
+/** The thin dashed line drawn from an aligned corner to the corner it lined up with (R-053). */
+const GUIDE_COLOUR = "rgba(30, 136, 229, 0.5)";
+
+/** A shape that is no longer a room: the same red the validator's errors wear. */
+const PROBLEM_COLOUR = "#b3261e";
+
 export function startApp(el: AppElements): {
   replica: Replica;
   binding: SceneBinding;
@@ -56,8 +124,17 @@ export function startApp(el: AppElements): {
   client: BridgeClient;
   /** Ask for the plan to be drawn again on the next frame. */
   redraw: () => void;
+  /** Show a command's effect without sending it; null puts the host's project back. */
+  preview: (command: { type: string; payload: unknown } | null) => void;
   /** Paint the drag ghost; the shell composes this into its single overlay painter. */
   drawSelectionDrag: (ctx: Ctx2D, view: PlanView) => void;
+  /**
+   * Frame the whole model in the 3D view. The Fit button has always done this as well as fitting the
+   * plan; the F key and the view.fit command did not, so the two quietly meant different things.
+   */
+  fitCamera: () => void;
+  /** Render one view and hand it to the browser to save; resolves with the file name, or null. */
+  saveImage: (view: string, focusId: string | null) => Promise<string | null>;
   /** Release what startApp attached to the document: the size observer and the window listener. */
   destroy: () => void;
 } {
@@ -73,6 +150,13 @@ export function startApp(el: AppElements): {
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
   el.viewport.appendChild(renderer.domElement);
   binding.scene.background = new THREE.Color(0xf3f1ec);
+  // Glass needs something to reflect or it is only a tinted pane. A soft studio room, prefiltered once,
+  // given to glass and its frames alone: the scene is not lit by it, so everything else looks as before.
+  {
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    binding.setEnvironment(pmrem.fromScene(new RoomEnvironment(), 0.04).texture);
+    pmrem.dispose();
+  }
   const camera = new THREE.PerspectiveCamera(50, 1, 0.05, 500);
   camera.position.set(12, 9, 12);
   const controls = new OrbitControls(camera, renderer.domElement);
@@ -220,6 +304,24 @@ export function startApp(el: AppElements): {
     return { project, changes: { commandType: "local.move", added: [], updated, removed: [] } };
   };
 
+  /**
+   * What a command would do, shown without the host: a number typed or dragged in the properties panel.
+   * Every call applies its command to the project the host last agreed, so a drag never compounds; null
+   * puts that project back, which is also what happens just before the real command is sent, so the
+   * host's patch lands on the state it was made against. A patch from the host while a preview is up (the
+   * agent, another window) takes the view away, and the preview is shown again on top of it (below).
+   */
+  let previewing: { type: string; payload: unknown } | null = null;
+  const preview = (command: { type: string; payload: unknown } | null): void => {
+    previewing = command;
+    const base = replica.agreed;
+    const local = command && base ? applyLocally(base, [command]) : null;
+    // a value the host would refuse shows nothing rather than a lie
+    if (local) replica.applyLocally(local.project, { ...local.changes, commandType: "local.preview" });
+    else replica.restore();
+    planDirty = true;
+  };
+
   /** Screen pixels between two pointer positions, in plan millimetres. y flips: plan y is up. */
   const deltaMm = (fromX: number, fromY: number, toX: number, toY: number) => {
     const dpr = Math.min(2, window.devicePixelRatio);
@@ -248,13 +350,125 @@ export function startApp(el: AppElements): {
     preview: Wall | null;
   } | null = null;
 
-  /** A wall and whatever is joined to its ends: everything a reshape of it can move (W-031). */
-  const touchedByWall = (project: Project, wallId: string): ChangeSet["updated"] => {
-    const w = project.walls.find((x) => x.id === wallId);
-    const ids = new Set([wallId]);
-    if (w?.joins.start) ids.add(w.joins.start.wallId);
-    if (w?.joins.end) ids.add(w.joins.end.wallId);
-    return [...ids].map((id) => ({ type: "wall" as const, id }));
+  /**
+   * A press that began on a handle of the selected item: a resize or a turn. Like a wall handle drag, it
+   * runs the real reducer on the project as it was at the press, on every move, and sends one
+   * transaction when the button comes up.
+   */
+  let itemHandling: {
+    item: Item;
+    size: Size3;
+    handle: ItemHandle;
+    from: { x: number; y: number };
+    beforeProject: Project;
+    commands: ItemCommand[];
+  } | null = null;
+
+  /**
+   * A press that began on a handle of the selected room: a corner being dragged, or a corner being
+   * added on an edge and dragged in the same gesture. Like the wall handle drag, every move runs the
+   * real reducer against the project as it was at the press, and one command goes to the host at the end.
+   */
+  let roomHandling: {
+    room: Room;
+    handle: RoomHandle;
+    /** The index of the corner under the pointer; for an edge, the one the add would create. */
+    index: number;
+    beforeProject: Project;
+    to: Point;
+    guides: CornerGuide[];
+    moved: boolean;
+  } | null = null;
+
+  /** The room the handles belong to: exactly one room selected, on the level being drawn. */
+  const handleRoom = (): Room | null => {
+    const project = replica.project;
+    if (!project || replica.selection.length !== 1) return null;
+    const id = replica.selection[0] as string;
+    return project.rooms.find((x) => x.id === id && x.levelId === plan.level) ?? null;
+  };
+
+  const hint = (text: string): void => el.onHint?.(text);
+
+  /** The item the handles belong to: exactly one item selected, on the level being drawn, with a size. */
+  const handleItem = (): { item: Item; size: Size3; resizable: boolean } | null => {
+    const project = replica.project;
+    if (!project || replica.selection.length !== 1) return null;
+    const id = replica.selection[0] as string;
+    const item = project.items.find((x) => x.id === id && x.levelId === plan.level);
+    if (!item) return null;
+    const size = derive.itemSize(item, derive.snapshotSizeSource(project));
+    if (!size) return null;
+    // a product the catalog says comes in one size can only be turned (F-013)
+    const snap =
+      item.ref.kind === "product"
+        ? (project.catalogRefs[item.ref.productId] as { deformable?: boolean } | undefined)
+        : undefined;
+    return { item, size, resizable: snap?.deformable !== false };
+  };
+
+  /** The item and whatever is stacked on it: everything its resize or turn can move. */
+  const touchedByItem = (project: Project, itemId: string): ChangeSet["updated"] => {
+    const ids = new Set([itemId]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const it of project.items)
+        if (it.parentId && ids.has(it.parentId) && !ids.has(it.id)) {
+          ids.add(it.id);
+          grew = true;
+        }
+    }
+    return [...ids].map((id) => ({ type: "item" as const, id }));
+  };
+
+  /** The handles on the selected item: squares on its corners and edges, and a turn handle off its front. */
+  const drawItemHandles = (
+    ctx: Ctx2D,
+    view: PlanView,
+    target: { item: Item; size: Size3; resizable: boolean },
+  ) => {
+    const anchors = itemHandleAnchors(target.item, target.size, 1 / view.scale, target.resizable);
+    const screen = (p: { x: number; y: number }) => ({
+      x: view.offsetX + p.x * view.scale,
+      y: view.offsetY - p.y * view.scale,
+    });
+    const fp = footprintOf(target.item, target.size);
+    const frontMid = screen({
+      x: ((fp[2]?.x ?? 0) + (fp[3]?.x ?? 0)) / 2,
+      y: ((fp[2]?.y ?? 0) + (fp[3]?.y ?? 0)) / 2,
+    });
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.strokeStyle = HANDLE_COLOUR;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([]);
+    for (const a of anchors) {
+      const p = screen(a.at);
+      if (a.handle.kind === "rotate") {
+        // a stalk from the front edge to a ring: turn the item by its front
+        ctx.beginPath();
+        ctx.moveTo(frontMid.x, frontMid.y);
+        ctx.lineTo(p.x, p.y);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+        ctx.fillStyle = "#ffffff";
+        ctx.fill();
+        ctx.stroke();
+        continue;
+      }
+      ctx.beginPath();
+      ctx.moveTo(p.x - 4, p.y - 4);
+      ctx.lineTo(p.x + 4, p.y - 4);
+      ctx.lineTo(p.x + 4, p.y + 4);
+      ctx.lineTo(p.x - 4, p.y + 4);
+      ctx.closePath();
+      ctx.fillStyle = "#ffffff";
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
   };
 
   /** The wall the handles belong to: exactly one wall selected, on the level being drawn, or null. */
@@ -336,6 +550,121 @@ export function startApp(el: AppElements): {
     ctx.restore();
   };
 
+  /**
+   * The handles on a selected room: a filled square at every corner, a small hollow dot in the middle of
+   * every edge.
+   *
+   * Drawn in screen pixels like the wall handles, for the same reason: the layer transform scales with
+   * the zoom and flips y, so a glyph drawn through it would shrink away as the plan zoomed out.
+   *
+   * The two shapes differ because the two gestures differ. A corner exists and can be moved, so it is
+   * solid; an edge dot is a corner that does not exist yet, so it is hollow. Both are drawn at exactly
+   * the size the hit test catches, which is the pair of numbers the wall handles got wrong once.
+   */
+  const drawRoomHandles = (ctx: Ctx2D, view: PlanView, r: Room) => {
+    const guides = roomHandling?.guides ?? [];
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const screen = (p: Point) => ({
+      x: view.offsetX + p.x * view.scale,
+      y: view.offsetY - p.y * view.scale,
+    });
+    // Alignment guides first, underneath: they say why a corner stopped where it did.
+    if (guides.length) {
+      ctx.strokeStyle = GUIDE_COLOUR;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      for (const g of guides) {
+        const a = screen(g.from);
+        const b = screen(g.to);
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+    }
+    const bad = roomHandling ? crossed(withCornerAt(r, roomHandling.index, roomHandling.to)) : false;
+    ctx.strokeStyle = bad ? PROBLEM_COLOUR : HANDLE_COLOUR;
+    ctx.fillStyle = bad ? PROBLEM_COLOUR : HANDLE_COLOUR;
+    ctx.lineWidth = 1.5;
+    for (const p of r.polygon) {
+      const c = screen(p);
+      ctx.beginPath();
+      ctx.moveTo(c.x - CORNER_PX, c.y - CORNER_PX);
+      ctx.lineTo(c.x + CORNER_PX, c.y - CORNER_PX);
+      ctx.lineTo(c.x + CORNER_PX, c.y + CORNER_PX);
+      ctx.lineTo(c.x - CORNER_PX, c.y + CORNER_PX);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // Hollow, and only while nothing is being dragged: an add-a-corner dot under a corner that is
+    // already moving is an invitation to the wrong gesture.
+    if (roomHandling) {
+      ctx.restore();
+      return;
+    }
+    ctx.fillStyle = "#ffffff";
+    for (const m of edgeMidpoints(r)) {
+      const c = screen(m);
+      ctx.beginPath();
+      for (let i = 0; i <= 12; i += 1) {
+        const a = (i / 12) * Math.PI * 2;
+        const x = c.x + Math.cos(a) * EDGE_DOT_PX;
+        const y = c.y + Math.sin(a) * EDGE_DOT_PX;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+  };
+
+  /** Where a room corner drag would put the corner, with the guides that explain it. */
+  const aimRoomCorner = (r: Room, index: number, at: Point, altHeld: boolean) =>
+    aimCorner(at, r, index, {
+      magnetism: true,
+      altHeld,
+      pixelMm: 1 / plan.view.scale,
+      walls: replica.project?.walls ?? [],
+    });
+
+  /** Show a room as this drag would leave it, through the real reducer. */
+  const previewRoomDrag = (active: NonNullable<typeof roomHandling>): void => {
+    const commands =
+      active.handle.kind === "corner"
+        ? [moveCornerCommand(active.room.id, active.index, active.to)]
+        : addCornerCommands(active.room.id, active.handle.index, active.handle.at, active.to);
+    const local = applyLocally(active.beforeProject, commands);
+    if (local) replica.applyLocally(local.project, { ...local.changes, commandType: "local.room-corner" });
+    else replica.restore();
+    plan.invalidateOverlay();
+    planDirty = true;
+  };
+
+  el.plan.addEventListener("dblclick", (e) => {
+    // A corner double-clicked is a corner taken away. The room keeps everything else it has, which is
+    // the whole point of editing a shape rather than drawing it again.
+    const r = handleRoom();
+    if (!r) return;
+    const at = planPointOf(e);
+    const found = roomHandleAt(r, at, cornerMarginMm(plan.view.scale));
+    if (!found || found.kind !== "corner") return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!removable(r)) {
+      el.onSay?.(TOO_FEW, true);
+      hint(TOO_FEW);
+      return;
+    }
+    recordGesture("drag", { phase: "end", kind: "room-corner", target: r.id, at: "remove" });
+    void client.command(removeCornerCommand(r.id, found.index));
+    el.onSay?.(`Corner ${found.index + 1} removed; ${r.polygon.length - 1} left.`);
+    hint("");
+  });
+
   el.plan.addEventListener("pointerdown", (e) => {
     // A handle of the selected wall beats everything else. The handles are drawn over the wall's own
     // ends, so a press that lands on one has to reshape rather than move the wall or pan the view.
@@ -355,9 +684,63 @@ export function startApp(el: AppElements): {
           wallId: shaped.id,
           handle,
           before: shaped,
-          beforeProject: replica.project,
+          beforeProject: replica.agreed ?? replica.project,
           preview: null,
         };
+        recordGesture("drag", { phase: "begin", kind: "wall-handle", target: shaped.id, at: handle });
+        el.plan.setPointerCapture(e.pointerId);
+        return;
+      }
+    }
+    // Then a handle of the selected room: move a corner, or grow a new one out of an edge. Before the
+    // move-the-selection branch below, because the handles sit on the room's own outline and a press
+    // that lands on one has to reshape rather than slide the whole room.
+    const room = handleRoom();
+    if (room && replica.project) {
+      const at = planPointOf(e);
+      const found = roomHandleAt(room, at, cornerMarginMm(plan.view.scale, e.pointerType === "touch"));
+      if (found) {
+        const index = found.kind === "corner" ? found.index : found.index + 1;
+        roomHandling = {
+          room,
+          handle: found,
+          index,
+          beforeProject: replica.agreed ?? replica.project,
+          to: found.kind === "corner" ? (room.polygon[found.index] as Point) : found.at,
+          guides: [],
+          moved: false,
+        };
+        recordGesture("drag", {
+          phase: "begin",
+          kind: "room-corner",
+          target: room.id,
+          at: found.kind === "corner" ? `corner ${index}` : `edge ${found.index}`,
+        });
+        el.plan.setPointerCapture(e.pointerId);
+        return;
+      }
+    }
+    // Then a handle of the selected item: resize or turn it rather than moving it.
+    const target = handleItem();
+    if (target && replica.project) {
+      const at = planPointOf(e);
+      const handle = itemHandleAt(target.item, target.size, at, 1 / plan.view.scale, target.resizable);
+      if (handle) {
+        itemHandling = {
+          item: target.item,
+          size: target.size,
+          handle,
+          from: at,
+          beforeProject: replica.agreed ?? replica.project,
+          commands: [],
+        };
+        recordGesture("drag", {
+          phase: "begin",
+          kind: "item-handle",
+          target: target.item.id,
+          at: handle.kind,
+        });
+        el.plan.style.cursor = handle.kind === "rotate" ? "grabbing" : el.plan.style.cursor;
         el.plan.setPointerCapture(e.pointerId);
         return;
       }
@@ -366,19 +749,50 @@ export function startApp(el: AppElements): {
     // pans. Requiring it to be selected first is what keeps panning usable: otherwise every press that
     // happened to land on a wall would drag it.
     const hit = plan.hitTest(planPointOf(e), SELECTION_PX / plan.view.scale);
-    if (hit && replica.selection.includes(hit) && replica.project)
+    if (hit && replica.selection.includes(hit) && replica.project) {
       moving = {
         fromX: e.clientX,
         fromY: e.clientY,
         ids: [...replica.selection],
         dx: 0,
         dy: 0,
-        before: replica.project,
+        before: replica.agreed ?? replica.project,
       };
+      recordGesture("drag", { phase: "begin", kind: "move", target: hit, holding: moving.ids.length });
+    }
     drag = { x: e.clientX, y: e.clientY };
     el.plan.setPointerCapture(e.pointerId);
   });
+  el.plan.addEventListener("pointerleave", () => el.onPointer?.(null));
   el.plan.addEventListener("pointermove", (e) => {
+    // Said on every move, dragging or not: where the pointer is does not stop mattering because
+    // something is being dragged — during a drag it is the one number that says how far it has gone.
+    el.onPointer?.(planPointOf(e));
+    if (itemHandling) {
+      const active = itemHandling;
+      const to = planPointOf(e);
+      // Alt bypasses snapping, as everywhere else (W-082); Shift keeps a corner's proportions.
+      const commands =
+        active.handle.kind === "rotate"
+          ? [rotateCommand(active.item, to, !e.altKey)].filter((c): c is ItemCommand => c !== null)
+          : resizeCommands(active.item, active.size, active.handle, active.from, to, {
+              snap: !e.altKey,
+              keepRatio: e.shiftKey,
+            });
+      itemHandling = { ...active, commands };
+      const local = commands.length > 0 ? applyLocally(active.beforeProject, commands) : null;
+      if (local)
+        replica.applyLocally(local.project, {
+          commandType: "local.item-handle",
+          added: [],
+          updated: touchedByItem(active.beforeProject, active.item.id),
+          removed: [],
+        });
+      else replica.restore();
+      plan.invalidateOverlay();
+      planDirty = true;
+      return;
+    }
     if (handling) {
       const active = handling;
       // Measured from the wall as it was when the press began, never from the wall as this drag has
@@ -405,14 +819,21 @@ export function startApp(el: AppElements): {
       // compounding with it. One command goes to the host at the end, not one per pointer move.
       const reshape = next ? handleCommand(active.before, active.handle, next) : null;
       const local = reshape ? applyLocally(active.beforeProject, [reshape]) : null;
-      replica.applyLocally(local?.project ?? active.beforeProject, {
-        commandType: "local.reshape",
-        added: [],
-        updated: local?.changes.updated ?? touchedByWall(active.beforeProject, active.wallId),
-        removed: [],
-      });
+      if (local) replica.applyLocally(local.project, { ...local.changes, commandType: "local.reshape" });
+      else replica.restore();
       plan.invalidateOverlay();
       planDirty = true;
+      return;
+    }
+    if (roomHandling) {
+      const active = roomHandling;
+      // Aimed against the room as it was at the press, never against the copy this drag has already
+      // edited: reading the edited one back would compound each move into the last.
+      const aimed = aimRoomCorner(active.room, active.index, planPointOf(e), e.altKey);
+      const bad = crossed(withCornerAt(active.room, active.index, aimed.point));
+      roomHandling = { ...active, to: aimed.point, guides: aimed.guides, moved: true };
+      previewRoomDrag(roomHandling);
+      hint(describeCorner(active.index, active.room.polygon.length, aimed, bad));
       return;
     }
     if (moving) {
@@ -445,9 +866,23 @@ export function startApp(el: AppElements): {
               1 / plan.view.scale,
             )
           : null;
+      const room = hovered ? null : handleRoom();
+      const onRoom = room
+        ? roomHandleAt(room, at, cornerMarginMm(plan.view.scale, e.pointerType === "touch"))
+        : null;
+      const target = hovered || onRoom ? null : handleItem();
+      const itemHovered = target
+        ? itemHandleAt(target.item, target.size, at, 1 / plan.view.scale, target.resizable)
+        : null;
       if (hovered && shaped && fp) {
         const anchors = handleAnchors(shaped, fp);
         el.plan.style.cursor = anchors ? handleCursor(hovered, anchors[hovered].angleDeg) : "pointer";
+      } else if (onRoom) {
+        // A corner moves, a dot makes one: the same crosshair for both, since both put a point where
+        // the pointer is, and the shapes under it already say which is which.
+        el.plan.style.cursor = "crosshair";
+      } else if (itemHovered && target) {
+        el.plan.style.cursor = itemHandleCursor(itemHovered, target.item.rotation);
       } else {
         const over = plan.hitTest(at, SELECTION_PX / plan.view.scale);
         el.plan.style.cursor = over && replica.selection.includes(over) ? "move" : "";
@@ -460,6 +895,64 @@ export function startApp(el: AppElements): {
     planDirty = true;
   });
   el.plan.addEventListener("pointerup", (e) => {
+    if (itemHandling) {
+      const done = itemHandling;
+      itemHandling = null;
+      drag = null;
+      // Back to what the host agreed, then one entry in the history for the whole gesture: a resize that
+      // keeps the far side put is two commands, and undoing it must take both.
+      replica.restore();
+      const [only] = done.commands;
+      recordGesture("drag", {
+        phase: "end",
+        kind: "item-handle",
+        target: done.item.id,
+        at: done.handle.kind,
+        sent: done.commands.map((c) => c.type),
+      });
+      if (done.commands.length > 1)
+        void client.transaction(done.handle.kind === "rotate" ? "Turn item" : "Resize item", done.commands);
+      else if (only) void client.command(only);
+      el.plan.style.cursor = "";
+      plan.invalidateOverlay();
+      planDirty = true;
+      return;
+    }
+    if (roomHandling) {
+      const done = roomHandling;
+      roomHandling = null;
+      drag = null;
+      // The project back as the host agreed it, then one entry for the whole gesture. An added corner
+      // is two commands and must undo as one thing: the corner and the place it was dragged to.
+      replica.restore();
+      const commands =
+        done.handle.kind === "corner"
+          ? done.moved
+            ? [moveCornerCommand(done.room.id, done.index, done.to)]
+            : []
+          : addCornerCommands(done.room.id, done.handle.index, done.handle.at, done.to);
+      recordGesture("drag", {
+        phase: "end",
+        kind: "room-corner",
+        target: done.room.id,
+        at: done.handle.kind,
+        sent: commands.map((c) => c.type),
+      });
+      const [only] = commands;
+      if (commands.length > 1) void client.transaction("Add room corner", commands);
+      else if (only) void client.command(only);
+      if (commands.length)
+        el.onSay?.(
+          done.handle.kind === "corner"
+            ? `Corner ${done.index + 1} moved to ${Math.round(done.to.x)}, ${Math.round(done.to.y)} millimetres.`
+            : `Corner added; the room has ${done.room.polygon.length + 1}.`,
+        );
+      hint("");
+      el.plan.style.cursor = "";
+      plan.invalidateOverlay();
+      planDirty = true;
+      return;
+    }
     if (handling) {
       const done = handling;
       handling = null;
@@ -472,11 +965,13 @@ export function startApp(el: AppElements): {
       // the drag left it. The drag has been editing this copy without the host's knowledge, so leaving
       // any of it standing would keep a shape on screen that was never accepted if the command is
       // refused. The host's patch lands a moment later and puts the new shape back for real.
-      replica.applyLocally(done.beforeProject, {
-        commandType: "local.reshape",
-        added: [],
-        updated: touchedByWall(done.beforeProject, done.wallId),
-        removed: [],
+      replica.restore();
+      recordGesture("drag", {
+        phase: "end",
+        kind: "wall-handle",
+        target: done.wallId,
+        at: done.handle,
+        sent: command ? [command.type] : [],
       });
       if (command) void client.command(command);
       plan.invalidateOverlay();
@@ -496,11 +991,15 @@ export function startApp(el: AppElements): {
       // Put everything back as the host last agreed before asking for the change. The drag has been
       // editing this copy without the host's knowledge, so leaving it standing would keep positions on
       // screen that were never accepted if a command is refused. The host's patch follows a moment later.
-      replica.applyLocally(moved.before, {
-        commandType: "local.move",
-        added: [],
-        updated: moved.ids.map((id) => ({ type: kindOf(id) ?? "wall", id })),
-        removed: [],
+      replica.restore();
+      // The whole point of writing a gesture down: a drag that sends nothing looks exactly like one that
+      // sends something, right up until the plan does not change.
+      recordGesture("drag", {
+        phase: "end",
+        kind: "move",
+        holding: moved.ids.length,
+        by: { dx: Math.round(dx), dy: Math.round(dy) },
+        sent: commands.map((c) => c.type),
       });
       for (const command of commands) void client.command(command);
       plan.invalidateOverlay();
@@ -519,7 +1018,15 @@ export function startApp(el: AppElements): {
         // a thin wall's footprint is about a pixel wide on screen and cannot be clicked at all.
         const marginMm = SELECTION_PX / plan.view.scale;
         const id = plan.hitTest(at, marginMm);
-        void client.select(nextSelection(replica.selection, id, e.shiftKey));
+        const next = nextSelection(replica.selection, id, e.shiftKey);
+        recordGesture("select", {
+          how: e.shiftKey ? "shift-click" : "click",
+          // What was under the pointer, which is not always what the person was aiming at: a press on a
+          // cluster's edge that finds one of its own chairs is a whole class of "nothing happened".
+          hit: id,
+          ids: next,
+        });
+        void client.select(next);
       }
     }
     drag = null;
@@ -610,6 +1117,12 @@ export function startApp(el: AppElements): {
         });
       }
     }
+    // A patch from the host took a preview away (Replica.applyChanges): show it again on the new state,
+    // once this notification is over.
+    if (previewing && !replica.showingLocal && !changes.commandType.startsWith("local."))
+      queueMicrotask(() => {
+        if (previewing && !replica.showingLocal) preview(previewing);
+      });
     planDirty = true;
     updateStatus();
   });
@@ -623,12 +1136,58 @@ export function startApp(el: AppElements): {
       : `bridge ${client.status}`;
   };
 
+  /** Render a request on the live renderer, restoring the viewport afterwards. */
+  const renderRequest = async (req: RenderRequestMsg): Promise<CapturedImage[]> => {
+    // capture each view at the requested size on the live renderer, then restore the viewport
+    const capture = async (camera: THREE.Camera, name: string, w: number, h: number) => {
+      if (name === "plan") return capturePlan(w, h);
+      renderer.setSize(w, h, false);
+      if (camera instanceof THREE.PerspectiveCamera) {
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+      }
+      binding.updateCamera(camera);
+      renderer.render(binding.scene, camera);
+      return renderer.domElement.toDataURL("image/png").split(",")[1] ?? "";
+    };
+    try {
+      return await renderViews(binding, replica.project, req, capture);
+    } finally {
+      resize();
+    }
+  };
+
+  /**
+   * Render one view and hand it to the browser to save. The same path the agent's render tool takes,
+   * so a picture saved from the menu cannot differ from one the agent asks for.
+   */
+  const saveImage = async (view: string, focusId: string | null): Promise<string | null> => {
+    const [image] = await renderRequest({
+      type: "render.request",
+      requestId: "save",
+      views: [{ name: view }],
+      hideWalls: false,
+      focusId,
+      width: 1600,
+    });
+    if (!image) return null;
+    const name = `${(replica.project?.meta.name ?? "plan").replace(/[^\w-]+/g, "-")}-${view}.png`;
+    const link = document.createElement("a");
+    link.href = `data:image/png;base64,${image.pngBase64}`;
+    link.download = name;
+    link.click();
+    return name;
+  };
+
   // ---- bridge ----
   const socket = new WebSocket(bridgeUrl(window.location));
   const client = new BridgeClient(socket, replica, {
     clientVersion: CLIENT_VERSION,
     capabilities: ["render", "plan"],
+    // Which project this tab is for, read from its own URL (ADR-020 D2, D4).
+    project: projectAsked(),
     onStatus: () => updateStatus(),
+    ...(el.onAgent ? { onAgent: el.onAgent } : {}),
     onDraft: (msg) => {
       const wasActive = review.active;
       review.open(msg);
@@ -643,25 +1202,7 @@ export function startApp(el: AppElements): {
         planDirty = true;
       }
     },
-    onRender: async (req) => {
-      // capture each view at the requested size on the live renderer, then restore the viewport
-      const capture = async (camera: THREE.Camera, name: string, w: number, h: number) => {
-        if (name === "plan") return capturePlan(w, h);
-        renderer.setSize(w, h, false);
-        if (camera instanceof THREE.PerspectiveCamera) {
-          camera.aspect = w / h;
-          camera.updateProjectionMatrix();
-        }
-        binding.updateCamera(camera);
-        renderer.render(binding.scene, camera);
-        return renderer.domElement.toDataURL("image/png").split(",")[1] ?? "";
-      };
-      try {
-        return await renderViews(binding, replica.project, req, capture);
-      } finally {
-        resize();
-      }
-    },
+    onRender: renderRequest,
   });
   const selectionPoll = () => {
     binding.setSelection(replica.selection);
@@ -671,6 +1212,7 @@ export function startApp(el: AppElements): {
   let lastSelection = "";
 
   // ---- frame loop ----
+  let lastScale = Number.NaN;
   const loop = () => {
     const sel = replica.selection.join(",");
     if (sel !== lastSelection) {
@@ -680,6 +1222,11 @@ export function startApp(el: AppElements): {
     if (planDirty) {
       plan.flush();
       planDirty = false;
+      // Checked here because every change to the view ends in a redraw, whatever caused it.
+      if (plan.view.scale !== lastScale) {
+        lastScale = plan.view.scale;
+        el.onScale?.(lastScale);
+      }
     }
     controls.update();
     frame3d();
@@ -740,6 +1287,9 @@ export function startApp(el: AppElements): {
     plan,
     review,
     client,
+    preview,
+    fitCamera,
+    saveImage,
     // React drives the zoom dock, and `planDirty` is a closure variable in here. Without this the dock's
     // buttons changed plan.view and nothing ever flushed, so zooming by button did nothing at all while
     // the wheel — which sets planDirty itself — worked fine.
@@ -771,9 +1321,23 @@ export function startApp(el: AppElements): {
       // move, and a dashed copy sitting on top of them would only be in the way.
       if (moving) return;
 
-      // Nothing is being dragged, so show what CAN be: the handles on the one selected wall.
+      // A room corner drag is the exception: the room itself follows the pointer through the reducer,
+      // as a wall does, but the corner squares and the alignment guides are drawn here and are the only
+      // things that say which corner is moving and what it lined up with.
+      if (roomHandling) {
+        const live = handleRoom();
+        if (live) drawRoomHandles(ctx, view, live);
+        return;
+      }
+
+      // Nothing is being dragged, so show what CAN be: the handles on the one selected wall or item.
+      // An item keeps its handles while one of them is dragged, so the pointer has something to hold.
       const shaped = handleWall();
       if (shaped) drawWallHandles(ctx, view, shaped);
+      const room = handleRoom();
+      if (room) drawRoomHandles(ctx, view, room);
+      const target = handleItem();
+      if (target) drawItemHandles(ctx, view, target);
     },
     destroy: () => sizes.disconnect(),
   };

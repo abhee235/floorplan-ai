@@ -4,22 +4,40 @@ export const PACKAGE = "tools" as const;
 
 import type { ToolContext } from "./context.js";
 import { Registry } from "./registry.js";
+import { runCode } from "./tools/code.js";
+import {
+  buildDesignTool,
+  checkDesignTool,
+  designLayoutTool,
+  planRoomsTool,
+  previewDesignTool,
+  queryDesignTool,
+  reviseDesignTool,
+  tidyDesignTool,
+} from "./tools/design.js";
 import { exportTool } from "./tools/export.js";
 import { importPlan } from "./tools/import.js";
 import { describeRoom, getScene, measure, searchCatalog, validateTool } from "./tools/inspect.js";
-import { arrange, modifyItem, placeItem } from "./tools/items.js";
+import { arrange, finishItem, modifyItem, placeItem } from "./tools/items.js";
+import { lookAt } from "./tools/look.js";
 import { createRoomFromBrief, furnishRoom } from "./tools/semantic.js";
 import { batch, getBom, history, project, render, verifyProduct } from "./tools/session.js";
 import {
+  addLevel,
   addOpening,
   createRoom,
   createWalls,
   deleteTool,
+  finishOpening,
+  finishWall,
+  modifyOpening,
   modifyRoom,
   modifyWall,
 } from "./tools/structure.js";
+import { readPage, webSearch } from "./tools/web.js";
 
-/** The 23 tools of the first release (ADR-006 D2) in spec order, then import_plan (phase 2). */
+/** The 23 tools of the first release (ADR-006 D2) in spec order, then import_plan (phase 2) and
+ *  finish_wall (phase 3). */
 export const TOOLS = [
   getScene,
   describeRoom,
@@ -45,7 +63,32 @@ export const TOOLS = [
   project,
   exportTool,
   importPlan,
+  finishOpening,
+  modifyOpening,
+  finishWall,
+  finishItem,
+  addLevel,
+  designLayoutTool,
+  planRoomsTool,
+  checkDesignTool,
+  buildDesignTool,
+  queryDesignTool,
+  reviseDesignTool,
+  previewDesignTool,
+  tidyDesignTool,
+  // What the model reads before it designs (ADR-027): a picture on demand, and the web when the
+  // host has a search provider.
+  lookAt,
+  webSearch,
+  readPage,
+  // Somewhere to think in code, with the pictures and the tools in reach (ADR-030).
+  runCode,
 ] as const;
+
+/** Tools that only make sense with something the session may not have; the host advertises them or not. */
+export const NEEDS_WEB: ReadonlySet<string> = new Set(["web_search", "read_page"]);
+// A picture is only worth its prefill to a model that can see it (ADR-028 D11).
+export const NEEDS_SIGHT: ReadonlySet<string> = new Set(["look_at", "preview_design"]);
 
 export function createRegistry(ctx: ToolContext): Registry {
   const r = new Registry(ctx);
@@ -55,6 +98,8 @@ export function createRegistry(ctx: ToolContext): Registry {
 
 export { type BriefUnderstanding, parseBrief } from "./brief.js";
 export {
+  type Attachment,
+  type AttachmentStore,
   type CatalogHit,
   type CatalogProduct,
   type CatalogSearch,
@@ -73,12 +118,16 @@ export {
   RECIPE_TEMPLATES,
   type RenderedImage,
   type RenderRequest,
+  type SubagentRequest,
+  type SubagentResult,
+  type SubagentRunner,
   searchRecipes,
   sizesFor,
   type ToolContext,
   type TranscriptEntry,
   type TranscriptRecorder,
   type ViewerRenderer,
+  type WebAccess,
 } from "./context.js";
 export * from "./envelope.js";
 export {
@@ -98,10 +147,12 @@ export {
   type CommitSkip,
   commitDraft,
 } from "./import.js";
+export { drawLevel, PLAN_KEY, type PlanPicture } from "./plan-picture.js";
 export { blankProject } from "./project.js";
 export { WORKFLOW_PROMPT, WORKFLOW_PROMPT_NAME } from "./prompt.js";
 export {
   type AnyObjectSchema,
+  type CallOptions,
   defineTool,
   Registry,
   TIMEOUTS,
@@ -110,6 +161,7 @@ export {
   type ToolDef,
   type ToolReliability,
 } from "./registry.js";
+export { LOOK_HEADINGS, lookChecklist, lookMissing, type Walk, walkOf } from "./tools/design.js";
 export { doorSwingWarnings, itemRefFor, parseAnchor } from "./tools/items.js";
 export { hingeEndFor } from "./tools/structure.js";
 export { createTranscript, replay, type Transcript } from "./transcript.js";

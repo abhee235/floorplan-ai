@@ -5,6 +5,7 @@
 // tearing. Every hook here takes a selector and returns a primitive or a stable reference, so a patch that
 // changes one wall does not redraw the whole chrome: the properties panel and the status bar subscribe to
 // different slices and re-render only when their own slice changes.
+import type { ProjectStateMsg, WorkspaceStateMsg } from "@fpv/commands";
 import type { Problem, Project } from "@fpv/ir";
 import { useCallback, useSyncExternalStore } from "react";
 import type { Replica } from "../replica.js";
@@ -22,9 +23,19 @@ export function useReplica<T>(replica: Replica, select: (replica: Replica) => T)
   return useSyncExternalStore(subscribe, snapshot);
 }
 
-/** The project itself. The replica replaces the object on every patch, so identity is a safe signal. */
-export function useProject(replica: Replica): Project | null {
-  return useReplica(replica, projectOf);
+/**
+ * The project itself. The replica replaces the object on every patch, so identity is a safe signal.
+ *
+ * Takes a null replica, which is what the chrome has before the app has started: the toolbar is drawn
+ * from the first frame, and a hook cannot be called conditionally to wait for one.
+ */
+export function useProject(replica: Replica | null): Project | null {
+  const subscribe = useCallback(
+    (onChange: () => void) => (replica ? replica.subscribe(onChange) : () => {}),
+    [replica],
+  );
+  const snapshot = useCallback(() => (replica ? projectOf(replica) : null), [replica]);
+  return useSyncExternalStore(subscribe, snapshot);
 }
 
 /** Problems as a count pair, so the status bar re-renders only when the numbers move. */
@@ -41,6 +52,44 @@ export function useSelectionKey(replica: Replica): string {
 
 export function useHistoryPosition(replica: Replica): number {
   return useReplica(replica, historyPosition);
+}
+
+/**
+ * What is open and whether it is saved (ADR-012 D8).
+ *
+ * Takes a null replica for the same reason `useProject` does: the app bar is drawn before the app has
+ * connected, and the title has to say something in the meantime.
+ */
+export function useProjectState(replica: Replica | null): ProjectStateMsg | null {
+  const subscribe = useCallback(
+    (onChange: () => void) => (replica ? replica.subscribe(onChange) : () => {}),
+    [replica],
+  );
+  const snapshot = useCallback(() => (replica ? replica.projectState : null), [replica]);
+  return useSyncExternalStore(subscribe, snapshot);
+}
+
+/** Every project this host has open (ADR-020 D4), for the switcher. */
+export function useOpenProjects(replica: Replica | null): WorkspaceStateMsg["open"] {
+  const subscribe = useCallback(
+    (onChange: () => void) => (replica ? replica.subscribe(onChange) : () => {}),
+    [replica],
+  );
+  const snapshot = useCallback(() => (replica ? replica.openProjects : NONE), [replica]);
+  return useSyncExternalStore(subscribe, snapshot);
+}
+
+/** A stable empty list: returning a new [] from a snapshot would re-render for ever. */
+const NONE: WorkspaceStateMsg["open"] = [];
+
+/** Whether there is work the file on disk does not have; a boolean, so the title redraws rarely. */
+export function useModified(replica: Replica | null): boolean {
+  const subscribe = useCallback(
+    (onChange: () => void) => (replica ? replica.subscribe(onChange) : () => {}),
+    [replica],
+  );
+  const snapshot = useCallback(() => (replica ? replica.modified : false), [replica]);
+  return useSyncExternalStore(subscribe, snapshot);
 }
 
 // Selectors are declared once at module scope rather than inline, so their identity is stable and

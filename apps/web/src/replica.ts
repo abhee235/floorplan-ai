@@ -1,6 +1,6 @@
 // The browser's copy of the project (ADR-005 D2): applies snapshots and patch streams from the host,
 // tracks the history position, and detects when it has fallen out of sync.
-import type { ChangeSet, ChangesMsg, SnapshotMsg } from "@fpv/commands";
+import type { ChangeSet, ChangesMsg, ProjectStateMsg, SnapshotMsg, WorkspaceStateMsg } from "@fpv/commands";
 import type { Problem, Project } from "@fpv/ir";
 import { applyPatches, enablePatches } from "immer";
 
@@ -11,12 +11,25 @@ export interface ReplicaListener {
 }
 
 export class Replica {
+  /** What is shown: the host's project, or a local view over it while a drag or a typed value is shown. */
   project: Project | null = null;
+  /**
+   * The project as the host last sent it, whatever is shown on top. Host patches always land here, and
+   * putting a local view away always comes back here, so a change the host makes while a value is being
+   * typed is neither lost nor undone when the typing ends.
+   */
+  agreed: Project | null = null;
+  /** Everything a local view has redrawn, so taking the view away redraws all of it. */
+  private localTouched: ChangeSet["updated"] = [];
   seq = -1;
   historyPosition = -1;
   savedPosition = 0;
   problems: Problem[] = [];
   selection: string[] = [];
+  /** What is open, from the host; null until the first message arrives. */
+  projectState: ProjectStateMsg | null = null;
+  /** Every project this host has open (ADR-020 D4), for the switcher. */
+  openProjects: WorkspaceStateMsg["open"] = [];
   private listeners = new Set<ReplicaListener>();
 
   subscribe(l: ReplicaListener): () => void {
@@ -27,6 +40,8 @@ export class Replica {
   /** A snapshot replaces everything; listeners see a whole-project change. */
   applySnapshot(msg: SnapshotMsg): void {
     this.project = msg.project;
+    this.agreed = msg.project;
+    this.localTouched = [];
     this.seq = msg.seq;
     this.historyPosition = msg.historyPosition;
     this.savedPosition = msg.savedPosition;
@@ -43,13 +58,36 @@ export class Replica {
    * the sequence), in which case the caller requests a fresh snapshot (spec 06 B3).
    */
   applyChanges(msg: ChangesMsg): boolean {
-    if (!this.project) return false;
+    if (!this.agreed) return false;
     if (msg.seq !== this.seq + 1) return false;
-    this.project = msg.patches.length > 0 ? applyPatches(this.project, msg.patches) : this.project;
+    this.agreed = msg.patches.length > 0 ? applyPatches(this.agreed, msg.patches) : this.agreed;
     this.seq = msg.seq;
     this.historyPosition = msg.historyPosition;
-    this.notify(msg.changeSet);
+    // A local view was made from the state before this patch, so it goes; whoever showed it shows it
+    // again on the new state (see app.ts preview). What it had redrawn is redrawn with the patch.
+    const touched = this.localTouched;
+    this.localTouched = [];
+    this.project = this.agreed;
+    this.notify(
+      touched.length > 0
+        ? { ...msg.changeSet, updated: union(msg.changeSet.updated, touched) }
+        : msg.changeSet,
+    );
     return true;
+  }
+
+  /** Whether a local view is shown over the host's project. */
+  get showingLocal(): boolean {
+    return this.project !== this.agreed;
+  }
+
+  /** Take any local view away and show the host's project again. */
+  restore(): void {
+    if (!this.agreed || !this.showingLocal) return;
+    const touched = this.localTouched;
+    this.localTouched = [];
+    this.project = this.agreed;
+    this.notify({ commandType: "local.restore", added: [], updated: touched, removed: [] });
   }
 
   /**
@@ -76,6 +114,30 @@ export class Replica {
   }
 
   /**
+   * What is open and whether it is saved (ADR-012 D8).
+   *
+   * `savedPosition` is set from here as well as from a snapshot, because saving moves it without
+   * changing the project: the file is written, the history does not move, and nothing in the change
+   * stream says so. Without this the modified mark would stay lit for the rest of the session.
+   */
+  setProjectState(state: ProjectStateMsg): void {
+    this.projectState = state;
+    this.savedPosition = state.savedPosition;
+    this.notify({ commandType: "project.state", added: [], updated: [], removed: [] });
+  }
+
+  /** Which projects the host has open; pushed whenever the set changes, from any tab. */
+  setOpenProjects(open: WorkspaceStateMsg["open"]): void {
+    this.openProjects = open;
+    this.notify({ commandType: "workspace.state", added: [], updated: [], removed: [] });
+  }
+
+  /** Whether there is work the file on disk does not have. */
+  get modified(): boolean {
+    return this.historyPosition !== this.savedPosition;
+  }
+
+  /**
    * Take a whole project locally, ahead of the host agreeing to it.
    *
    * A drag has to show its result while it is happening, not once the button comes up. Commands cross a
@@ -99,7 +161,10 @@ export class Replica {
     // Assigned, never mutated in place: immer applies the host's patches against whatever object this
     // holds, and editing the previous one would change a structure the next patch expects as it was.
     this.project = project;
-    this.notify(changes);
+    // Whatever an earlier view redrew is redrawn too, so nothing it moved is left behind.
+    const touched = union(this.localTouched, changes.updated);
+    this.localTouched = project === this.agreed ? [] : touched;
+    this.notify({ ...changes, updated: touched });
   }
 
   private notify(changes: ChangeSet): void {
@@ -109,4 +174,15 @@ export class Replica {
     for (const l of this.listeners)
       l({ changes, project: this.project, historyPosition: this.historyPosition });
   }
+}
+
+/** Both lists of references, each entity once; an entity's whole-entity mention wins over a plan-only one. */
+function union(a: ChangeSet["updated"], b: ChangeSet["updated"]): ChangeSet["updated"] {
+  const out = [...a];
+  for (const ref of b) {
+    const at = out.findIndex((u) => u.type === ref.type && u.id === ref.id);
+    if (at < 0) out.push(ref);
+    else if (ref.aspect === undefined) out[at] = ref;
+  }
+  return out;
 }

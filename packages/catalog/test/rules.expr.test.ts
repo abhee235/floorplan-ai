@@ -49,6 +49,12 @@ describe("expression language (spec 07 section 2)", () => {
     expect(n("2 * 3 + 4 * 5")).toBe(26);
   });
 
+  it("max and min, which the core pack's display steps have used since they were written", () => {
+    expect(n("max(75, ceil(60.2))")).toBe(75);
+    expect(n("max(1, 2, 3)")).toBe(3);
+    expect(n("min(4, 2, 9)")).toBe(2);
+  });
+
   it("unary minus, decimals and exponents", () => {
     expect(n("-3 + 5")).toBe(2);
     expect(n("--2")).toBe(2);

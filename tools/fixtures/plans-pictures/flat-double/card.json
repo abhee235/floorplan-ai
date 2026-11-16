@@ -1,0 +1,26 @@
+{
+  "id": "picture-flat-double",
+  "title": "A two-bedroom flat drawn with double-line walls",
+  "task": "Here is a picture of a floor plan. Draw it in this project as it is: the walls, doors, windows, the named areas and the furniture. If the picture has no dimensions, choose a scale from what is in it and tell me what you chose and why.",
+  "maxSteps": 80,
+  "attach": {
+    "path": "tools/fixtures/plans-pictures/flat-double/picture.png",
+    "mime": "image/png"
+  },
+  "readWith": "code",
+  "reference": "tools/fixtures/plans-pictures/flat-double/reference.json",
+  "heldOut": false,
+  "fidelity": {
+    "overall": 0.8
+  },
+  "answers": {
+    "scale": "I don't know the real size. Choose a scale from things in the picture whose size you know, say what you based it on, and carry on.",
+    "dimension": "I don't know the real size. Choose a scale from things in the picture whose size you know, say what you based it on, and carry on.",
+    "millimetre": "I don't know the real size. Choose a scale from things in the picture whose size you know, say what you based it on, and carry on.",
+    "length": "I don't know the real size. Choose a scale from things in the picture whose size you know, say what you based it on, and carry on.",
+    "*": "Yes, go ahead, and draw everything the picture shows, furniture included, as well as you can read it."
+  },
+  "expect": {
+    "maxValidationErrors": 0
+  }
+}

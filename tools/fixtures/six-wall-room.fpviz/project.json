@@ -1,6 +1,7 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 5,
   "meta": {
+    "id": "d0iymk967x88",
     "name": "Six-wall L-shaped room",
     "createdAt": "2026-09-15T00:00:00.000Z",
     "updatedAt": "2026-09-15T00:00:00.000Z",
@@ -17,99 +18,279 @@
       "floorThickness": 300,
       "index": 0,
       "viewable": true,
-      "backgroundImage": null
+      "backgroundImage": null,
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T00:00:00.000Z",
+        "touchedByPerson": true
+      }
     }
   ],
   "walls": [
     {
       "id": "wall_000001",
       "levelId": "level_000000",
-      "start": { "x": 0, "y": 0 },
-      "end": { "x": 8000, "y": 0 },
+      "start": {
+        "x": 0,
+        "y": 0
+      },
+      "end": {
+        "x": 8000,
+        "y": 0
+      },
       "thickness": 100,
       "height": null,
       "heightAtEnd": null,
       "arcExtent": null,
       "kind": "interior",
-      "joins": { "start": { "wallId": "wall_000006", "end": "end" }, "end": { "wallId": "wall_000002", "end": "start" } },
-      "finishes": { "left": null, "right": null, "top": null },
-      "skirting": { "left": null, "right": null },
-      "properties": {}
+      "pattern": "solid",
+      "joins": {
+        "start": {
+          "wallId": "wall_000006",
+          "end": "end"
+        },
+        "end": {
+          "wallId": "wall_000002",
+          "end": "start"
+        }
+      },
+      "finishes": {
+        "left": null,
+        "right": null,
+        "top": null
+      },
+      "skirting": {
+        "left": null,
+        "right": null
+      },
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T00:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "wall_000002",
       "levelId": "level_000000",
-      "start": { "x": 8000, "y": 0 },
-      "end": { "x": 8000, "y": 3000 },
+      "start": {
+        "x": 8000,
+        "y": 0
+      },
+      "end": {
+        "x": 8000,
+        "y": 3000
+      },
       "thickness": 100,
       "height": null,
       "heightAtEnd": null,
       "arcExtent": null,
       "kind": "interior",
-      "joins": { "start": { "wallId": "wall_000001", "end": "end" }, "end": { "wallId": "wall_000003", "end": "start" } },
-      "finishes": { "left": null, "right": null, "top": null },
-      "skirting": { "left": null, "right": null },
-      "properties": {}
+      "pattern": "solid",
+      "joins": {
+        "start": {
+          "wallId": "wall_000001",
+          "end": "end"
+        },
+        "end": {
+          "wallId": "wall_000003",
+          "end": "start"
+        }
+      },
+      "finishes": {
+        "left": null,
+        "right": null,
+        "top": null
+      },
+      "skirting": {
+        "left": null,
+        "right": null
+      },
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T00:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "wall_000003",
       "levelId": "level_000000",
-      "start": { "x": 8000, "y": 3000 },
-      "end": { "x": 5000, "y": 3000 },
+      "start": {
+        "x": 8000,
+        "y": 3000
+      },
+      "end": {
+        "x": 5000,
+        "y": 3000
+      },
       "thickness": 100,
       "height": null,
       "heightAtEnd": null,
       "arcExtent": null,
       "kind": "interior",
-      "joins": { "start": { "wallId": "wall_000002", "end": "end" }, "end": { "wallId": "wall_000004", "end": "start" } },
-      "finishes": { "left": null, "right": null, "top": null },
-      "skirting": { "left": null, "right": null },
-      "properties": {}
+      "pattern": "solid",
+      "joins": {
+        "start": {
+          "wallId": "wall_000002",
+          "end": "end"
+        },
+        "end": {
+          "wallId": "wall_000004",
+          "end": "start"
+        }
+      },
+      "finishes": {
+        "left": null,
+        "right": null,
+        "top": null
+      },
+      "skirting": {
+        "left": null,
+        "right": null
+      },
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T00:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "wall_000004",
       "levelId": "level_000000",
-      "start": { "x": 5000, "y": 3000 },
-      "end": { "x": 5000, "y": 5000 },
+      "start": {
+        "x": 5000,
+        "y": 3000
+      },
+      "end": {
+        "x": 5000,
+        "y": 5000
+      },
       "thickness": 100,
       "height": null,
       "heightAtEnd": null,
       "arcExtent": null,
       "kind": "interior",
-      "joins": { "start": { "wallId": "wall_000003", "end": "end" }, "end": { "wallId": "wall_000005", "end": "start" } },
-      "finishes": { "left": null, "right": null, "top": null },
-      "skirting": { "left": null, "right": null },
-      "properties": {}
+      "pattern": "solid",
+      "joins": {
+        "start": {
+          "wallId": "wall_000003",
+          "end": "end"
+        },
+        "end": {
+          "wallId": "wall_000005",
+          "end": "start"
+        }
+      },
+      "finishes": {
+        "left": null,
+        "right": null,
+        "top": null
+      },
+      "skirting": {
+        "left": null,
+        "right": null
+      },
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T00:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "wall_000005",
       "levelId": "level_000000",
-      "start": { "x": 5000, "y": 5000 },
-      "end": { "x": 0, "y": 5000 },
+      "start": {
+        "x": 5000,
+        "y": 5000
+      },
+      "end": {
+        "x": 0,
+        "y": 5000
+      },
       "thickness": 100,
       "height": null,
       "heightAtEnd": null,
       "arcExtent": null,
       "kind": "interior",
-      "joins": { "start": { "wallId": "wall_000004", "end": "end" }, "end": { "wallId": "wall_000006", "end": "start" } },
-      "finishes": { "left": null, "right": null, "top": null },
-      "skirting": { "left": null, "right": null },
-      "properties": {}
+      "pattern": "solid",
+      "joins": {
+        "start": {
+          "wallId": "wall_000004",
+          "end": "end"
+        },
+        "end": {
+          "wallId": "wall_000006",
+          "end": "start"
+        }
+      },
+      "finishes": {
+        "left": null,
+        "right": null,
+        "top": null
+      },
+      "skirting": {
+        "left": null,
+        "right": null
+      },
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T00:00:00.000Z",
+        "touchedByPerson": true
+      }
     },
     {
       "id": "wall_000006",
       "levelId": "level_000000",
-      "start": { "x": 0, "y": 5000 },
-      "end": { "x": 0, "y": 0 },
+      "start": {
+        "x": 0,
+        "y": 5000
+      },
+      "end": {
+        "x": 0,
+        "y": 0
+      },
       "thickness": 100,
       "height": null,
       "heightAtEnd": null,
       "arcExtent": null,
       "kind": "interior",
-      "joins": { "start": { "wallId": "wall_000005", "end": "end" }, "end": { "wallId": "wall_000001", "end": "start" } },
-      "finishes": { "left": null, "right": null, "top": null },
-      "skirting": { "left": null, "right": null },
-      "properties": {}
+      "pattern": "solid",
+      "joins": {
+        "start": {
+          "wallId": "wall_000005",
+          "end": "end"
+        },
+        "end": {
+          "wallId": "wall_000001",
+          "end": "start"
+        }
+      },
+      "finishes": {
+        "left": null,
+        "right": null,
+        "top": null
+      },
+      "skirting": {
+        "left": null,
+        "right": null
+      },
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T00:00:00.000Z",
+        "touchedByPerson": true
+      }
     }
   ],
   "openings": [
@@ -122,12 +303,26 @@
       "width": 900,
       "height": 2100,
       "sill": 0,
-      "swing": { "hinge": "start", "direction": "left" },
+      "swing": {
+        "hinge": "start",
+        "direction": "left"
+      },
       "mirrored": false,
       "productId": null,
-      "recipe": { "style": "single" },
-      "finishes": { "frame": null, "leaf": null },
-      "properties": {}
+      "recipe": {
+        "style": "single"
+      },
+      "finishes": {
+        "frame": null,
+        "leaf": null
+      },
+      "properties": {},
+      "by": {
+        "createdBy": "unknown",
+        "editedBy": "unknown",
+        "editedAt": "2026-09-15T00:00:00.000Z",
+        "touchedByPerson": true
+      }
     }
   ],
   "rooms": [],

@@ -151,6 +151,34 @@ and validates with `validatePack`.
 | `table-power` | scope (room) | one table power module per 4 seats: `ceil(room.capacity / 4)` |
 | `commissioning` | scope (room), labour | 4 hours per room with a display, disabled by default |
 
+### 3.2 Residential core pack (`packages/catalog/src/rules/home-core.ts`)
+
+`HOME_CORE` overlays `AV_CORE` (`extends: "av-core"`) and the two merge into
+`CORE_RULES`, which is what the host and the eval harness load. It carries no
+BOM rules yet; it carries the sizes a dwelling's rooms are judged by and the
+recipes that furnish them.
+
+| id | applies | check |
+|---|---|---|
+| `bedroom-size` | `room.purpose == 'bedroom'` | at least 9 m² and a clear side of 2400 mm |
+| `living-size` | `living` | 12 m², side 3000 mm |
+| `kitchen-size` | `kitchen` | 5 m², side 1800 mm |
+| `dining-size` | `dining` | 7 m², side 2400 mm |
+| `bathroom-size` | `bathroom` | 3 m², side 1500 mm |
+| `toilet-size` | `toilet` | 1.2 m², side 900 mm |
+| `tv-centre-height` | a wall display in a `living` room | centre within 250 mm of 1100 mm |
+
+All are warnings: a client's brief outranks a rule of thumb, and the point is
+that the agent is told, not that it is stopped. The sizes are pack facts
+(`bedroomMinM2`, `bedroomMinSideMm`, ...), so a user's own pack overrides them
+by id without touching code. `room.minSideMm` and `room.maxSideMm` (the sides of
+the room's bounding box) were added to the expression scope for these rules: a
+9 m² room 1.5 m wide is not a bedroom.
+
+Recipes: `bedroom-single` (1 seat), `bedroom` (2 to 4), `living`, `kitchen`,
+`dining`, `bathroom`, `toilet`, `study`, `laundry`, and the empty `foyer`,
+`balcony`, `garage` and `corridor`, which place nothing.
+
 ## 4. Design rules and room recipes
 
 Design rules are constraints the Space Designer checks and `validate`
@@ -198,8 +226,15 @@ export const RoomRecipe = z.object({
     z.object({ op: z.literal("video-bar"), under: z.literal("display") }),
     z.object({ op: z.literal("ceiling-array"), category: z.enum(["ceiling-mic", "ceiling-speaker"]), perAreaM2: z.number(), minCount: z.number() }),
     z.object({ op: z.literal("by-door"), category: z.enum(["scheduler", "touch-panel"]), heightMm: z.number(), side: z.enum(["outside", "inside"]) }),
-    z.object({ op: z.literal("arrange"), pattern: z.string(), category: Category, countExpr: z.string(), spacingMm: z.number() }),
+    z.object({ op: z.literal("arrange"), pattern: z.string(), category: Category, countExpr: z.string(), spacingMm: z.number(),
+               seatsEach: z.number().int().default(0), sides: z.union([z.literal(1), z.literal(2)]).default(1),
+               perCluster: z.number().int().default(0), aisleMm: z.number().int().default(1500) }),
     z.object({ op: z.literal("whiteboard"), wall: z.enum(["auto", "opposite-display"]) }),
+    z.object({ op: z.literal("along-wall"), category: Category,
+               wall: z.enum(["auto", "opposite-display", "beside-display", "north", "south", "east", "west"]),
+               countExpr: z.string(), where: z.string().nullable(), shape: z.enum(["bed", "sofa", "box"]),
+               sizeMm: z.object({ w: z.number(), d: z.number(), h: z.number() }), label: z.string(),
+               spacingMm: z.number(), align: z.enum(["start", "centre", "end"]), clearanceMm: z.number() }),
   ])),
   productPreferences: z.array(z.object({ category: Category, constraint: z.string(), preferMake: z.array(z.string()) })),
 });
@@ -212,10 +247,15 @@ and returns unresolved constraints for the agent or user to verify.
 
 ### 4.1 Recipes as implemented (packages/tools/src/furnish.ts)
 
-The core pack ships `huddle` (2 to 5 seats), `boardroom` (6 to 20) and
-`training` (21 to 60). A recipe is chosen by explicit id, else by purpose
-with the capacity in range, else by capacity range alone, else the closest
-range. A room without a capacity gets one seat per 3 m².
+The core pack ships `huddle` (2 to 5 seats), `boardroom` (6 to 20),
+`training` (21 to 60), `meeting` (4 to 12), `open-office` (4 to 400),
+`cafeteria` (4 to 200) and `reception` (0 to 40); the last four arrived with
+ADR-027 D7 after a real run asked for each by name and was refused. A recipe
+is chosen by explicit id, else by purpose with the capacity in range, else --
+for the seated rooms only (huddle, meeting, boardroom, training), which are
+one kind of room at several sizes -- by capacity range alone, else the
+closest of those. An open office, a cafeteria or a reception is only ever
+chosen by its own purpose. A room without a capacity gets one seat per 3 m².
 
 Layout uses a frame on the display wall: the wall is the step's `wall`, or
 for `auto` the door-free wall opposite a door (`suggestedDisplayWall`).
@@ -229,12 +269,24 @@ for `auto` the door-free wall opposite a door (`suggestedDisplayWall`).
 - `chairs`: `pitchMm` apart along both long sides first, then the far end,
   then the display end with a warning; round tables get chairs evenly
   around them. Chairs face the table.
-- `arrange` with pattern `rows` (the only pattern recipes support so far):
-  tables with their length across the room, rows starting 2.5 m from the
-  display wall, 600 mm between tables, `spacingMm` between a row's chairs
-  and the next row, rows added while 900 mm stays behind the last chairs;
-  `seatsEach` (new field, default 0) chairs behind each table face the
-  display.
+- `arrange` with pattern `rows` or `bench`: tables with their length across
+  the room, rows starting 1.2 m (or a tenth of the depth) from the display
+  wall, `spacingMm` between one row (or bench pair) and the next, rows added
+  while 900 mm stays behind the last chairs. `seatsEach` chairs sit behind
+  each table; `sides: 2` puts them on both sides (a cafeteria table);
+  `perCluster` groups tables across the room with `aisleMm` between
+  clusters. `bench` lays rows in back-to-back pairs with nothing between
+  the pair's tables, the chairs on the outside facing away from each other,
+  and the aisle between one pair and the next: `open-office` is
+  `bench`, category `desk`, `perCluster: 3`, so a hundred desks are benches
+  of six in neighbourhoods, each desk with its chair. The `desk` category
+  falls back to the pack's `deskWidthMm` x `deskDepthMm` table when the
+  catalog has none.
+- `meeting` is `boardroom` at working clearances (900 mm, 700 mm chair
+  pitch, a 65-inch minimum display); `cafeteria` is rows of four-seat
+  tables, chairs both sides, one table per four of capacity; `reception` is a
+  2400 x 800 desk with its back to the wall facing the door and a sofa per
+  four of capacity along a side wall.
 - `display`: centred on the table (or the room), its back on the wall,
   centre at `centreHeightMm`, wall-mounted to that wall. `diagonalExpr` sees
   `seatDistanceMm`, the farthest seat from the display wall centre; without a
@@ -249,6 +301,21 @@ for `auto` the door-free wall opposite a door (`suggestedDisplayWall`).
   openings; centre at `heightMm`.
 - `whiteboard`: centred on the wall opposite the display at 900 mm, skipped
   when an opening is in the way.
+
+- `along-wall` (phase 3, for homes): items with their backs to a wall, facing
+  into the room. The wall is `auto` (the display wall: in a room with a screen, the
+  plaster wall `suggestedDisplayWall` chooses, never glass or a side with a window
+  (ADR-028 D12); in a room without one, the door-free wall opposite the door), `opposite-display`, `beside-display` (the perpendicular
+  wall with the longest free run) or a compass word. Each wall keeps two cursors:
+  `align: "start"` fills from one end, `"end"` from the other, `"centre"` takes the
+  middle of an untouched wall, so a bathroom's shower, basin and toilet stand in a
+  row rather than in one spot. `where` is an extra condition on the product, which
+  is how three `sanitary` steps choose three different fixtures. `shape` and
+  `sizeMm` give the recipe placed when the catalog has nothing that fits, and
+  `clearanceMm` the floor the item needs in front of it; too little of either is a
+  warning, never a silent placement. An item taller than a window's sill is kept
+  out of the window's run unless the step says `beforeWindow: true`, which a
+  reception desk does: its back to the window is the ordinary thing.
 
 Product choice: every candidate of the category that is not rejected,
 fits, and satisfies the recipe's `productPreferences` constraints for that

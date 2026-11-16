@@ -3,7 +3,7 @@ import { memoryCatalog, type ToolResult, WORKFLOW_PROMPT_NAME } from "@fpv/tools
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it } from "vitest";
-import { createMcpServer, createSession, parseArgs, toCallToolResult } from "../src/index.js";
+import { createMcpServer, createSession, parseArgs, readLogLevel, toCallToolResult } from "../src/index.js";
 
 async function connect(profile: "high" | "medium" | "low" = "high") {
   const session = createSession({
@@ -25,10 +25,10 @@ function textOf(result: { content: unknown[] }): ToolResult {
 }
 
 describe("MCP adapter over an in-memory transport (ADR-005 D1, D7)", () => {
-  it("lists the 24 tools with descriptions and JSON schemas, plus the workflow prompt", async () => {
+  it("lists the 41 tools with descriptions and JSON schemas, plus the workflow prompt", async () => {
     const { client } = await connect();
     const tools = await client.listTools();
-    expect(tools.tools).toHaveLength(24);
+    expect(tools.tools).toHaveLength(41);
     const scene = tools.tools.find((t) => t.name === "get_scene");
     expect(scene?.description).toContain("summary");
     expect((scene?.inputSchema as { properties: Record<string, unknown> }).properties).toHaveProperty(
@@ -69,8 +69,11 @@ describe("MCP adapter over an in-memory transport (ADR-005 D1, D7)", () => {
   it("advertises the low profile subset while the rest stays callable", async () => {
     const { client } = await connect("low");
     const tools = await client.listTools();
-    expect(tools.tools).toHaveLength(14);
+    expect(tools.tools).toHaveLength(30);
     expect(tools.tools.map((t) => t.name)).not.toContain("create_walls");
+    // add_level, import_plan and the two finishes are in the low profile: they are what a brief asks
+    // for, not advanced moves (spec 04 section 9).
+    expect(tools.tools.map((t) => t.name)).toContain("add_level");
   });
 
   it("render results become image content blocks", () => {
@@ -136,9 +139,37 @@ describe("MCP adapter over an in-memory transport (ADR-005 D1, D7)", () => {
       project: "x.json",
       profile: "low",
       data: null,
+      projects: null,
       agent: null,
       steps: null,
+      log: null,
+      logs: false,
+      run: null,
+      follow: false,
+      find: null,
     });
+    // where this person's projects live, for the picker to start in (ADR-020 D1a)
+    expect(parseArgs(["--projects", "D:/plans"])).toMatchObject({ projects: "D:/plans" });
+    // reading the log back: --logs alone lists the runs, and takes an optional run to print
+    expect(parseArgs(["--logs"])).toMatchObject({ logs: true, run: null, follow: false });
+    expect(parseArgs(["--logs", "last", "--follow"])).toMatchObject({
+      logs: true,
+      run: "last",
+      follow: true,
+    });
+    expect(parseArgs(["--logs", "--find", "item_7f"])).toMatchObject({
+      logs: true,
+      run: null,
+      find: "item_7f",
+    });
+    // a flag after --logs is the next flag, not the name of a run
+    expect(parseArgs(["--logs", "--follow"]).run).toBeNull();
+    // how much is written down, and a level only taken when it is one this understands
+    expect(parseArgs(["--log", "verbose"]).log).toBe("verbose");
+    expect(parseArgs(["--log", "loud"]).log).toBeNull();
+    expect(readLogLevel(undefined)).toBe("info");
+    expect(readLogLevel("off")).toBe("off");
+    expect(readLogLevel("shout")).toBe("info");
     expect(parseArgs(["--agent", "10-seat boardroom", "--steps", "25"])).toMatchObject({
       agent: "10-seat boardroom",
       steps: 25,
@@ -150,8 +181,14 @@ describe("MCP adapter over an in-memory transport (ADR-005 D1, D7)", () => {
       project: null,
       profile: "high",
       data: null,
+      projects: null,
       agent: null,
       steps: null,
+      log: null,
+      logs: false,
+      run: null,
+      follow: false,
+      find: null,
     });
   });
 });

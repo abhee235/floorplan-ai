@@ -78,6 +78,22 @@ describe(".env configuration", () => {
     expect(reader.model).toMatchObject({ model: "qwen3.8:27b", extraBody: { reasoning_effort: "none" } });
   });
 
+  it("says whether the model can be shown a picture, since only Ollama can be asked", () => {
+    const of = (v: string | undefined) =>
+      loadAgentConfig({
+        dataDir: tmpdir(),
+        env: {
+          FPV_AGENT_BASE_URL: "https://api.openai.com/v1",
+          FPV_AGENT_MODEL: "gpt-5.6-luna",
+          ...(v === undefined ? {} : { FPV_AGENT_VISION: v }),
+        },
+      }).model?.profile;
+    expect(of("on")).toMatchObject({ vision: true });
+    expect(of("off")).toMatchObject({ vision: false });
+    // unsaid stays unsaid: the Ollama wire fills it in from the server, and nothing else can
+    expect(of(undefined)).not.toHaveProperty("vision");
+  });
+
   it("explicit base URLs and extra bodies win over the provider defaults", () => {
     const env: NodeJS.ProcessEnv = {
       FPV_AGENT_PROVIDER: "ollama",

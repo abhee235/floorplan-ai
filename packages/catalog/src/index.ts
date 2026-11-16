@@ -15,6 +15,7 @@ export {
   parseProperties,
   resolveReference,
 } from "./flat.js";
+export { productMaterialSlots, type SlotSource } from "./materials.js";
 export { IDENTITY, normaliseMeshRotation, parseMatrix, snapMatrix } from "./matrix.js";
 export { AV_CORE, AV_CORE_INPUT } from "./rules/av-core.js";
 export {
@@ -57,6 +58,31 @@ export {
   productInfo,
   recipeKey,
 } from "./rules/facts.js";
+export { CORE_RULES, HOME_CORE, HOME_CORE_INPUT } from "./rules/home-core.js";
+export {
+  checkLayout,
+  doorGraph,
+  HOME_PURPOSES,
+  type LayoutReport,
+  layoutIsBuildable,
+} from "./rules/layout.js";
+export {
+  corridorFor,
+  isResidential,
+  MIN_SIDE,
+  missingFromProgramme,
+  type PackResult,
+  type Programme,
+  type ProgrammeRoom,
+  packProgramme,
+} from "./rules/pack.js";
+export {
+  type LayoutQuality,
+  layoutQuality,
+  MAX_ASPECT,
+  type QualityContext,
+  type Sliver,
+} from "./rules/quality.js";
 export {
   BomRule,
   DependencyRule,
@@ -70,6 +96,7 @@ export {
   ScopeRule,
   validatePack,
 } from "./rules/schema.js";
+export { type DesignWalk, type WalkSide, walkDesign } from "./rules/walk.js";
 export {
   CATEGORIES,
   Category,
@@ -108,7 +135,16 @@ export {
   tokens,
 } from "./search.js";
 export { SEED_PRODUCTS } from "./seed/products.js";
-export { ensureSeed, SEED_LIBRARY, SEED_LIBRARY_ID, SEED_VERSION, type SeedTarget } from "./seed.js";
+export {
+  ensureSeed,
+  GENERATED_LIBRARY,
+  GENERATED_LIBRARY_ID,
+  GENERATED_VERSION,
+  SEED_LIBRARY,
+  SEED_LIBRARY_ID,
+  SEED_VERSION,
+  type SeedTarget,
+} from "./seed.js";
 export { type CatalogProblem, DISPLAY_MAX_DEPTH_MM, hasErrors, validateProduct } from "./validate.js";
 export {
   canonicalMake,
@@ -165,8 +201,10 @@ export {
 } from "./verify/text.js";
 export {
   braveSearch,
+  type FetchedBytes,
   type FetchedPage,
   type FetchFn,
+  type ImageHit,
   type PageFetcher,
   SearchError,
   type SearchHit,

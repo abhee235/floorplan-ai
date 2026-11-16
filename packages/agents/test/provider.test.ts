@@ -6,7 +6,7 @@ import {
   completeJson,
   extractJson,
   JsonOutputError,
-  openAICompatible,
+  openAIChat,
   type Provider,
   ProviderError,
   stripThinking,
@@ -38,7 +38,7 @@ const ok = (content: string | null, extra: Record<string, unknown> = {}) => ({
 describe("OpenAI-compatible provider (ADR-007 D1)", () => {
   it("sends the chat completions shape with system first, tools as functions, temperature 0 and the key", async () => {
     const { fetch, requests } = fakeFetch(() => ok("hello"));
-    const p = openAICompatible(
+    const p = openAIChat(
       {
         id: "local",
         baseUrl: "http://127.0.0.1:11434/v1/",
@@ -106,7 +106,7 @@ describe("OpenAI-compatible provider (ADR-007 D1)", () => {
         };
       return ok("done");
     });
-    const p = openAICompatible(
+    const p = openAIChat(
       { id: "openai", baseUrl: "https://api.openai.com/v1", model: "m", apiKey: "k" },
       fetch,
     );
@@ -125,7 +125,7 @@ describe("OpenAI-compatible provider (ADR-007 D1)", () => {
     expect(requests[2]?.body).not.toHaveProperty("max_tokens");
     expect(p.adaptations).toEqual([
       "max_tokens is sent as max_completion_tokens",
-      'reasoning_effort "none" is sent with tools',
+      'this server will not think while it calls tools, so reasoning_effort "none" is sent with them, whatever the configuration asked for; on OpenAI use the Responses wire (FPV_<ROLE>_API=openai-responses)',
     ]);
     await p.complete(req);
     expect(requests).toHaveLength(4);
@@ -143,13 +143,13 @@ describe("OpenAI-compatible provider (ADR-007 D1)", () => {
           }
         : ok("fine"),
     );
-    const q = openAICompatible({ id: "o", baseUrl: "https://x/v1", model: "m" }, refusesTemperature.fetch);
+    const q = openAIChat({ id: "o", baseUrl: "https://x/v1", model: "m" }, refusesTemperature.fetch);
     expect((await q.complete({ messages: [{ role: "user", content: "hi" }] })).text).toBe("fine");
     expect(refusesTemperature.requests[1]?.body).not.toHaveProperty("temperature");
 
     const other = fakeFetch(() => ({ status: 400, json: { error: { message: "bad input" } } }));
     await expect(
-      openAICompatible({ id: "o", baseUrl: "https://x/v1", model: "m" }, other.fetch).complete({
+      openAIChat({ id: "o", baseUrl: "https://x/v1", model: "m" }, other.fetch).complete({
         messages: [{ role: "user", content: "hi" }],
       }),
     ).rejects.toThrow("HTTP 400");
@@ -164,14 +164,14 @@ describe("OpenAI-compatible provider (ADR-007 D1)", () => {
             tool_calls: [{ id: "c1", type: "function", function: { name: "validate", arguments: "{}" } }],
           }),
     );
-    const p = openAICompatible(
+    const p = openAIChat(
       { id: "or", baseUrl: "https://openrouter.ai/api/v1", model: "m", profile: { jsonMode: true } },
       fetch,
     );
     const r = await p.complete({ messages: [{ role: "user", content: "x" }], json: true });
     expect(r.toolCalls).toEqual([{ id: "c1", name: "validate", arguments: "{}" }]);
     expect(requests[0]?.body.response_format).toEqual({ type: "json_object" });
-    const bad = openAICompatible({ id: "or", baseUrl: "https://openrouter.ai/api/v1", model: "bad" }, fetch);
+    const bad = openAIChat({ id: "or", baseUrl: "https://openrouter.ai/api/v1", model: "bad" }, fetch);
     await expect(bad.complete({ messages: [] })).rejects.toBeInstanceOf(ProviderError);
     await expect(bad.complete({ messages: [] })).rejects.toThrow("HTTP 429");
   });
@@ -284,5 +284,58 @@ describe("Catalog Verifier role (ADR-007 D3)", () => {
     expect(i).toBe(2); // the invalid category was sent back once
     expect(prompts[0]).toContain("=== PAGE 1: https://www.samsung.com/qm75c ===");
     expect(verifierPrompt(input)).toContain('"fieldSources"');
+  });
+});
+
+describe("a reply that outlasts the timeout (ADR-028 D11)", () => {
+  it("is named as a timeout, with the seconds, and not as a network fault", async () => {
+    // a server that never answers: the request's own timer is what ends it
+    const hangs = async (_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("The operation was aborted.")));
+      });
+    const p = openAIChat({ id: "local", baseUrl: "http://x/v1", model: "m", timeoutMs: 20 }, hangs);
+    await expect(p.complete({ messages: [{ role: "user", content: "hi" }] })).rejects.toThrow(
+      /timed out after 0s while the model was still writing/,
+    );
+  });
+});
+
+describe("a configured reasoning effort a server will not take (ADR-007 D1)", () => {
+  it("is replaced by the one it insists on, rather than failing every request", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const fetch = async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      bodies.push(body);
+      if (body.tools && body.reasoning_effort !== "none")
+        return new Response(
+          JSON.stringify({
+            error: {
+              message:
+                "Function tools with reasoning_effort are not supported for m in /v1/chat/completions. To use function tools, use /v1/responses or set reasoning_effort to 'none'.",
+            },
+          }),
+          { status: 400, headers: { "content-type": "application/json" } },
+        );
+      return new Response(
+        JSON.stringify({
+          choices: [{ finish_reason: "stop", message: { content: "ok" } }],
+          usage: { prompt_tokens: 1, completion_tokens: 1 },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+    const p = openAIChat(
+      // what a person writes in FPV_AGENT_EXTRA_BODY when they want it to think less, not none
+      { id: "o", baseUrl: "https://x/v1", model: "m", extraBody: { reasoning_effort: "medium" } },
+      fetch,
+    );
+    const out = await p.complete({
+      messages: [{ role: "user", content: "hi" }],
+      tools: [{ name: "t", description: "t", parameters: { type: "object", properties: {} } }],
+    });
+    expect(out.text).toBe("ok");
+    expect(bodies.map((b) => b.reasoning_effort)).toEqual(["medium", "none"]);
+    expect(p.adaptations?.[0]).toContain("whatever the configuration asked for");
   });
 });

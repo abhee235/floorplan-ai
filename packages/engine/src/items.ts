@@ -1,13 +1,15 @@
 // Item instances (ADR-003 D3 two-stage transform; ledger F-119..F-129). Assets are normalised offline to
 // metres with origin at the footprint centre and base at y = 0 (ADR-010 D3), so the per-item matrix is
 // scale (size / asset bbox, x negated when mirrored) then rotation about y then translation.
-import type { Item, Level, Size3 } from "@fpv/ir";
+import { entryFor, resolveAssetKey } from "@fpv/assets";
+import type { Item, Level, PrimitiveRecipe, Size3 } from "@fpv/ir";
 import { derive } from "@fpv/ir";
-import { recipeAssetKey } from "./recipes.js";
+import { finishedMaterialKey, type TextureSource } from "./palette.js";
+import { fallbackRecipe, recipeAssetKey, recipeSlotKey } from "./recipes.js";
 import { type ItemInstance, MM_PER_M } from "./types.js";
 
 export interface AssetRegistry {
-  /** Asset key for a product; null falls back to a labelled box recipe. */
+  /** The loaded model asset for a product; null draws the product as its category's recipe. */
   keyFor(productId: string): string | null;
   /** Normalised bounding box of an asset in metres, or null when unknown (scale 1 is assumed). */
   bbox(assetKey: string): { w: number; d: number; h: number } | null;
@@ -74,11 +76,36 @@ export function transformPoint(m: Mat4, p: [number, number, number]): [number, n
 
 // ---- instances ------------------------------------------------------------
 
-export function assetKeyFor(item: Item, size: Size3, assets: AssetRegistry): string {
-  if (item.ref.kind === "recipe") return recipeAssetKey(item.ref.recipe);
-  return (
-    assets.keyFor(item.ref.productId) ?? recipeAssetKey({ kind: "box", size, label: item.ref.productId })
+/**
+ * What an item is drawn as: a model asset the registry holds for its product (`recipe` null), or a recipe,
+ * which is the item's own or, for a product without a model, its category's at the product's size
+ * (spec 02 section 3.1).
+ */
+export function drawnAs(
+  item: Item,
+  size: Size3,
+  sizes: derive.SizeSource,
+  assets: AssetRegistry,
+): { assetKey: string; recipe: PrimitiveRecipe | null } {
+  if (item.ref.kind === "recipe")
+    return { assetKey: recipeAssetKey(item.ref.recipe), recipe: item.ref.recipe };
+  const model = assets.keyFor(item.ref.productId);
+  if (model) return { assetKey: model, recipe: null };
+  const info = sizes.product(item.ref.productId);
+  const entry = entryFor(
+    resolveAssetKey({ category: info?.category ?? "other", dims: size, assetKey: info?.assetKey ?? null }),
   );
+  const recipe = fallbackRecipe(entry.recipe ?? "box", size, item.ref.productId);
+  return { assetKey: recipeAssetKey(recipe), recipe };
+}
+
+export function assetKeyFor(
+  item: Item,
+  size: Size3,
+  assets: AssetRegistry,
+  sizes?: derive.SizeSource,
+): string {
+  return drawnAs(item, size, sizes ?? { product: () => null }, assets).assetKey;
 }
 
 /** Stage two of the transform for one item (F-129): scale, mirror, rotate, translate. */
@@ -105,6 +132,33 @@ export interface ItemBuildContext {
   level: Level;
   sizes: derive.SizeSource;
   assets?: AssetRegistry;
+  /** Texture sizes, for parts that wear a texture; without it a texture is left off. */
+  textures?: TextureSource;
+}
+
+/**
+ * The material of each of a recipe's parts, in slot order: the part's own finish on the item, else the
+ * item's finish, else the part's plain material.
+ */
+function slotMaterials(
+  item: Item,
+  recipe: PrimitiveRecipe,
+  textures?: TextureSource,
+): ItemInstance["materials"] {
+  return derive.recipeSlots(recipe.kind).map((slot) => ({
+    slot,
+    materialKey: finishedMaterialKey(
+      recipeSlotKey(recipe.kind, slot),
+      item.materials[slot] ?? item.finish,
+      textures,
+    ),
+  }));
+}
+
+/** A recipe's own size in metres: the box its mesh is built to fill. */
+function recipeBox(recipe: PrimitiveRecipe): { w: number; d: number; h: number } {
+  const s = derive.recipeSize(recipe);
+  return { w: s.w / MM_PER_M, d: s.d / MM_PER_M, h: s.h / MM_PER_M };
 }
 
 /** Instances for the items of one level; items without a resolvable size are skipped. */
@@ -115,16 +169,16 @@ export function buildItems(items: readonly Item[], ctx: ItemBuildContext): ItemI
     if (it.levelId !== ctx.level.id) continue;
     const size = derive.itemSize(it, ctx.sizes);
     if (!size) continue;
-    const assetKey = assetKeyFor(it, size, assets);
-    const bbox = it.ref.kind === "recipe" ? null : assets.bbox(assetKey);
-    const overrides: ItemInstance["materialOverrides"] = {};
-    for (const [slot, f] of Object.entries(it.materials))
-      overrides[slot] = { color: f.color, textureId: f.textureId };
+    const { assetKey, recipe } = drawnAs(it, size, ctx.sizes, assets);
+    // A recipe mesh is built at the recipe's own size, so the matrix scales it onto the item's; left at
+    // scale 1, a resized box grew on the plan and stayed the same in the view.
+    const bbox = recipe ? recipeBox(recipe) : assets.bbox(assetKey);
     out.push({
       entityId: it.id,
       assetKey,
+      recipe,
       matrix: itemMatrix(it, size, ctx.level, bbox),
-      materialOverrides: overrides,
+      materials: recipe ? slotMaterials(it, recipe, ctx.textures) : [],
       visible: it.visible,
     });
   }

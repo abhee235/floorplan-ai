@@ -2,9 +2,9 @@
 // transform (scale, translate, y flip), all drawing in IR millimetres. The drawing context is an
 // interface so tests can record calls without a DOM.
 import type { ChangeSet } from "@fpv/commands";
-import { emptyRebuildSet, expand, type Layer, type RebuildSet } from "@fpv/engine";
+import { emptyRebuildSet, expand, type Layer, type RebuildSet, skirtingOutlines } from "@fpv/engine";
 import { type PolyWithHoles, unionRings, wallFootprints } from "@fpv/geometry";
-import type { Item, Opening, Point, Project, Room, Wall } from "@fpv/ir";
+import type { Item, Opening, Point, Project, Room, Wall, WallPattern, Zone } from "@fpv/ir";
 import { derive, poly } from "@fpv/ir";
 
 /** The subset of CanvasRenderingContext2D the plan uses. */
@@ -19,6 +19,7 @@ export interface Ctx2D {
   arc(x: number, y: number, r: number, a0: number, a1: number, ccw?: boolean): void;
   closePath(): void;
   fill(rule?: "nonzero" | "evenodd"): void;
+  clip(rule?: "nonzero" | "evenodd"): void;
   stroke(): void;
   fillText(text: string, x: number, y: number): void;
   fillStyle: string;
@@ -47,10 +48,14 @@ export interface PlanView {
 export type PlanLayers = Record<Layer, Ctx2D>;
 
 const COLOURS = {
+  // the plan's own background, so a hatched or outlined wall hides the grid and the room edges under it
+  paper: "#fbfaf7",
   grid: "#e6e3dd",
   gridMajor: "#d3cfc7",
   wall: "#3a3a3a",
   wallGlass: "#7fb3d5",
+  // a mid grey against the near-black wall: a baseboard is a thin second edge, not more wall
+  skirting: "#9b958c",
   room: "rgba(214, 226, 240, 0.55)",
   roomEdge: "#8fa6bf",
   opening: "#ffffff",
@@ -59,7 +64,52 @@ const COLOURS = {
   itemEdge: "#6f5b3e",
   selection: "#1e88e5",
   text: "#333333",
+  // A zone is an instruction, not a thing that was built, so it is drawn in a colour nothing else uses
+  // and never filled: a tint would wash over the desks standing inside it.
+  zone: "#7a5cc4",
 };
+
+/** A zone's name sits this many screen pixels above its top-left corner, and is reachable there. */
+const ZONE_LABEL_PX = 5;
+const ZONE_LABEL_HEIGHT_PX = 13;
+
+/**
+ * What a zone is called on the plan: its own name if it has one, else the piece it lays out, and how many
+ * are standing. A cluster of chairs reads "Chair · 24" rather than "Desk cluster", because what it holds
+ * is the thing you need to know at a glance.
+ */
+export function zoneLabel(z: Zone, project?: Project): string {
+  const count = z.generatedItemIds.length;
+  const name = z.name ?? (project ? zonePieceName(z, project) : null) ?? zoneKindLabel(z.kind);
+  return count > 0 ? `${name} · ${count}` : name;
+}
+
+/** The piece a zone lays out, in words, or null when it lays out nothing. */
+function zonePieceName(z: Zone, project: Project): string | null {
+  const rule = z.rule;
+  if (!rule) return null;
+  if (rule.productId) {
+    const snap = project.catalogRefs[rule.productId] as { name?: unknown } | undefined;
+    const full = typeof snap?.name === "string" && snap.name.trim() !== "" ? snap.name : rule.productId;
+    // The part before the first comma: a catalogue name is a sentence, and the plan has no room for one.
+    return (full.split(",")[0] as string).trim();
+  }
+  if (!rule.recipe) return null;
+  const label = "label" in rule.recipe ? rule.recipe.label.trim() : "";
+  if (label !== "") return label;
+  const words = rule.recipe.kind.replace(/-/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+function zoneKindLabel(kind: Zone["kind"]): string {
+  const words = kind.replace(/-/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** Hatch lines are this many screen pixels apart and this wide; an outlined cut is edged this wide. */
+const HATCH_GAP_PX = 5;
+const HATCH_LINE_PX = 1;
+const OUTLINE_PX = 1.5;
 
 export class PlanRenderer {
   private dirty: RebuildSet = emptyRebuildSet();
@@ -215,7 +265,23 @@ export class PlanRenderer {
       const size = derive.itemSize(it, sizes);
       if (size && near(derive.itemFootprint(it, size))) return it.id;
     }
+    // A zone answers to its edge and to its name, never to its middle: it is an area with furniture
+    // standing in it, and taking every click inside it would make the desks unselectable.
+    for (const z of project.zones) {
+      if (z.levelId !== this.levelId) continue;
+      if (onEdge(z.polygon, p, Math.max(marginMm, 4 / this.view.scale))) return z.id;
+      if (inBox(zoneLabelBox(z, this.view.scale, project), p)) return z.id;
+    }
     const walls = project.walls.filter((w) => w.levelId === this.levelId);
+    // An opening sits INSIDE its wall, so it has to be offered before the wall or the wall always wins
+    // and a door can never be selected — which is exactly what happened: the panel has edited openings
+    // since it was written, and nothing on the plan could reach it.
+    const byId = new Map(walls.map((w) => [w.id, w]));
+    for (const o of project.openings) {
+      if (o.levelId !== this.levelId) continue;
+      const w = byId.get(o.wallId);
+      if (w && near(derive.openingFootprint(o, w))) return o.id;
+    }
     for (const [id, fp] of wallFootprints(walls)) if (near(fp)) return id;
     // Rooms keep the strict test: they are large areas, and growing them by a margin would let a click
     // just outside a room take it in preference to nothing, which is the wrong answer on open plan.
@@ -306,19 +372,45 @@ export class PlanRenderer {
       ctx.stroke();
       this.label(ctx, r);
     }
-    // walls as a fused union per kind
+    // walls as a fused union per kind and pattern: walls of one kind drawn alike merge at their corners, and
+    // a change of either shows as a seam, as it does on a drawing
     const walls = project.walls.filter((w) => w.levelId === levelId);
     const fps = wallFootprints(walls);
-    const kinds = new Map<string, Point[][]>();
+    const groups = new Map<string, { ink: string; pattern: WallPattern; rings: Point[][] }>();
     for (const w of walls) {
       const fp = fps.get(w.id);
-      if (fp && fp.length >= 3)
-        (kinds.get(w.kind) ?? (kinds.set(w.kind, []).get(w.kind) as Point[][])).push(fp);
+      if (!fp || fp.length < 3) continue;
+      const key = `${w.kind}|${w.pattern}`;
+      const group = groups.get(key) ?? {
+        ink: w.kind === "glass" ? COLOURS.wallGlass : COLOURS.wall,
+        pattern: w.pattern,
+        rings: [],
+      };
+      group.rings.push(fp);
+      groups.set(key, group);
     }
-    for (const [kind, rings] of kinds) {
-      this.multi(ctx, unionRings(rings));
-      ctx.fillStyle = kind === "glass" ? COLOURS.wallGlass : COLOURS.wall;
-      ctx.fill("evenodd");
+    for (const { ink, pattern, rings } of groups.values()) this.wallCut(ctx, unionRings(rings), ink, pattern);
+    // Baseboards, from the outlines the 3D faces are built from. A baseboard is a centimetre or two deep, a
+    // fraction of a pixel at most plan scales, so each is stroked a pixel wide as well as filled: it shows as
+    // a line along the face at a distance and as a strip close up.
+    const level = project.levels.find((l) => l.id === levelId);
+    if (level) {
+      const lowest = derive.lowestLevel(project);
+      const boards = skirtingOutlines(project.walls, project.openings, {
+        level,
+        isLowest: lowest.id === level.id,
+        isHighest: true,
+        footprints: fps,
+      });
+      if (boards.length > 0) {
+        ctx.beginPath();
+        for (const board of boards) for (const ring of board.rings) this.ring(ctx, ring);
+        ctx.fillStyle = COLOURS.skirting;
+        ctx.fill();
+        ctx.strokeStyle = COLOURS.skirting;
+        ctx.lineWidth = 1 / this.view.scale;
+        ctx.stroke();
+      }
     }
     // openings: a gap through the wall plus the door swing
     for (const o of project.openings) {
@@ -341,6 +433,71 @@ export class PlanRenderer {
       } else if (o.swing) {
         this.swing(ctx, o, w);
       }
+    }
+  }
+
+  /**
+   * One fused group of wall cuts in its pattern (W-121). Hatching is spaced in screen pixels, as it is on
+   * paper at any scale, and anchored to the plan so it stays put while the view pans. Only the part of the
+   * group on screen is hatched, so a deep zoom does not draw thousands of lines nobody sees.
+   */
+  private wallCut(ctx: Ctx2D, shape: PolyWithHoles[], ink: string, pattern: WallPattern): void {
+    this.multi(ctx, shape);
+    const lined = pattern === "hatch" || pattern === "cross-hatch";
+    // Anything else is solid, including no pattern at all: a project from a host older than the pattern
+    // field draws as it always did.
+    if (!lined && pattern !== "outline") {
+      ctx.fillStyle = ink;
+      ctx.fill("evenodd");
+      return;
+    }
+    ctx.fillStyle = COLOURS.paper;
+    ctx.fill("evenodd");
+    if (lined) {
+      const box = this.visible(shape);
+      if (box) {
+        ctx.save();
+        ctx.clip("evenodd");
+        ctx.beginPath();
+        this.hatch(ctx, box, 1);
+        if (pattern === "cross-hatch") this.hatch(ctx, box, -1);
+        ctx.strokeStyle = ink;
+        ctx.lineWidth = HATCH_LINE_PX / this.view.scale;
+        ctx.setLineDash([]);
+        ctx.stroke();
+        ctx.restore();
+      }
+      // the clip used the path up
+      this.multi(ctx, shape);
+    }
+    ctx.strokeStyle = ink;
+    ctx.lineWidth = OUTLINE_PX / this.view.scale;
+    ctx.setLineDash([]);
+    ctx.stroke();
+  }
+
+  /** The part of a shape's bounds on screen, in plan millimetres, or null when none of it is. */
+  private visible(shape: PolyWithHoles[]): poly.Rect | null {
+    const b = poly.bounds(shape.flatMap((p) => p.outer));
+    const tl = this.toPlan(0, 0);
+    const br = this.toPlan(this.view.width, this.view.height);
+    const minX = Math.max(b.minX, tl.x);
+    const maxX = Math.min(b.maxX, br.x);
+    const minY = Math.max(b.minY, br.y);
+    const maxY = Math.min(b.maxY, tl.y);
+    return minX < maxX && minY < maxY ? { minX, minY, maxX, maxY } : null;
+  }
+
+  /** Diagonal lines across a box, rising to the right for `slope` 1 and falling for -1, added to the path. */
+  private hatch(ctx: Ctx2D, box: poly.Rect, slope: 1 | -1): void {
+    // Each line is y = slope * x + c. Lines HATCH_GAP_PX apart on screen are that far apart times √2 in c.
+    const step = (HATCH_GAP_PX / this.view.scale) * Math.SQRT2;
+    const ends = [box.minX, box.maxX].flatMap((x) => [box.minY - slope * x, box.maxY - slope * x]);
+    const first = Math.floor(Math.min(...ends) / step) * step;
+    const last = Math.max(...ends);
+    for (let c = first; c <= last; c += step) {
+      ctx.moveTo(box.minX, slope * box.minX + c);
+      ctx.lineTo(box.maxX, slope * box.maxX + c);
     }
   }
 
@@ -382,6 +539,34 @@ export class PlanRenderer {
     ctx.restore();
   }
 
+  /**
+   * A zone: a dashed ring and a name above its top-left corner, the way a design tool names a frame. The
+   * ring goes on the overlay, over the desks it made, because the area is the thing being pointed at and
+   * an outline under the furniture would be hidden by exactly what it stands for.
+   */
+  private zone(ctx: Ctx2D, z: Zone, project: Project): void {
+    if (z.polygon.length < 3) return;
+    const px = 1 / this.view.scale;
+    ctx.beginPath();
+    this.ring(ctx, z.polygon);
+    ctx.strokeStyle = COLOURS.zone;
+    ctx.lineWidth = 1.2 * px;
+    ctx.setLineDash([8 * px, 5 * px]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    const b = poly.bounds(z.polygon);
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const s = this.toScreen({ x: b.minX, y: b.maxY });
+    ctx.fillStyle = COLOURS.zone;
+    ctx.font = "11px system-ui, sans-serif";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    ctx.fillText(zoneLabel(z, project), s.x, s.y - ZONE_LABEL_PX);
+    ctx.restore();
+  }
+
   private drawItems(project: Project, levelId: string): void {
     const ctx = this.begin("items");
     const sizes = this.sizes ?? derive.snapshotSizeSource(project);
@@ -409,6 +594,7 @@ export class PlanRenderer {
   private drawOverlay(project: Project, levelId: string): void {
     const ctx = this.begin("overlay");
     const sizes = this.sizes ?? derive.snapshotSizeSource(project);
+    for (const z of project.zones) if (z.levelId === levelId) this.zone(ctx, z, project);
     ctx.strokeStyle = COLOURS.selection;
     ctx.lineWidth = 2 / this.view.scale;
     ctx.setLineDash([6 / this.view.scale, 4 / this.view.scale]);
@@ -429,8 +615,8 @@ export class PlanRenderer {
 }
 
 /**
- * The outline of one entity in plan millimetres: a wall's footprint, a room's polygon, an item's
- * footprint. Exported because the drag preview draws the same shapes translated, and recomputing them
+ * The outline of one entity in plan millimetres: a wall's footprint, a room's polygon, an item's or an
+ * opening's footprint. Exported because the drag preview draws the same shapes translated, and recomputing them
  * separately would let the ghost and the selection outline disagree about what is selected.
  */
 export function outlineOf(
@@ -451,5 +637,41 @@ export function outlineOf(
     const size = derive.itemSize(it, sizes);
     return size ? derive.itemFootprint(it, size) : null;
   }
+  const o = project.openings.find((x) => x.id === id);
+  if (o && o.levelId === levelId) {
+    const host = project.walls.find((x) => x.id === o.wallId);
+    return host ? derive.openingFootprint(o, host) : null;
+  }
+  const z = project.zones.find((x) => x.id === id);
+  if (z) return z.levelId === levelId ? z.polygon : null;
   return null;
+}
+
+/** Within `toleranceMm` of one of the ring's edges, and not merely inside it. */
+function onEdge(ring: readonly Point[], p: Point, toleranceMm: number): boolean {
+  for (let i = 0; i < ring.length; i += 1) {
+    const a = ring[i] as Point;
+    const b = ring[(i + 1) % ring.length] as Point;
+    if (poly.distancePointSegment(p, a, b) <= toleranceMm) return true;
+  }
+  return false;
+}
+
+/**
+ * Where a zone's name sits, in plan millimetres. The text is drawn in screen pixels, so its box grows as
+ * the plan zooms out — which is what makes a zone still reachable when its outline is a few pixels wide.
+ */
+export function zoneLabelBox(
+  z: Zone,
+  scale: number,
+  project?: Project,
+): { minX: number; minY: number; maxX: number; maxY: number } {
+  const b = poly.bounds(z.polygon);
+  const width = (zoneLabel(z, project).length * 6.2) / scale;
+  const bottom = b.maxY + ZONE_LABEL_PX / scale;
+  return { minX: b.minX, minY: bottom, maxX: b.minX + width, maxY: bottom + ZONE_LABEL_HEIGHT_PX / scale };
+}
+
+function inBox(box: { minX: number; minY: number; maxX: number; maxY: number }, p: Point): boolean {
+  return p.x >= box.minX && p.x <= box.maxX && p.y >= box.minY && p.y <= box.maxY;
 }

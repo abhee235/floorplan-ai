@@ -34,7 +34,15 @@ const NOW = "2026-09-15T12:00:00.000Z";
 function project(over: Partial<Project> = {}): Project {
   return {
     schemaVersion: SCHEMA_VERSION,
-    meta: { name: "t", createdAt: NOW, updatedAt: NOW, currency: "USD", north: 90, units: "mm" },
+    meta: {
+      id: "geometrytst1",
+      name: "t",
+      createdAt: NOW,
+      updatedAt: NOW,
+      currency: "USD",
+      north: 90,
+      units: "mm",
+    },
     levels: [defaultLevel(L, { name: "G", height: 2700, elevation: 0 })],
     walls: [],
     openings: [],
@@ -125,7 +133,10 @@ describe("stage 2: against a wall (F-082..F-090)", () => {
     const skirted = project({
       walls: [
         wall("wall_s", 0, 0, 4000, 0, {
-          skirting: { left: { thickness: 20, height: 100 }, right: { thickness: 20, height: 100 } },
+          skirting: {
+            left: { thickness: 20, height: 100, color: null },
+            right: { thickness: 20, height: 100, color: null },
+          },
         }),
       ],
     });

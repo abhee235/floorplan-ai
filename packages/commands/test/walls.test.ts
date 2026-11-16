@@ -190,6 +190,7 @@ describe("wall.split", () => {
     const p = fixture();
     wall(p, "wall_000002").height = 2500;
     wall(p, "wall_000002").heightAtEnd = 1500;
+    wall(p, "wall_000002").pattern = "cross-hatch";
     const r = ok(p, { type: "wall.split", payload: { wallId: "wall_000002", at: 0.5 } });
     expect(r.project.walls.find((w) => w.id === "wall_000002")).toBeUndefined();
     const [first, second] = r.project.walls.slice(-2) as [Wall, Wall];
@@ -203,6 +204,8 @@ describe("wall.split", () => {
     expect(first.heightAtEnd).toBe(2000);
     expect(second.height).toBe(2000);
     expect(second.heightAtEnd).toBe(1500);
+    // both halves are drawn as the whole wall was
+    expect([first.pattern, second.pattern]).toEqual(["cross-hatch", "cross-hatch"]);
     expect(new Set([first.id, second.id, "wall_000002"]).size).toBe(3);
   });
 

@@ -1,0 +1,346 @@
+{
+  "note": "The reference for studio-sketch: what the picture shows, from tools/eval/pictures/specs.ts.",
+  "walls": [
+    {
+      "id": "w0",
+      "start": {
+        "x": 0,
+        "y": 0
+      },
+      "end": {
+        "x": 9000,
+        "y": 0
+      },
+      "thickness": 200,
+      "kind": "exterior"
+    },
+    {
+      "id": "w1",
+      "start": {
+        "x": 9000,
+        "y": 0
+      },
+      "end": {
+        "x": 9000,
+        "y": 7000
+      },
+      "thickness": 200,
+      "kind": "exterior"
+    },
+    {
+      "id": "w2",
+      "start": {
+        "x": 9000,
+        "y": 7000
+      },
+      "end": {
+        "x": 0,
+        "y": 7000
+      },
+      "thickness": 200,
+      "kind": "exterior"
+    },
+    {
+      "id": "w3",
+      "start": {
+        "x": 0,
+        "y": 7000
+      },
+      "end": {
+        "x": 0,
+        "y": 0
+      },
+      "thickness": 200,
+      "kind": "exterior"
+    },
+    {
+      "id": "w4",
+      "start": {
+        "x": 6000,
+        "y": 0
+      },
+      "end": {
+        "x": 6000,
+        "y": 3000
+      },
+      "thickness": 100,
+      "kind": "interior"
+    },
+    {
+      "id": "w5",
+      "start": {
+        "x": 6000,
+        "y": 3000
+      },
+      "end": {
+        "x": 9000,
+        "y": 3000
+      },
+      "thickness": 100,
+      "kind": "interior"
+    }
+  ],
+  "openings": [
+    {
+      "wallId": "w2",
+      "position": 0.5,
+      "kind": "door",
+      "width": 900
+    },
+    {
+      "wallId": "w5",
+      "position": 0.5,
+      "kind": "door",
+      "width": 800
+    },
+    {
+      "wallId": "w3",
+      "position": 0.5,
+      "kind": "window",
+      "width": 1800
+    },
+    {
+      "wallId": "w2",
+      "position": 0.8222222222222222,
+      "kind": "window",
+      "width": 1500
+    },
+    {
+      "wallId": "w0",
+      "position": 0.2777777777777778,
+      "kind": "window",
+      "width": 1200
+    }
+  ],
+  "rooms": [
+    {
+      "name": "Living",
+      "polygon": [
+        {
+          "x": 0,
+          "y": 3500
+        },
+        {
+          "x": 6000,
+          "y": 3500
+        },
+        {
+          "x": 6000,
+          "y": 7000
+        },
+        {
+          "x": 0,
+          "y": 7000
+        }
+      ]
+    },
+    {
+      "name": "Sleeping",
+      "polygon": [
+        {
+          "x": 0,
+          "y": 0
+        },
+        {
+          "x": 6000,
+          "y": 0
+        },
+        {
+          "x": 6000,
+          "y": 3500
+        },
+        {
+          "x": 0,
+          "y": 3500
+        }
+      ]
+    },
+    {
+      "name": "Kitchen",
+      "polygon": [
+        {
+          "x": 6000,
+          "y": 3000
+        },
+        {
+          "x": 9000,
+          "y": 3000
+        },
+        {
+          "x": 9000,
+          "y": 7000
+        },
+        {
+          "x": 6000,
+          "y": 7000
+        }
+      ]
+    },
+    {
+      "name": "Bath",
+      "polygon": [
+        {
+          "x": 6000,
+          "y": 0
+        },
+        {
+          "x": 9000,
+          "y": 0
+        },
+        {
+          "x": 9000,
+          "y": 3000
+        },
+        {
+          "x": 6000,
+          "y": 3000
+        }
+      ]
+    }
+  ],
+  "items": [
+    {
+      "position": {
+        "x": 1300,
+        "y": 1500
+      },
+      "rotation": 90,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "bed"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 3000,
+        "y": 6100
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "sofa"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 3000,
+        "y": 4900
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "table"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 4700,
+        "y": 2000
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "table"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 4700,
+        "y": 1300
+      },
+      "rotation": 180,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "chair"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 4700,
+        "y": 2700
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "chair"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 8600,
+        "y": 5100
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "box"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 8550,
+        "y": 6600
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "box"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 8400,
+        "y": 600
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "box"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 6450,
+        "y": 500
+      },
+      "rotation": 0,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "box"
+        }
+      }
+    },
+    {
+      "position": {
+        "x": 8600,
+        "y": 2200
+      },
+      "rotation": 90,
+      "ref": {
+        "kind": "recipe",
+        "recipe": {
+          "kind": "box"
+        }
+      }
+    }
+  ]
+}

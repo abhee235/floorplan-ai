@@ -93,9 +93,14 @@ environment variables override them:
 
 | Variable | Meaning |
 |---|---|
-| `FPV_SEARCH` | `brave` or `searxng` |
+| `FPV_SEARCH` | `brave` or `searxng`; left unset with `FPV_SEARCH_URL` set, `searxng` |
 | `FPV_SEARCH_API_KEY` or `BRAVE_SEARCH_API_KEY` | Brave Search API key |
 | `FPV_SEARCH_URL` | SearXNG base URL with the JSON format enabled |
+
+The same search serves the agent's `web_search`, `read_page` and `look_at` by url (ADR-027); without a
+provider those tools are not offered. Skills the agent may read before designing live in
+`apps/host/skills/<name>/SKILL.md` and, with precedence by name, `<data>/skills/<name>/SKILL.md`. The
+host says what it found on start: `floorplan-ai web: ...` and `floorplan-ai skills: ...`.
 | `FPV_VERIFIER_BASE_URL`, `FPV_VERIFIER_MODEL`, `FPV_VERIFIER_API_KEY` | an OpenAI-compatible model for reading pages |
 
 The host prints one line on start saying what the verifier can do. Every attempt is stored as a

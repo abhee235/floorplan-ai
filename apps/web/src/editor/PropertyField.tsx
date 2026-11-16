@@ -1,48 +1,145 @@
-// One row of the properties panel (ADR-017 D3): a label, a value, and — where the selection says the value
-// can change — a field that commits what was typed or picked.
+// One cell of the properties panel (ADR-017 D3): a caption over a field, made of the app's own components
+// at the app's own sizes. The panel places the cells two to a line. A number wears a letter at its left
+// edge saying which number it is, and that letter is the handle: drag it sideways to change the value, as
+// design tools do.
 //
-// Enter or leaving a text field commits; Escape puts the value back. A list commits as soon as something
-// is picked. What the value MEANS is not decided here: the row's `edit` comes from selection.ts, and this
-// only runs the conversation around it — the draft, the refusal, and the round trip to the host.
+// What is typed shows on the plan and in 3D as it is typed, without being sent: Enter or leaving the field
+// sends it, as one change, and Escape puts the value back. A list commits as soon as something is picked.
+// A refusal never takes room of its own: the field wears a red mark at its right edge and says why on
+// hover or focus, so the rest of the panel does not jump down the moment something is mistyped.
+// What the value MEANS is not decided here: the row's `edit` comes from selection.ts, and this only runs
+// the conversation around it — the draft, the refusal, and the round trip to the host.
 
-import { RotateCcw } from "lucide-react";
-import type { JSX, KeyboardEvent, ReactNode } from "react";
-import { useLayoutEffect, useRef, useState } from "react";
+import { cn } from "cn";
+import { CircleAlert, RotateCcw } from "lucide-react";
+import type { JSX, KeyboardEvent, ReactNode, PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ColourPicker } from "./ColourPicker.js";
+import { recordGesture } from "./gestures.js";
+import { PatternSwatch } from "./PatternSwatch.js";
+import { beginScrub, paceOf, scrubKindOf, scrubStart, scrubText } from "./scrub.js";
 import type { Choice, EditCommand, EditOutcome, EmptyMeaning } from "./selection.js";
+import { parseHexColour } from "./status.js";
 import { useEditor } from "./useEditor.js";
 
 /** How a unit is read aloud; the printed unit is hidden from a screen reader in favour of this. */
-const UNIT_NAMES: Record<string, string> = { mm: "millimetres", "°": "degrees" };
+const UNIT_NAMES: Record<string, string> = { mm: "millimetres", "°": "degrees", seats: "seats" };
 
 export interface PropertyFieldProps {
   id: string;
   label: string;
   /** The leading part of `label` to print, when that is less than all of it. */
   caption?: string | undefined;
-  /** Printed inside the field ahead of the value, and hidden from a screen reader, which has the label. */
+  /**
+   * A letter or two inside the field ahead of the value, hidden from a screen reader, which has the whole
+   * label: the axis of a coordinate, the W of a width. On a number it is also the handle to drag it by.
+   */
   prefix?: string | undefined;
   value: string;
   unit?: string | undefined;
-  align?: "left" | "right";
   choices?: readonly Choice[] | undefined;
   /** What an empty field stands for, on a row that may be emptied. */
   empty?: EmptyMeaning | undefined;
   /** Read to a screen reader as the field's description. */
   hint?: string | undefined;
+  /** A colour row: a swatch opens the colour picker, and shows `effective` while the value is empty. */
+  colour?: { effective: string } | undefined;
+  /** For a colour row: the colours the project already uses, offered in the picker. */
+  swatches?: readonly string[] | undefined;
+  /** A yes-or-no row, drawn as a checkbox; `value` is "true" or "false". */
+  toggle?: boolean | undefined;
   edit?: ((text: string) => EditOutcome) | undefined;
   /** Resolves once the host has taken the command, and throws with its reason when it refuses. */
   send?: ((command: EditCommand) => Promise<void>) | undefined;
+  /**
+   * Shows what a command would do without sending it, while a value is typed, dragged or picked; null
+   * puts back what the host last agreed.
+   */
+  preview?: ((command: EditCommand | null) => void) | undefined;
+  /** Where the cell sits in the panel's grid. */
+  className?: string | undefined;
+  /** Something at the field's right edge, inside it: a colour row's material list. */
+  trailing?: ReactNode | undefined;
+  /** A list shown as a small button alone, to sit inside another field; its name is its label. */
+  bare?: boolean | undefined;
+  /** For a colour row wearing a texture: the texture's picture, shown on the swatch. */
+  swatchImage?: string | undefined;
 }
 
+/**
+ * Every field that takes a value: a quiet fill and no border until the pointer is on it or the caret is in
+ * it. A panel of bordered boxes reads as a grid of boxes; this way the values carry the panel and the
+ * chrome shows itself when it is wanted.
+ */
+const FIELD =
+  "border-transparent bg-muted shadow-none hover:border-input focus-visible:bg-background dark:bg-input/40";
+
+/**
+ * A value that is only read: no fill and no border, so it cannot be mistaken for one that takes typing. It
+ * keeps the padding, so its text lines up with the fields beside it.
+ */
+const READ_ONLY =
+  "border-transparent bg-transparent shadow-none hover:border-transparent dark:bg-transparent";
+
+/** What every draggable number field adds to its own description. */
+export const NUMBER_HELP =
+  "Up and Down arrows change the number, ten at a time with Shift. Dragging the letter at the field's left sideways does too.";
+
 export function PropertyField(props: PropertyFieldProps): JSX.Element {
-  const { choices, edit, send } = props;
+  const { choices, toggle, edit, send } = props;
+  if (toggle && edit && send) return <ToggleField {...props} edit={edit} send={send} />;
   if (choices && edit && send) return <ChoiceField {...props} choices={choices} edit={edit} send={send} />;
   return <TextField {...props} />;
+}
+
+/** A yes-or-no value. Like a list, the click is the commit; the box shows the model's value, so it moves
+ *  when the host's patch lands and stays put if the host refuses. */
+function ToggleField({
+  id,
+  label,
+  caption,
+  value,
+  hint,
+  edit,
+  send,
+  className,
+}: PropertyFieldProps & { edit: (value: string) => EditOutcome }): JSX.Element {
+  const report = useReport(label, send);
+  const flip = async (next: boolean): Promise<void> => {
+    const outcome = edit(String(next));
+    if (!outcome.ok) {
+      report.refuse(outcome.message);
+      return;
+    }
+    report.clear();
+    if (outcome.command) await report.deliver(outcome.command, outcome.said);
+  };
+  // The name sits beside the box rather than over it, as a checkbox's does, so the cell takes one line.
+  return (
+    <div className={cn("flex min-w-0 flex-col justify-end", className)}>
+      <div className="flex h-6.5 items-center gap-2">
+        <Checkbox
+          id={id}
+          checked={value === "true"}
+          aria-label={nameOf(label, undefined)}
+          aria-invalid={report.error ? true : undefined}
+          aria-describedby={describedBy(id, hint, report.error)}
+          onCheckedChange={(next) => void flip(next === true)}
+        />
+        <Label htmlFor={id} className="block min-w-0 truncate font-normal">
+          {caption ?? label}
+        </Label>
+        {report.error ? <ErrorMark name={caption ?? label} message={report.error} /> : null}
+      </div>
+      <Notes id={id} hint={hint} error={report.error} />
+    </div>
+  );
 }
 
 function TextField({
@@ -52,12 +149,17 @@ function TextField({
   prefix,
   value,
   unit,
-  align = "right",
   choices,
   empty,
   hint,
+  colour,
+  swatches,
   edit,
   send,
+  preview,
+  className,
+  trailing,
+  swatchImage,
 }: PropertyFieldProps): JSX.Element {
   const report = useReport(label, send);
   const input = useRef<HTMLInputElement>(null);
@@ -79,19 +181,76 @@ function TextField({
   });
 
   const editable = edit !== undefined && send !== undefined;
+  // A number with a unit can be dragged and stepped; a colour, a name or a unit-less count cannot.
+  const scrub = editable && !colour ? scrubKindOf(unit) : null;
   // A list shown read-only still reads as its label, not as the value the model stores.
   const shown = choices?.find((c) => c.value === value)?.label ?? value;
   // An empty field that stands for something shows that instead, greyed, with its own unit: the unit
   // beside the field would otherwise follow "straight" as "straight °".
   const showingEmpty = empty !== undefined && (draft ?? shown) === "";
+  const printedUnit = unit && !showingEmpty ? unit : null;
   const resettable = editable && empty !== undefined && value !== "";
+  // What sits inside the field's left edge, in order: the axis, the swatch, the reset button. The text
+  // starts clear of all of them.
+  // A one-letter mark is narrow; two letters ("HE" for a height at the end) need a little more.
+  const lead =
+    (prefix ? (prefix.length > 1 ? 22 : 16) : 0) + (colour && editable ? 22 : 0) + (resettable ? 24 : 0);
+  // And what sits inside the right edge: the unit, the refusal mark, a list belonging to the field. The
+  // text stops before them, so a long value is cut short rather than running underneath.
+  const tailParts = [
+    printedUnit ? (printedUnit.length > 2 ? 36 : printedUnit.length > 1 ? 20 : 10) : 0,
+    report.error ? 20 : 0,
+    trailing ? 24 : 0,
+  ].filter((w) => w > 0);
+  const tail = tailParts.length > 0 ? tailParts.reduce((a, b) => a + b, 0) + 6 : 0;
+
+  // The edit as it was when the draft began. Once a preview is shown the panel is drawn from the previewed
+  // project, and an edit taken from that would measure its change from the preview: a typed position
+  // would be moved to twice over.
+  const editAtDraft = useRef<PropertyFieldProps["edit"]>(undefined);
+  // Whether this field has a preview up, and the newest way to take it down, for when the field goes.
+  const previewing = useRef(false);
+  const previewRef = useRef(preview);
+  previewRef.current = preview;
+  useEffect(
+    () => () => {
+      if (previewing.current) previewRef.current?.(null);
+    },
+    [],
+  );
 
   const setDraft = (next: string | null): void => {
     latest.current = next;
+    if (next === null) editAtDraft.current = undefined;
+    else editAtDraft.current ??= edit;
     setDraftState(next);
   };
 
+  /** Shows what the draft would do, or nothing when it would do nothing or cannot be taken. */
+  const show = (text: string): void => {
+    if (!preview) return;
+    const outcome = (editAtDraft.current ?? edit)?.(text);
+    const command = outcome?.ok ? outcome.command : null;
+    if (!command && !previewing.current) return;
+    previewing.current = command !== null;
+    preview(command);
+  };
+
+  /** Takes a preview down, before the real command goes or when the draft is dropped. */
+  const unshow = (): void => {
+    if (!previewing.current) return;
+    previewing.current = false;
+    preview?.(null);
+  };
+
+  const type = (text: string): void => {
+    setDraft(text);
+    if (report.error) report.clear();
+    show(text);
+  };
+
   const revert = (): void => {
+    unshow();
     setDraft(null);
     report.clear();
     reselect.current = true;
@@ -99,8 +258,13 @@ function TextField({
 
   const commit = async (how: "enter" | "blur"): Promise<void> => {
     const text = latest.current;
-    if (!edit || text === null) return;
-    const outcome = edit(text);
+    const editing = editAtDraft.current ?? edit;
+    if (!editing || text === null) return;
+    const outcome = editing(text);
+    // The host's patch has to land on what it knows, so the preview goes before anything is sent.
+    unshow();
+    // Typing on while this is on its way starts from the host's project again.
+    editAtDraft.current = undefined;
     if (!outcome.ok) {
       if (how === "enter") {
         // Still in the field, so the text stays for fixing; Escape is the way back.
@@ -126,6 +290,7 @@ function TextField({
   /** The reset button: empties the field through the same edit that typing nothing would make. */
   const clear = async (): Promise<void> => {
     if (!edit) return;
+    unshow();
     const outcome = edit("");
     if (!outcome.ok) {
       report.refuse(outcome.message);
@@ -138,8 +303,70 @@ function TextField({
     input.current?.focus();
   };
 
+  // The picker shows every colour as it is picked and commits once, when it closes: sending each one would
+  // leave a history entry per pixel dragged across the square. Escape closes it keeping nothing.
+  const closePicker = (keep: boolean): void => {
+    if (keep) void commit("enter");
+    else if (latest.current !== null) revert();
+  };
+
+  /**
+   * A drag on the row's name or axis letter (see scrub.ts). The edit is the one this render was given:
+   * each preview re-renders the row from the previewed project, and an edit made from that would measure
+   * its change from the preview rather than from what the host holds.
+   */
+  const startScrub = (e: ReactPointerEvent<HTMLElement>): void => {
+    if (!scrub || !edit) return;
+    const from = scrubStart(latest.current ?? value, empty?.shown);
+    if (from === null) return;
+    const editAtStart = editAtDraft.current ?? edit;
+    let at = from;
+    let good: { text: string; command: EditCommand; said: string } | null = null;
+    beginScrub(e.nativeEvent, e.currentTarget, {
+      start: () => {
+        report.clear();
+        input.current?.focus();
+      },
+      move: (dx, mods) => {
+        at += dx * scrub.perPx * paceOf(mods);
+        const text = scrubText(scrub, at);
+        setDraft(text);
+        editAtDraft.current = editAtStart;
+        const outcome = editAtStart(text);
+        // out of range, or back where it began: show the last good value, or nothing changed
+        if (!outcome.ok) return;
+        good = outcome.command ? { text, command: outcome.command, said: outcome.said } : null;
+        previewing.current = outcome.command !== null;
+        preview?.(outcome.command);
+      },
+      end: (commit) => {
+        previewing.current = false;
+        preview?.(null);
+        const chosen = good;
+        if (!commit || !chosen) {
+          setDraft(null);
+          return;
+        }
+        setDraft(chosen.text);
+        void report.deliver(chosen.command, chosen.said).then(() => {
+          if (latest.current === chosen.text) setDraft(null);
+        });
+      },
+    });
+  };
+
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>): void => {
     if (!editable) return;
+    if (scrub && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+      // One step at a time, committed as it goes, as a design tool steps a number.
+      const from = scrubStart(latest.current ?? value, empty?.shown);
+      if (from === null) return;
+      e.preventDefault();
+      const next = from + (e.key === "ArrowUp" ? 1 : -1) * scrub.step * (e.shiftKey ? 10 : 1);
+      setDraft(scrubText(scrub, next));
+      void commit("enter");
+      return;
+    }
     if (e.key === "Enter") {
       e.preventDefault();
       void commit("enter");
@@ -160,46 +387,79 @@ function TextField({
   };
 
   return (
-    <Row id={id} label={label} caption={caption} unit={unit} hint={hint} error={report.error}>
-      {resettable ? (
-        // Inside the field's left edge, which a right-aligned value leaves empty. Beside the field it took
-        // the width the label needed, and "Height at end" broke onto two lines. First in the DOM, so the
-        // focus order runs left to right as the eye does.
-        <span className="absolute inset-y-0 left-0.5 z-10 flex items-center">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label={`${empty.action} (${label})`}
-                className="text-muted-foreground"
-                onClick={() => void clear()}
-              >
-                <RotateCcw aria-hidden />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="left">{empty.action}</TooltipContent>
-          </Tooltip>
+    <Row
+      id={id}
+      label={label}
+      caption={caption}
+      hint={hint}
+      error={report.error}
+      scrubbable={scrub !== null}
+      className={className}
+    >
+      {lead > 0 ? (
+        // First in the DOM, so the focus order runs left to right as the eye does.
+        <span className="absolute inset-y-0 left-1.5 z-10 flex items-center">
+          {prefix ? (
+            <span
+              aria-hidden
+              title={scrub ? `Drag to change ${caption || label}` : undefined}
+              onPointerDown={scrub ? startScrub : undefined}
+              className={cn(
+                "flex h-full items-center justify-center text-2xs text-muted-foreground tabular-nums select-none",
+                prefix.length > 1 ? "w-[18px]" : "w-3",
+                // The one place a drag starts, so it says so on hover rather than leaving it to be found.
+                scrub ? "cursor-ew-resize rounded-sm hover:bg-accent hover:text-foreground" : "",
+              )}
+            >
+              {prefix}
+            </span>
+          ) : null}
+          {colour && editable ? (
+            <ColourPicker
+              label={label}
+              // What is being typed, once it is a colour; otherwise the model's colour, or the default.
+              value={parseHexColour(draft ?? "") ?? parseHexColour(value) ?? colour.effective}
+              swatches={swatches}
+              image={draft === null ? swatchImage : undefined}
+              onPick={type}
+              onClose={closePicker}
+              className="mx-0.5"
+            />
+          ) : null}
+          {resettable ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label={`${empty.action} (${label})`}
+                  className="text-muted-foreground"
+                  onClick={() => void clear()}
+                >
+                  <RotateCcw aria-hidden />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left">{empty.action}</TooltipContent>
+            </Tooltip>
+          ) : null}
         </span>
       ) : null}
       <Input
         ref={input}
         id={id}
-        // Read-only rows stay focusable, because a disabled field drops out of the keyboard path. They lose
-        // the field's border and fill, though: once some rows take typing, a row that looks like it does
-        // but refuses every key is a trap.
+        // Read-only cells stay focusable, because a disabled field drops out of the keyboard path. They have
+        // no fill, though: once some cells take typing, one that looks like it does but refuses every key is
+        // a trap.
         readOnly={!editable}
         value={draft ?? shown}
         inputMode={editable && unit ? "decimal" : undefined}
         autoComplete="off"
         spellCheck={false}
         placeholder={empty?.shown}
+        aria-label={nameOf(label, unit)}
         aria-invalid={report.error ? true : undefined}
-        aria-describedby={describedBy(id, hint, report.error)}
-        onChange={(e) => {
-          setDraft(e.target.value);
-          if (report.error) report.clear();
-        }}
+        aria-describedby={describedBy(id, hint, report.error, scrub ? stepsId(id) : null)}
+        onChange={(e) => type(e.target.value)}
         onFocus={(e) => {
           if (editable) e.currentTarget.select();
         }}
@@ -213,33 +473,24 @@ function TextField({
         }}
         onBlur={() => void commit("blur")}
         onKeyDown={onKeyDown}
-        className={[
-          "h-7",
-          // Left alignment is for text being typed into a visible box. Without the box, a left-aligned
-          // value floats in the middle of the row, away from the column every other value ends on.
-          align === "right" || !editable ? "text-right tabular-nums" : "",
-          prefix || resettable ? "pl-7" : "",
-          // Room for the unit, and no more: "mm" wants a gap before it, a degree sign sits against its number.
-          unit && !showingEmpty ? (unit.length > 1 ? "pr-10" : "pr-5") : "",
-          editable ? "" : "border-transparent bg-transparent shadow-none dark:bg-transparent",
-        ]
-          .filter(Boolean)
-          .join(" ")}
+        style={{
+          ...(lead > 0 ? { paddingLeft: lead + 8 } : null),
+          ...(tail > 0 ? { paddingRight: tail } : null),
+        }}
+        className={cn("h-6.5 px-2.5 tabular-nums", editable ? FIELD : READ_ONLY)}
       />
-      {prefix ? (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-muted-foreground"
-        >
-          {prefix}
-        </span>
-      ) : null}
-      {unit && !showingEmpty ? (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-muted-foreground"
-        >
-          {unit}
+      {tail > 0 ? (
+        // One row inside the right edge, so the unit steps aside for the mark instead of sitting under it.
+        // It does not take the pointer, except where something in it wants it: the field is clicked
+        // through its own padding.
+        <span className="pointer-events-none absolute inset-y-0 right-1.5 z-10 flex items-center gap-1">
+          {printedUnit ? (
+            <span aria-hidden className="text-2xs text-muted-foreground">
+              {printedUnit}
+            </span>
+          ) : null}
+          {report.error ? <ErrorMark name={caption ?? label} message={report.error} /> : null}
+          {trailing ? <span className="pointer-events-auto flex items-center">{trailing}</span> : null}
         </span>
       ) : null}
     </Row>
@@ -256,6 +507,8 @@ function ChoiceField({
   hint,
   edit,
   send,
+  className,
+  bare,
 }: PropertyFieldProps & {
   choices: readonly Choice[];
   edit: (value: string) => EditOutcome;
@@ -274,85 +527,199 @@ function ChoiceField({
     if (outcome.command) await report.deliver(outcome.command, outcome.said);
   };
 
-  return (
-    <Row id={id} label={label} caption={caption} hint={hint} error={report.error}>
+  const items = choices.map((choice) => (
+    <SelectItem key={choice.value} value={choice.value}>
+      {choice.swatch ? <PatternSwatch pattern={choice.swatch} /> : null}
+      {choice.image ? (
+        // decoration: the name beside it says what it is
+        <img
+          src={choice.image}
+          alt=""
+          aria-hidden="true"
+          className="size-4 shrink-0 rounded-sm border object-cover"
+        />
+      ) : null}
+      {choice.label}
+    </SelectItem>
+  ));
+
+  if (bare)
+    // Only the arrow shows; the chosen value is still read out with the name, and a refusal is on its title.
+    return (
       <Select value={value} onValueChange={(next) => void pick(next)}>
         <SelectTrigger
           id={id}
           size="sm"
+          aria-label={nameOf(label, undefined)}
           aria-invalid={report.error ? true : undefined}
           aria-describedby={describedBy(id, hint, report.error)}
-          className="w-full data-[size=sm]:h-7"
+          title={report.error ?? label}
+          className="size-5 justify-center gap-0 rounded-sm border-transparent bg-transparent p-0 shadow-none hover:bg-accent data-[size=sm]:h-5 dark:bg-transparent"
+        >
+          <span className="sr-only">
+            <SelectValue />
+          </span>
+        </SelectTrigger>
+        <SelectContent>{items}</SelectContent>
+        <Notes id={id} hint={hint} error={null} />
+      </Select>
+    );
+
+  return (
+    <Row id={id} label={label} caption={caption} hint={hint} error={report.error} className={className}>
+      <Select value={value} onValueChange={(next) => void pick(next)}>
+        <SelectTrigger
+          id={id}
+          size="sm"
+          aria-label={nameOf(label, undefined)}
+          aria-invalid={report.error ? true : undefined}
+          aria-describedby={describedBy(id, hint, report.error)}
+          className={cn(FIELD, "w-full px-2.5 data-[size=sm]:h-6.5")}
         >
           <SelectValue />
         </SelectTrigger>
-        <SelectContent>
-          {choices.map((choice) => (
-            <SelectItem key={choice.value} value={choice.value}>
-              {choice.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
+        <SelectContent>{items}</SelectContent>
       </Select>
+      {report.error ? (
+        // Clear of the arrow at the trigger's own right edge.
+        <span className="absolute inset-y-0 right-7 z-10 flex items-center">
+          <ErrorMark name={caption ?? label} message={report.error} />
+        </span>
+      ) : null}
     </Row>
   );
 }
 
 const errorId = (id: string): string => `${id}-error`;
 const hintId = (id: string): string => `${id}-hint`;
+const stepsId = (id: string): string => `${id}-steps`;
+
+/**
+ * A control's accessible name: the row's whole label and its unit in words, "Start Y, in millimetres". What
+ * the row prints is always the start of this, so what a sighted person reads is what a speech user says to
+ * reach the field.
+ */
+function nameOf(label: string, unit: string | undefined): string {
+  return unit ? `${label}, in ${UNIT_NAMES[unit] ?? unit}` : label;
+}
 
 /** The hint first, then the refusal: the reason something was refused reads best after what it is. */
-function describedBy(id: string, hint: string | undefined, error: string | null): string | undefined {
-  const ids = [hint ? hintId(id) : null, error ? errorId(id) : null].filter(Boolean);
+function describedBy(
+  id: string,
+  hint: string | undefined,
+  error: string | null,
+  shared: string | null = null,
+): string | undefined {
+  const ids = [hint ? hintId(id) : null, shared, error ? errorId(id) : null].filter(Boolean);
   return ids.length > 0 ? ids.join(" ") : undefined;
 }
 
-/** The label, the control, and the reason under them when there is one. */
+/** The caption, the control under it, and the reason under that when there is one. */
 function Row({
   id,
   label,
   caption,
-  unit,
   hint,
   error,
   children,
+  scrubbable = false,
+  className,
 }: {
   id: string;
   label: string;
   caption?: string | undefined;
-  unit?: string | undefined;
   hint?: string | undefined;
   error: string | null;
   children: ReactNode;
+  /** Whether the field carries the steps help, because its letter can be dragged. */
+  scrubbable?: boolean;
+  className?: string | undefined;
 }): JSX.Element {
   const printed = caption ?? label;
   return (
-    <div>
-      <div className="flex items-center justify-between gap-2">
-        <Label htmlFor={id} className="text-muted-foreground">
-          {printed}
-          {/* The rest of the name, and the unit in words. Printed plus heard is always the whole label, so
-              what a sighted person reads is what a speech user says to reach the field. */}
-          <span className="sr-only">
-            {label.slice(printed.length)}
-            {unit ? `, in ${UNIT_NAMES[unit] ?? unit}` : ""}
-          </span>
-        </Label>
-        <div className="relative w-[150px] shrink-0">{children}</div>
-      </div>
+    <div className={cn("min-w-0", className)}>
+      {/* Printed only. The whole name travels on the control as aria-label (see nameOf): the rest of it
+          used to sit here in a visually hidden span, and because that span is absolutely positioned,
+          Chrome padded it with a space and named the field "Finish , left side". A cell whose name the
+          one beside it prints (the Y of a pair) keeps the line, so the two fields stay level. */}
+      {/* The name at 12px over the value at 13px: a caption reads as a caption without a second colour
+          doing all the work. A cell whose name the one beside it prints (the Y of a pair) keeps the line,
+          so the two fields stay level. */}
+      <Label
+        htmlFor={id}
+        className="mb-1 block h-4 min-w-0 truncate text-2xs leading-4 font-normal text-muted-foreground"
+      >
+        {printed}
+      </Label>
+      <div className="relative">{children}</div>
+      <Notes id={id} hint={hint} error={error} steps={scrubbable} />
+    </div>
+  );
+}
+
+/**
+ * A cell's description and refusal, all of it hidden: the reason is carried into view by the mark inside
+ * the field (see ErrorMark), and read from here by a screen reader as the field's description.
+ */
+function Notes({
+  id,
+  hint,
+  error,
+  steps = false,
+}: {
+  id: string;
+  hint?: string | undefined;
+  error: string | null;
+  steps?: boolean;
+}): JSX.Element {
+  return (
+    <>
       {hint ? (
-        <span id={hintId(id)} className="sr-only">
+        // hidden, not visually hidden: a description is still read from a hidden element, and this way it
+        // is not also read aloud in passing by a screen reader walking the panel line by line.
+        <span id={hintId(id)} hidden>
           {hint}
         </span>
       ) : null}
-      {error ? (
-        // Left-aligned across the row, not under the field alone: right-aligned, a two-line reason left its
-        // last word stranded, and the message opens with the field's name, so it reads from the label.
-        <p id={errorId(id)} className="mt-1 text-xs leading-snug text-pretty text-destructive">
-          {error}
-        </p>
+      {steps ? (
+        <span id={stepsId(id)} hidden>
+          {NUMBER_HELP}
+        </span>
       ) : null}
-    </div>
+      {error ? (
+        <span id={errorId(id)} hidden>
+          {error}
+        </span>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * Why a value was refused: a red mark at the field's right edge, the reason in a tooltip on hover or on
+ * focus. A sentence printed under the field would appear and disappear as values are typed and push
+ * everything below it up and down the panel; this takes the room whether it is showing or not.
+ *
+ * It is a button so that it can be reached by keyboard: the tooltip opens on focus as well as on hover.
+ */
+function ErrorMark({ name, message }: { name: string; message: string }): JSX.Element {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          // The reason itself is the tooltip, which Radix hangs off this as its description; the name says
+          // which field it belongs to, because the mark sits away from the caption.
+          aria-label={`Problem with ${name}`}
+          className="pointer-events-auto flex size-4 shrink-0 items-center justify-center rounded-sm text-destructive outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        >
+          <CircleAlert aria-hidden className="size-3.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="left" className="max-w-56">
+        {message}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -366,6 +733,7 @@ function useReport(label: string, send: PropertyFieldProps["send"]) {
     /** `shown` is what stays under the field, when that needs more than the reason itself. */
     refuse: (message: string, shown = message): void => {
       announcer.alert(`${label} not changed. ${message}`);
+      recordGesture("field", { field: label, refused: message });
       setError(shown);
     },
     deliver: async (command: EditCommand, said: string): Promise<void> => {
@@ -373,9 +741,13 @@ function useReport(label: string, send: PropertyFieldProps["send"]) {
       try {
         await send(command);
         announcer.say(`${label} ${said}.`);
+        // `said` is the spoken form of the change, which is also the readable one: "Width set to 4200
+        // millimetres" beside the command it became (ADR-019 D4).
+        recordGesture("field", { field: label, command: command.type, said });
       } catch (e) {
         const reason = e instanceof Error ? e.message : String(e);
         announcer.alert(`${label} not changed: ${reason}`);
+        recordGesture("field", { field: label, command: command.type, refused: reason });
         setError(`Not changed: ${reason}`);
       }
     },

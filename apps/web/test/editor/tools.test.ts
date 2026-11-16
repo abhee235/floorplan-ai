@@ -18,11 +18,12 @@ describe("the tools on the rail (ADR-017 D2)", () => {
       "room",
       "opening",
       "item",
+      "zone",
       "measure",
       "annotate",
       "pan",
     ]);
-    expect(TOOLS.map((t) => t.shortcut)).toEqual(["V", "W", "R", "O", "I", "M", "T", "Space"]);
+    expect(TOOLS.map((t) => t.shortcut)).toEqual(["V", "W", "R", "O", "I", "Z", "M", "T", "Space"]);
   });
 
   it("refuses a tool that does not say how it is used", () => {
@@ -51,8 +52,20 @@ describe("the tools on the rail (ADR-017 D2)", () => {
 
   it("states which tools actually do something, so the rail cannot pretend", () => {
     // this list is the promise the UI makes; extend it as each tool's gestures land
-    expect(TOOLS.filter((t) => toolReady(t)).map((t) => t.id)).toEqual(["select", "wall", "room", "pan"]);
-    expect(toolReady("opening")).toBe(false);
+    expect(TOOLS.filter((t) => toolReady(t)).map((t) => t.id)).toEqual([
+      "select",
+      "wall",
+      "room",
+      "opening",
+      "item",
+      "zone",
+      "measure",
+      "pan",
+    ]);
+    // Annotations are the one thing on the rail still to build, so the rail greys it and says so
+    // rather than quietly doing nothing.
+    expect(toolReady("annotate")).toBe(false);
+    expect(toolReady("measure")).toBe(true);
     expect(toolReady("wall")).toBe(true);
     expect(toolReady("room")).toBe(true);
   });

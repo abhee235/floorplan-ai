@@ -14,11 +14,14 @@ const fixture = (name: string) => readFileSync(`${DIR}${name}.dxf`, "utf8");
 function reader(files: Record<string, string> = {}): PlanReader & { reads: number } {
   const r = {
     reads: 0,
-    async read(req: { path?: string; content?: string; fileName?: string }) {
+    async read(req: { path?: string; content?: string; contentBase64?: string; fileName?: string }) {
       r.reads += 1;
       const fileName = req.fileName ?? req.path ?? "plan.dxf";
       const text =
-        req.content ?? files[req.path ?? ""] ?? (req.path ? fixture(req.path.replace(/\.dxf$/, "")) : "");
+        req.content ??
+        (req.contentBase64 ? Buffer.from(req.contentBase64, "base64").toString("utf8") : undefined) ??
+        files[req.path ?? ""] ??
+        (req.path ? fixture(req.path.replace(/\.dxf$/, "")) : "");
       try {
         return { ...readPlanText(fileName, text), image: null, fileName };
       } catch (e) {
@@ -258,7 +261,7 @@ describe("room detection on imported plans (P2-4)", () => {
     const labels = p.annotations.filter((a) => a.kind === "label").map((a) => (a as { text: string }).text);
     expect(shared.filter((n) => labels.includes(n))).toHaveLength(1);
     expect(r.result.committed?.openQuestions.some((q) => q.includes("share one enclosed space"))).toBe(true);
-    expect(p.rooms.find((room) => room.name === "KITCHEN")?.purpose).toBe("cafeteria");
+    expect(p.rooms.find((room) => room.name === "KITCHEN")?.purpose).toBe("kitchen");
   });
 
   it("enclosures without labels become unnamed detected rooms", async () => {
@@ -312,5 +315,81 @@ describe("room detection on imported plans (P2-4)", () => {
     expect(bad.ok).toBe(false);
     await h.ok("import_plan", { path: "office-mm.dxf", confirm: true, gapToleranceMm: 100 });
     expect(h.ctx.store.project.rooms).toHaveLength(3);
+  });
+});
+
+// An attachment is how a plan reaches the agent: the person drops a file into the chat, the host
+// keeps the bytes, and the model names an id. Bytes inside a tool call would be echoed back through
+// the conversation on every turn, which is a context window spent on something the host already has.
+describe("import_plan from an attachment (P4-6)", () => {
+  const attached = (name: string, text: string) => ({
+    get: (id: string) =>
+      id === "a1" ? { id, name, mime: "application/dxf", bytes: new TextEncoder().encode(text) } : null,
+    list: () => [{ id: "a1", name, mime: "application/dxf", size: text.length }],
+  });
+
+  it("reads the attached file, and the draft is the one the path gives", async () => {
+    const text = fixture("office-mm");
+    const viaPath = harness(undefined, { plans: reader() });
+    const byPath = await viaPath.ok<ReviewOut>("import_plan", { path: "office-mm.dxf" });
+
+    const h = harness(undefined, { plans: reader(), attachments: attached("office-mm.dxf", text) });
+    const byAttachment = await h.ok<ReviewOut>("import_plan", { attachmentId: "a1" });
+    expect(byAttachment.result.counts).toEqual(byPath.result.counts);
+    expect(byAttachment.result.status).toBe("review");
+  });
+
+  it("names what is attached when the id is not one of them", async () => {
+    const h = harness(undefined, { plans: reader(), attachments: attached("office-mm.dxf", "") });
+    const r = await h.call("import_plan", { attachmentId: "nope" });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.code).toBe("import.attachment-unknown");
+    expect(r.error.hint).toContain("a1");
+  });
+
+  it("says so when nothing is attached to the conversation", async () => {
+    const h = harness(undefined, { plans: reader() });
+    const r = await h.call("import_plan", { attachmentId: "a1" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error.hint).toContain("nothing is attached");
+  });
+});
+
+describe("a scale that would make nonsense of the plan (PRD P2-3)", () => {
+  it("refuses a scale that contradicts the drawing's own dimensions, and says what to send", async () => {
+    const h = harness(undefined, { plans: reader() });
+    const review = await h.ok<ReviewOut>("import_plan", { path: "office-mm.dxf" });
+    // the dxf fixture reads at 1 mm per unit from its dimension texts; a metre answer is 1000 times that
+    const answered = await h.call("import_plan", {
+      draftId: review.result.draftId,
+      scale: { units: "m" },
+    });
+    expect(answered.ok).toBe(false);
+    if (answered.ok) return;
+    expect(answered.error.message).toContain("dimension texts imply 1 mm per unit");
+    expect(answered.error.message).toContain("100000%");
+    expect(answered.error.hint).toContain('"yes"');
+    // and the drawing is untouched, so the next call can still confirm it properly
+    expect(h.ctx.store.project.walls).toHaveLength(0);
+  });
+
+  it("says when what it is about to commit is smaller than a room", async () => {
+    // a drawing with no dimension texts of its own: nothing contradicts the scale a person gives
+    const headerOnly = fixture("office-mm").replace(/\r\nDIMENSION\r\n/g, "\r\nXDIMENSION\r\n");
+    const h = harness(undefined, { plans: reader({ "header.dxf": headerOnly }) });
+    const review = await h.ok<ReviewOut>("import_plan", { path: "header.dxf" });
+    // a tenth of a millimetre per unit: the office becomes 1.2 by 0.8 metres, which is a cupboard
+    const scaled = await h.ok<ReviewOut>("import_plan", {
+      draftId: review.result.draftId,
+      scale: { mmPerUnit: 0.1 },
+    });
+    // a draft is named by its content, so setting the scale gives it a new id
+    const committed = await h.ok<ReviewOut>("import_plan", {
+      draftId: scaled.result.draftId,
+      confirm: true,
+    });
+    expect(committed.result.status).toBe("committed");
+    expect(committed.warnings.some((w) => w.includes("smaller than a room"))).toBe(true);
   });
 });

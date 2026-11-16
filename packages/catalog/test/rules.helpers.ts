@@ -269,7 +269,15 @@ export function project(items: Item[] = boardroomItems(), over: Partial<Project>
   ];
   return {
     schemaVersion: SCHEMA_VERSION,
-    meta: { name: "Rules test", createdAt: NOW, updatedAt: NOW, currency: "USD", north: 90, units: "mm" },
+    meta: {
+      id: "catalogtest01",
+      name: "Rules test",
+      createdAt: NOW,
+      updatedAt: NOW,
+      currency: "USD",
+      north: 90,
+      units: "mm",
+    },
     levels: [defaultLevel(L, { name: "Ground", height: 2700, elevation: 0 })],
     walls,
     openings: [

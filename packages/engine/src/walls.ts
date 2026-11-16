@@ -8,6 +8,7 @@
 import {
   difference,
   intersection,
+  intersectLines,
   type MultiPoly,
   multiArea,
   ringToMulti,
@@ -19,6 +20,7 @@ import type { Level, Opening, Point, Wall } from "@fpv/ir";
 import { derive } from "@fpv/ir";
 import type { CutOutSource } from "./cutouts.js";
 import { MeshBuilder } from "./mesh.js";
+import { finishedMaterialKey, type TextureSource } from "./palette.js";
 import { type GeometryPart, MM_PER_M, type P3 } from "./types.js";
 
 export interface WallBuildContext {
@@ -28,6 +30,8 @@ export interface WallBuildContext {
   footprints?: Map<string, Point[]>;
   /** Cut-out shapes by opening (ADR-014 D7 step 3); without it every opening is a rectangle. */
   cutOuts?: CutOutSource;
+  /** Texture sizes, for sides that wear a texture; without it a texture is left off. */
+  textures?: TextureSource;
 }
 
 /** Length of the wall centreline path: the chord for straight walls, the arc length for arcs (W-111). */
@@ -251,6 +255,7 @@ function buildReveal(
   c: Cut,
   el: WallElevations,
   out: GeometryPart[],
+  revealKey: string,
 ): void {
   const hole = intersection(columnRegion(c, len, el), c.shape as MultiPoly);
   const a = at(left, c.from);
@@ -301,7 +306,61 @@ function buildReveal(
         });
         s += edge;
       }
-  if (!mb.isEmpty) out.push(mb.toPart(c.opening.id, "opening-reveal", "opening-reveal"));
+  if (!mb.isEmpty) out.push(mb.toPart(c.opening.id, "opening-reveal", revealKey));
+}
+
+/**
+ * What stands in the hole: a pane in a window, a leaf in a door, nothing in a passage.
+ *
+ * Until now an opening was only the surfaces AROUND the hole — sill, head, jambs — so a window was a
+ * gap you could see the garden through and a closed door was a doorway. The schema has carried
+ * `finishes.frame` and `finishes.leaf` and a recipe style of "glazed" all along, with nothing to put
+ * them on.
+ *
+ * One quad at the middle of the wall's thickness, faced both ways. A pane is thin enough that its
+ * thickness is not worth the triangles, and a leaf drawn as a box would be wrong as often as right —
+ * a door is only in its frame when it is closed, and the model does not say whether it is.
+ */
+function buildOpeningFill(
+  left: Side,
+  right: Side,
+  c: Cut,
+  el: WallElevations,
+  out: GeometryPart[],
+  fillKey: string | null,
+): void {
+  if (!fillKey) return;
+  const lf = at(left, c.from);
+  const lt = at(left, c.to);
+  const rf = at(right, c.from);
+  const rt = at(right, c.to);
+  // The centre plane of the wall, so the pane sits in the reveal rather than on one face of it.
+  const mf = { x: (lf.x + rf.x) / 2, y: (lf.y + rf.y) / 2 };
+  const mt = { x: (lt.x + rt.x) / 2, y: (lt.y + rt.y) / 2 };
+  const bottom = Math.max(c.sillZ, el.bottom);
+  const head = c.headZ;
+  if (head <= bottom) return;
+  const along = { x: mt.x - mf.x, y: mt.y - mf.y, z: 0 };
+  const width = Math.hypot(along.x, along.y);
+  if (width <= 0) return;
+  // The face normal is across the wall, which is `along` turned a quarter turn in the plan.
+  const nx = -along.y / width;
+  const ny = along.x / width;
+  const uv = (q: P3): [number, number] => [Math.hypot(q.x - mf.x, q.y - mf.y) / MM_PER_M, q.z / MM_PER_M];
+  const face = [
+    { x: mf.x, y: mf.y, z: bottom },
+    { x: mt.x, y: mt.y, z: bottom },
+    { x: mt.x, y: mt.y, z: head },
+    { x: mf.x, y: mf.y, z: head },
+  ];
+  const mb = new MeshBuilder();
+  mb.addFace(face, { x: nx, y: ny, z: 0 }, uv);
+  // Seen from the other side too: one quad with one normal would be invisible from half the room.
+  mb.addFace([...face].reverse(), { x: -nx, y: -ny, z: 0 }, uv);
+  if (!mb.isEmpty)
+    out.push(
+      mb.toPart(c.opening.id, c.opening.kind === "window" ? "opening-glass" : "opening-leaf", fillKey),
+    );
 }
 
 function buildOpeningFaces(
@@ -311,9 +370,12 @@ function buildOpeningFaces(
   c: Cut,
   el: WallElevations,
   out: GeometryPart[],
+  revealKey: string,
+  fillKey: string | null,
 ): void {
+  buildOpeningFill(left, right, c, el, out, fillKey);
   if (c.shape) {
-    buildReveal(left, right, len, c, el, out);
+    buildReveal(left, right, len, c, el, out, revealKey);
     return;
   }
   const oid = c.opening.id;
@@ -337,7 +399,7 @@ function buildOpeningFaces(
       { x: 0, y: 0, z: 1 },
       planUv,
     );
-    out.push(sill.toPart(oid, "opening-sill", "opening-reveal"));
+    out.push(sill.toPart(oid, "opening-sill", revealKey));
   }
   if (c.headZ < top) {
     const head = new MeshBuilder();
@@ -351,7 +413,7 @@ function buildOpeningFaces(
       { x: 0, y: 0, z: -1 },
       planUv,
     );
-    out.push(head.toPart(oid, "opening-head", "opening-reveal"));
+    out.push(head.toPart(oid, "opening-head", revealKey));
   }
   const jambs = new MeshBuilder();
   const vb = Math.max(c.sillZ, el.bottom);
@@ -377,7 +439,35 @@ function buildOpeningFaces(
       (p) => [Math.hypot(p.x - lt.x, p.y - lt.y) / MM_PER_M, p.z / MM_PER_M],
     );
   }
-  if (!jambs.isEmpty) out.push(jambs.toPart(oid, "opening-jamb", "opening-reveal"));
+  if (!jambs.isEmpty) out.push(jambs.toPart(oid, "opening-jamb", revealKey));
+}
+
+/** A wall's two sides, path length, elevations and opening cuts: what every builder here starts from. */
+interface WallFrame {
+  left: Side;
+  right: Side;
+  len: number;
+  el: WallElevations;
+  cutList: Cut[];
+}
+
+function frameOf(
+  w: Wall,
+  fps: Map<string, Point[]>,
+  openings: readonly Opening[],
+  ctx: WallBuildContext,
+): WallFrame | null {
+  const fp = fps.get(w.id);
+  const len = pathLength(w);
+  if (!fp || fp.length < 4 || len === 0) return null;
+  const n = fp.length / 2;
+  return {
+    left: makeSide(fp.slice(0, n), w),
+    right: makeSide([...fp.slice(n)].reverse(), w),
+    len,
+    el: wallElevations(w, ctx),
+    cutList: cuts(w, openings, ctx.level, ctx.cutOuts),
+  };
 }
 
 /** Build every part for the walls of one level. */
@@ -391,16 +481,20 @@ export function buildWalls(
   const out: GeometryPart[] = [];
   const planUv = (p: P3): [number, number] => [p.x / MM_PER_M, p.y / MM_PER_M];
   for (const w of onLevel) {
-    const fp = fps.get(w.id);
-    const len = pathLength(w);
-    if (!fp || fp.length < 4 || len === 0) continue;
-    const n = fp.length / 2;
-    const left = makeSide(fp.slice(0, n), w);
-    const right = makeSide([...fp.slice(n)].reverse(), w);
-    const el = wallElevations(w, ctx);
-    const cutList = cuts(w, openings, ctx.level, ctx.cutOuts);
-    out.push(buildSide(left, right, len, cutList, el).toPart(w.id, "wall-left", "wall-side"));
-    out.push(buildSide(right, left, len, cutList, el).toPart(w.id, "wall-right", "wall-side"));
+    const frame = frameOf(w, fps, openings, ctx);
+    if (!frame) continue;
+    const { left, right, len, el, cutList } = frame;
+    // Each side wears its own finish (W-106); the end caps and reveals keep the plain wall material. A glass
+    // wall is glass on both faces and aluminium everywhere it has an edge: its top, its ends and the reveals
+    // of anything set into it, which is how a glazed partition is actually built.
+    const glass = w.kind === "glass";
+    const sideBase = glass ? "wall-glass" : "wall-side";
+    const edgeKey = glass ? "wall-glass-frame" : "wall-side";
+    const revealKey = glass ? "wall-glass-frame" : "opening-reveal";
+    const leftKey = finishedMaterialKey(sideBase, w.finishes.left, ctx.textures);
+    const rightKey = finishedMaterialKey(sideBase, w.finishes.right, ctx.textures);
+    out.push(buildSide(left, right, len, cutList, el).toPart(w.id, "wall-left", leftKey));
+    out.push(buildSide(right, left, len, cutList, el).toPart(w.id, "wall-right", rightKey));
     // top: full footprint ring with per-vertex top elevation (W-093 sloped tops)
     const top = new MeshBuilder();
     const ring: P3[] = [
@@ -411,7 +505,13 @@ export function buildWalls(
       }),
     ];
     top.addFace(ring, { x: 0, y: 0, z: 1 }, planUv);
-    out.push(top.toPart(w.id, "wall-top", "wall-top"));
+    out.push(
+      top.toPart(
+        w.id,
+        "wall-top",
+        finishedMaterialKey(glass ? "wall-glass-frame" : "wall-top", w.finishes.top),
+      ),
+    );
     // end caps (W-003 corners)
     const dir = { x: w.end.x - w.start.x, y: w.end.y - w.start.y, z: 0 };
     const ls = left.points[0] as Point;
@@ -429,7 +529,7 @@ export function buildWalls(
       { x: -dir.x, y: -dir.y, z: 0 },
       (p) => [Math.hypot(p.x - ls.x, p.y - ls.y) / MM_PER_M, p.z / MM_PER_M],
     );
-    out.push(capStart.toPart(w.id, "wall-end-start", "wall-side"));
+    out.push(capStart.toPart(w.id, "wall-end-start", edgeKey));
     const capEnd = new MeshBuilder();
     capEnd.addFace(
       [
@@ -441,8 +541,269 @@ export function buildWalls(
       dir,
       (p) => [Math.hypot(p.x - le.x, p.y - le.y) / MM_PER_M, p.z / MM_PER_M],
     );
-    out.push(capEnd.toPart(w.id, "wall-end-end", "wall-side"));
-    for (const c of cutList) buildOpeningFaces(left, right, len, c, el, out);
+    out.push(capEnd.toPart(w.id, "wall-end-end", edgeKey));
+    for (const c of cutList) {
+      const o = c.opening;
+      // The frame finish dresses what surrounds the hole; the leaf finish dresses what fills it.
+      const frameKey = finishedMaterialKey(revealKey, o.finishes.frame, ctx.textures);
+      // A window is glazed by default, because a window without glass is a hole and nobody means that.
+      // A door is NOT: a doorway with a flat panel across it reads as a flaw rather than as a door, and
+      // the model does not know whether the door is shut. A leaf appears when one is asked for, by
+      // giving it a colour or a material. A passage never has one.
+      const fillBase =
+        o.kind === "window" ? "opening-glass" : o.kind === "door" && o.finishes.leaf ? "opening-leaf" : null;
+      const fillKey = fillBase ? finishedMaterialKey(fillBase, o.finishes.leaf, ctx.textures) : null;
+      buildOpeningFaces(left, right, len, c, el, out, frameKey, fillKey);
+    }
+    // A baseboard wears its own colour when it has one and its side's otherwise, with the side's shininess
+    // either way, and a quiet off-white of its own on an unpainted side (W-112). On glass it is frame.
+    for (const [name, side] of [
+      ["left", left],
+      ["right", right],
+    ] as const) {
+      const finish = w.finishes[name];
+      const own = w.skirting[name]?.color ?? null;
+      const key = glass
+        ? "wall-glass-frame"
+        : finishedMaterialKey("wall-skirting", {
+            color: own ?? finish?.color ?? null,
+            shininess: finish?.shininess ?? null,
+          });
+      buildSkirting(w, name, side, len, cutList, el, ctx.level, key, out);
+    }
   }
   return out;
+}
+
+type Stop = { p: Point; u: number };
+
+/** One unbroken stretch of a baseboard: the side's face and the offset line, each start to end. */
+interface SkirtingRun {
+  inner: Stop[];
+  skin: Stop[];
+}
+
+interface SkirtingPlan {
+  runs: SkirtingRun[];
+  bottom: number;
+  topAt: (u: number) => number;
+  side: Side;
+  outer: Side;
+}
+
+/** Where a baseboard lies on the plan: one ring per unbroken stretch, the face out to the offset line. */
+export interface SkirtingOutline {
+  wallId: string;
+  side: "left" | "right";
+  rings: Point[][];
+}
+
+/**
+ * The plan outline of every baseboard on a level, from the same runs the 3D faces are built from, so the
+ * plan and the model cannot disagree about where a baseboard stops.
+ */
+export function skirtingOutlines(
+  walls: readonly Wall[],
+  openings: readonly Opening[],
+  ctx: WallBuildContext,
+): SkirtingOutline[] {
+  const onLevel = walls.filter((w) => w.levelId === ctx.level.id);
+  if (!onLevel.some((w) => w.skirting.left || w.skirting.right)) return [];
+  const fps = ctx.footprints ?? wallFootprints(onLevel);
+  const out: SkirtingOutline[] = [];
+  for (const w of onLevel) {
+    if (!w.skirting.left && !w.skirting.right) continue;
+    const frame = frameOf(w, fps, openings, ctx);
+    if (!frame) continue;
+    for (const [name, side] of [
+      ["left", frame.left],
+      ["right", frame.right],
+    ] as const) {
+      const plan = planSkirting(w, name, side, frame.len, frame.cutList, frame.el, ctx.level);
+      if (!plan || plan.runs.length === 0) continue;
+      out.push({
+        wallId: w.id,
+        side: name,
+        rings: plan.runs.map((r) => [...r.inner.map((s) => s.p), ...[...r.skin].reverse().map((s) => s.p)]),
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * A baseboard along one side (ADR-014 D8): a strip standing out from the side's face by its thickness, from
+ * the floor up to its height.
+ *
+ * - It stands on the level's floor, not on the wall's bottom, which drops through the slab on upper levels,
+ *   and its top is flat even on a sloping wall (W-099) — except that it never rises above the wall where
+ *   the wall is lower (W-100).
+ * - The strip lies between the side's own outline and that outline offset outward (W-107). At a joined end
+ *   the offset stops on the line through the join and the side's corner, which is the line the neighbour's
+ *   baseboard stops on too, so a corner closes without either one knowing about the other.
+ * - Any opening that starts below the baseboard's top breaks it (W-113), leaving an end face each side.
+ * - On the inside of a curve the offset never passes the arc's centre (W-057 reversed).
+ */
+function planSkirting(
+  w: Wall,
+  name: "left" | "right",
+  side: Side,
+  len: number,
+  cutList: readonly Cut[],
+  el: WallElevations,
+  level: Level,
+): SkirtingPlan | null {
+  const sk = w.skirting[name];
+  const pts = side.points;
+  if (!sk || pts.length < 2) return null;
+
+  // outward normal of each segment: left of the start-to-end direction for the left side, right for the right
+  const segNormals: Point[] = [];
+  for (let i = 0; i + 1 < pts.length; i += 1) {
+    const a = pts[i] as Point;
+    const b = pts[i + 1] as Point;
+    const l = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+    const dx = (b.x - a.x) / l;
+    const dy = (b.y - a.y) / l;
+    segNormals.push(name === "left" ? { x: -dy, y: dx } : { x: dy, y: -dx });
+  }
+  const arc = derive.arcParams(w);
+  const offsetAt = (i: number): Point => {
+    const p = pts[i] as Point;
+    const nPrev = segNormals[Math.max(0, i - 1)] as Point;
+    const nNext = segNormals[Math.min(segNormals.length - 1, i)] as Point;
+    // mitre between the neighbouring segments, so the offset stays parallel to both
+    let mx = nPrev.x + nNext.x;
+    let my = nPrev.y + nNext.y;
+    const ml = Math.hypot(mx, my) || 1;
+    mx /= ml;
+    my /= ml;
+    const cos = mx * nNext.x + my * nNext.y;
+    let d = sk.thickness / (Math.abs(cos) < 1e-6 ? 1 : cos);
+    if (arc) {
+      // W-057 reversed: toward the centre, the offset stops at the centre instead of passing through it
+      const toCentre = Math.hypot(arc.centre.x - p.x, arc.centre.y - p.y);
+      const inward = (arc.centre.x - p.x) * mx + (arc.centre.y - p.y) * my > 0;
+      if (inward) d = Math.min(d, toCentre);
+    }
+    return { x: p.x + mx * d, y: p.y + my * d };
+  };
+  const offset = pts.map((_, i) => offsetAt(i));
+  // Joined ends: slide the offset end along the offset line onto the corner line through the join.
+  const endOnCornerLine = (i: number, next: number, joint: Point): void => {
+    const p = pts[i] as Point;
+    const q = offset[i] as Point;
+    const n = pts[next] as Point;
+    if (Math.hypot(p.x - joint.x, p.y - joint.y) < 1e-6) return;
+    // the offset line runs through q parallel to the side's end segment; the corner line through the join
+    const hit = intersectLines(q, { x: q.x + (n.x - p.x), y: q.y + (n.y - p.y) }, joint, p);
+    if (hit) offset[i] = hit;
+  };
+  if (w.joins.start) endOnCornerLine(0, 1, w.start);
+  if (w.joins.end) endOnCornerLine(pts.length - 1, pts.length - 2, w.end);
+  // Positions along the wall for the offset line. A straight wall measures them by projection, as its face
+  // does, so a door break is square across the baseboard; reusing the face's positions would skew it by the
+  // corner offset. On a curve a radial offset keeps each point at the face point's angle, so the face's
+  // positions are the right ones, and the two strips below stay vertex for vertex.
+  const outer: Side = derive.isArc(w)
+    ? { points: offset, u: side.u, start: side.start, end: side.end }
+    : makeSide(offset, w);
+
+  const bottom = level.elevation;
+  const topAt = (u: number): number => Math.min(bottom + sk.height, el.top(len === 0 ? 0 : u / len));
+  if (topAt(side.start) <= bottom && topAt(side.end) <= bottom) return null;
+
+  // runs of the side not broken by an opening that starts below the baseboard's top
+  const breaks = cutList
+    .filter((c) => c.sillZ < bottom + sk.height)
+    .map((c) => [Math.max(side.start, c.from), Math.min(side.end, c.to)] as const)
+    .filter(([a, b]) => b > a);
+  const runs: [number, number][] = [];
+  let from = side.start;
+  for (const [a, b] of breaks) {
+    if (a > from) runs.push([from, a]);
+    from = Math.max(from, b);
+  }
+  if (side.end > from) runs.push([from, side.end]);
+
+  // A clamped end can repeat a vertex; a zero-length edge would only make degenerate triangles.
+  const distinct = (stops: Stop[]): Stop[] =>
+    stops.filter(
+      (s, k) =>
+        k === 0 || Math.hypot(s.p.x - (stops[k - 1] as Stop).p.x, s.p.y - (stops[k - 1] as Stop).p.y) > 1e-6,
+    );
+
+  const pieces: SkirtingRun[] = [];
+  for (const [ua, ub] of runs) {
+    if (ub - ua < 0.5) continue;
+    // The face and the offset line are walked separately: on a straight wall the offset line starts and ends
+    // a little further along than the face (it stops on the corner lines), so their vertices do not pair up.
+    const inner = distinct(strip(side, ua, ub));
+    const skin = distinct(strip(outer, ua, ub));
+    if (inner.length >= 2 && skin.length >= 2) pieces.push({ inner, skin });
+  }
+  return { runs: pieces, bottom, topAt, side, outer };
+}
+
+/** The faces of one side's baseboard: front, top and an end wherever a run stops. */
+function buildSkirting(
+  w: Wall,
+  name: "left" | "right",
+  side: Side,
+  len: number,
+  cutList: readonly Cut[],
+  el: WallElevations,
+  level: Level,
+  key: string,
+  out: GeometryPart[],
+): void {
+  const plan = planSkirting(w, name, side, len, cutList, el, level);
+  if (!plan) return;
+  const { bottom, topAt, outer } = plan;
+  const mb = new MeshBuilder();
+  for (const { inner, skin } of plan.runs) {
+    // front: the offset line, bottom to top, facing away from the wall
+    for (let k = 0; k + 1 < skin.length; k += 1) {
+      const a = skin[k] as Stop;
+      const b = skin[k + 1] as Stop;
+      const mid = (a.u + b.u) / 2;
+      const face = at(side, mid);
+      const off = at(outer, mid);
+      mb.addFace(
+        [
+          { ...a.p, z: bottom },
+          { ...b.p, z: bottom },
+          { ...b.p, z: topAt(b.u) },
+          { ...a.p, z: topAt(a.u) },
+        ],
+        { x: off.x - face.x, y: off.y - face.y, z: 0 },
+        (q) => [(a.u + Math.hypot(q.x - a.p.x, q.y - a.p.y)) / MM_PER_M, q.z / MM_PER_M],
+      );
+    }
+    // top: one band from the face out to the offset line
+    mb.addFace(
+      [...inner, ...[...skin].reverse()].map((s) => ({ ...s.p, z: topAt(s.u) })),
+      { x: 0, y: 0, z: 1 },
+      (q) => [q.x / MM_PER_M, q.y / MM_PER_M],
+    );
+    // An end face wherever the run stops: at the wall's ends and either side of a break. Each faces along the
+    // run's own direction there, not the chord's, which on a curve can point well away from it.
+    for (const [i, within, o] of [
+      [inner[0], inner[1], skin[0]],
+      [inner[inner.length - 1], inner[inner.length - 2], skin[skin.length - 1]],
+    ] as [Stop, Stop, Stop][]) {
+      const t = topAt(o.u);
+      mb.addFace(
+        [
+          { ...i.p, z: bottom },
+          { ...o.p, z: bottom },
+          { ...o.p, z: t },
+          { ...i.p, z: t },
+        ],
+        { x: i.p.x - within.p.x, y: i.p.y - within.p.y, z: 0 },
+        (q) => [Math.hypot(q.x - i.p.x, q.y - i.p.y) / MM_PER_M, q.z / MM_PER_M],
+      );
+    }
+  }
+  if (!mb.isEmpty) out.push(mb.toPart(w.id, name === "left" ? "skirting-left" : "skirting-right", key));
 }

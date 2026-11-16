@@ -12,7 +12,7 @@ export {
   type Ref,
 } from "./context.js";
 export * from "./errors.js";
-export { resolveAnchor } from "./reducers/items.js";
+export { itemMaterialSlots, resolveAnchor } from "./reducers/items.js";
 export { arrangePlacements } from "./reducers/zones.js";
 export {
   createStore,

@@ -3,14 +3,25 @@
 // The field's side of an edit: the draft, the refusal, and the round trip. What typed text MEANS belongs to
 // selection.ts and is tested there against the real reducer; here `edit` is a stand-in, so each case can
 // say exactly what came back.
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, onTestFinished } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, onTestFinished } from "vitest";
 import { TooltipProvider } from "../../src/components/ui/tooltip.js";
 import { Announcer, type LiveRegion } from "../../src/editor/announce.js";
-import { PropertyField } from "../../src/editor/PropertyField.js";
+import { NUMBER_HELP, PropertyField } from "../../src/editor/PropertyField.js";
 import type { EditCommand, EditOutcome } from "../../src/editor/selection.js";
 import { type Editor, EditorContext } from "../../src/editor/useEditor.js";
+
+beforeAll(() => {
+  // A reset button's tooltip measures itself with a ResizeObserver, which jsdom lacks. Without one, a hover
+  // that opened the tooltip before the click landed threw, React took the field down, and the click was
+  // lost: the reset test failed now and then, only when the run was slow enough for that to happen.
+  globalThis.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+});
 
 afterEach(cleanup);
 
@@ -37,15 +48,17 @@ function setup({ refuse, editable = true }: Setup = {}) {
 
   const ui = (value: string) => (
     <EditorContext.Provider value={editor}>
-      <PropertyField
-        id="wall-thickness"
-        label="Thickness"
-        value={value}
-        unit="mm"
-        edit={editable ? edit : undefined}
-        send={editable ? send : undefined}
-      />
-      <button type="button">elsewhere</button>
+      <TooltipProvider>
+        <PropertyField
+          id="wall-thickness"
+          label="Thickness"
+          value={value}
+          unit="mm"
+          edit={editable ? edit : undefined}
+          send={editable ? send : undefined}
+        />
+        <button type="button">elsewhere</button>
+      </TooltipProvider>
     </EditorContext.Provider>
   );
   const view = render(ui("100"));
@@ -157,8 +170,12 @@ describe("a property field (ADR-017 D3)", () => {
     expect(sent).toEqual([]);
     expect(input.value).toBe("abc");
     expect(input.getAttribute("aria-invalid")).toBe("true");
-    const described = document.getElementById(input.getAttribute("aria-describedby") ?? "");
-    expect(described?.textContent).toBe("Type a whole number.");
+    // the reason is the last thing described, after how the number can be stepped
+    const ids = (input.getAttribute("aria-describedby") ?? "").split(" ");
+    expect(ids.map((i) => document.getElementById(i)?.textContent)).toEqual([
+      NUMBER_HELP,
+      "Type a whole number.",
+    ]);
     expect(assertive.textContent).toBe("Thickness not changed. Type a whole number.");
     // typing again clears the mark, since the text it was about is gone
     await user.keyboard("{Backspace}");
@@ -172,8 +189,8 @@ describe("a property field (ADR-017 D3)", () => {
     await user.tab();
     expect(sent).toEqual([]);
     expect(input.value).toBe("100");
-    const described = document.getElementById(input.getAttribute("aria-describedby") ?? "");
-    expect(described?.textContent).toBe("Type a whole number. Kept 100 mm.");
+    const last = (input.getAttribute("aria-describedby") ?? "").split(" ").at(-1) ?? "";
+    expect(document.getElementById(last)?.textContent).toBe("Type a whole number. Kept 100 mm.");
   });
 
   it("shows the host's refusal and puts the value back", async () => {
@@ -191,6 +208,24 @@ describe("a property field (ADR-017 D3)", () => {
     // Escape clears the reason once it has been read
     await user.keyboard("{Escape}");
     expect(input.getAttribute("aria-invalid")).toBeNull();
+  });
+
+  it("puts a mark in the field rather than a sentence under it, and says why on hover", async () => {
+    const { input, user } = setup({ refuse: "start must differ from end" });
+    await user.tab();
+    await user.keyboard("120{Enter}");
+    // The reason is in the page only as the field's description; nothing is printed under the field, so
+    // the cells below it do not move as values are typed.
+    const reason = document.getElementById("wall-thickness-error");
+    expect(reason?.hidden).toBe(true);
+    expect((input.getAttribute("aria-describedby") ?? "").split(" ")).toContain("wall-thickness-error");
+    const mark = screen.getByRole("button", { name: "Problem with Thickness" });
+    await user.hover(mark);
+    const tip = await screen.findByRole("tooltip");
+    expect(tip.textContent).toContain("Not changed: start must differ from end");
+    // and it goes with the refusal
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("button", { name: "Problem with Thickness" })).toBeNull();
   });
 
   it("takes no typing on a read-only row, but can still be reached", async () => {
@@ -228,9 +263,10 @@ describe("how a property row is labelled", () => {
     });
     const input = screen.getByLabelText("Start Y, in millimetres");
     expect(input.id).toBe("w-start-y");
-    // nothing printed beside the field: the only text in the label is the screen-reader-only part
-    const label = container.querySelector("label");
-    expect(label?.querySelector(".sr-only")?.textContent).toBe(label?.textContent);
+    // nothing printed beside the field, and the whole name on the field itself, where no layout can
+    // put a stray space into it
+    expect(container.querySelector("label")?.textContent).toBe("");
+    expect(input.getAttribute("aria-label")).toBe("Start Y, in millimetres");
     // the axis is printed inside the field, and kept from a screen reader, which has it in the label
     const prefix = [...container.querySelectorAll('[aria-hidden="true"]')].map((el) => el.textContent);
     expect(prefix).toEqual(["Y", "mm"]);
@@ -272,6 +308,29 @@ describe("how a property row is labelled", () => {
     });
     const list = screen.getByRole("combobox", { name: "Kind" });
     expect(list.textContent).toContain("Interior");
+  });
+
+  it("draws a pattern's picture beside its name, out of the accessibility tree (W-121)", () => {
+    show({
+      id: "w-pattern",
+      label: "Plan pattern",
+      value: "cross-hatch",
+      choices: [
+        { value: "solid", label: "Solid", swatch: "solid" },
+        { value: "cross-hatch", label: "Cross-hatched", swatch: "cross-hatch" },
+      ],
+      edit: (value) => ({ ok: true, command: null, said: value }),
+      send: async () => {},
+    });
+    const list = screen.getByRole("combobox", { name: "Plan pattern" });
+    expect(list.textContent).toBe("Cross-hatched");
+    const picture = list.querySelector("svg[aria-hidden='true']");
+    // two sets of diagonals, clipped by an id a url() reference can name
+    expect(picture?.querySelectorAll("line")).toHaveLength(14);
+    expect(picture?.querySelector("clipPath")?.id).toMatch(/^pattern-[\w-]+$/);
+    expect(picture?.querySelector("g")?.getAttribute("clip-path")).toBe(
+      `url(#${picture?.querySelector("clipPath")?.id})`,
+    );
   });
 });
 
@@ -345,10 +404,14 @@ describe("a property field that may be empty", () => {
       (input.getAttribute("aria-describedby") ?? "")
         .split(" ")
         .map((id) => document.getElementById(id)?.textContent);
-    expect(described()).toEqual(["Empty follows the level, 2700 millimetres."]);
+    expect(described()).toEqual(["Empty follows the level, 2700 millimetres.", NUMBER_HELP]);
     await user.click(input);
     await user.keyboard("x{Enter}");
-    expect(described()).toEqual(["Empty follows the level, 2700 millimetres.", "Type a whole number."]);
+    expect(described()).toEqual([
+      "Empty follows the level, 2700 millimetres.",
+      NUMBER_HELP,
+      "Type a whole number.",
+    ]);
   });
 
   it("offers no reset while the field is already empty", () => {
@@ -386,5 +449,165 @@ describe("a property field that may be empty", () => {
     expect(document.getElementById("wall-height-error")?.textContent).toBe(
       "Type a whole number. Kept it empty.",
     );
+  });
+});
+
+describe("a colour field", () => {
+  const colourEdit =
+    (current: string) =>
+    (text: string): EditOutcome => {
+      if (text.trim() === "")
+        return {
+          ok: true,
+          command: current ? { type: "paint", payload: { color: null } } : null,
+          said: "default",
+        };
+      const hex = /^#[0-9A-F]{6}$/i.test(text) ? text.toUpperCase() : null;
+      if (!hex) return { ok: false, message: "Colour needs a hex value." };
+      return {
+        ok: true,
+        command: hex === current ? null : { type: "paint", payload: { color: hex } },
+        said: hex,
+      };
+    };
+
+  function setupColour(start: string, swatches?: readonly string[]) {
+    const editor = {
+      announcer: new Announcer({ polite: { textContent: "" }, assertive: { textContent: "" } }),
+    } as Partial<Editor> as Editor;
+    const sent: EditCommand[] = [];
+    const previews: (EditCommand | null)[] = [];
+    const ui = (value: string) => (
+      <EditorContext.Provider value={editor}>
+        <TooltipProvider>
+          <PropertyField
+            id="w-colour-left"
+            label="Colour, left side"
+            caption="Colour"
+            value={value}
+            colour={{ effective: "#E8E6E1" }}
+            swatches={swatches}
+            empty={{ shown: "default", action: "Use the default colour" }}
+            edit={colourEdit(value)}
+            send={send}
+            preview={(command) => previews.push(command)}
+          />
+        </TooltipProvider>
+      </EditorContext.Provider>
+    );
+    const view = render(ui(start));
+    async function send(command: EditCommand): Promise<void> {
+      sent.push(command);
+      view.rerender(ui((command.payload.color as string | null) ?? ""));
+    }
+    const text = screen.getByRole("textbox") as HTMLInputElement;
+    const swatch = screen.getByRole("button", { name: "Colour, left side, picker" });
+    return { text, swatch, sent, previews, user: userEvent.setup() };
+  }
+
+  it("shows the default colour on its swatch while the value is empty", () => {
+    const { text, swatch } = setupColour("");
+    expect(swatch.style.background).toBe("rgb(232, 230, 225)");
+    expect(text.value).toBe("");
+    expect(text.placeholder).toBe("default");
+  });
+
+  it("shows each colour as it is picked, and sends one change when the picker closes", async () => {
+    const { text, swatch, sent, previews, user } = setupColour("#808080");
+    await user.click(swatch);
+    const square = await screen.findByRole("slider", { name: "Saturation and brightness" });
+    expect(document.activeElement).toBe(square);
+    await user.keyboard("{ArrowUp}{ArrowUp}");
+    // brighter by two steps: shown in the row and on the plan, not yet sent
+    expect(text.value).toBe("#858585");
+    expect(previews.at(-1)).toEqual({ type: "paint", payload: { color: "#858585" } });
+    expect(sent).toEqual([]);
+    await user.click(screen.getByRole("button", { name: "#3E5C76" }));
+    expect(text.value).toBe("#3E5C76");
+    expect(sent).toEqual([]);
+    // closing keeps the last colour, as one change, and takes the preview down first
+    await user.click(swatch);
+    expect(previews.at(-1)).toBeNull();
+    expect(sent).toEqual([{ type: "paint", payload: { color: "#3E5C76" } }]);
+  });
+
+  it("puts everything back when the picker is closed with Escape", async () => {
+    const { text, swatch, sent, previews, user } = setupColour("#808080");
+    await user.click(swatch);
+    await screen.findByRole("slider", { name: "Saturation and brightness" });
+    await user.keyboard("{Shift>}{ArrowDown}{/Shift}");
+    expect(text.value).not.toBe("#808080");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("slider", { name: "Saturation and brightness" })).toBeNull();
+    expect(previews.at(-1)).toBeNull();
+    expect(text.value).toBe("#808080");
+    expect(sent).toEqual([]);
+  });
+
+  it("offers the project's own colours beside the interior ones", async () => {
+    const { text, swatch, sent, user } = setupColour("#808080", ["#D9A441"]);
+    await user.click(swatch);
+    const own = screen.getByRole("group", { name: "In this project" });
+    expect(own.querySelectorAll("button")).toHaveLength(1);
+    expect(screen.getByRole("group", { name: "Interior colours" }).querySelectorAll("button")).toHaveLength(
+      18,
+    );
+    await user.click(own.querySelector("button") as HTMLElement);
+    expect(text.value).toBe("#D9A441");
+    await user.click(swatch);
+    expect(sent).toEqual([{ type: "paint", payload: { color: "#D9A441" } }]);
+  });
+
+  it("follows a typed colour on its swatch, and sends it on Enter", async () => {
+    const { text, swatch, sent, user } = setupColour("");
+    await user.click(text);
+    await user.keyboard("#0000ff");
+    expect(swatch.style.background).toBe("rgb(0, 0, 255)");
+    await user.keyboard("{Enter}");
+    expect(sent).toEqual([{ type: "paint", payload: { color: "#0000FF" } }]);
+  });
+
+  it("makes room for both the swatch and the reset button once the side is painted", () => {
+    const { text } = setupColour("#FF0000");
+    expect(screen.getByRole("button", { name: "Use the default colour (Colour, left side)" })).toBeDefined();
+    expect(text.style.paddingLeft).toBe("54px");
+  });
+});
+
+describe("a yes-or-no field", () => {
+  it("is a named checkbox that sends its new state on a click, and follows the model", async () => {
+    const editor = {
+      announcer: new Announcer({ polite: { textContent: "" }, assertive: { textContent: "" } }),
+    } as Partial<Editor> as Editor;
+    const sent: EditCommand[] = [];
+    const ui = (value: string) => (
+      <EditorContext.Provider value={editor}>
+        <PropertyField
+          id="room-show-ceiling"
+          label="Show ceiling"
+          caption="Show"
+          value={value}
+          toggle
+          edit={(text) => ({
+            ok: true,
+            command:
+              text === value ? null : { type: "room.modify", payload: { ceilingVisible: text === "true" } },
+            said: text === "true" ? "shown" : "hidden",
+          })}
+          send={async (command) => {
+            sent.push(command);
+            view.rerender(ui(String(command.payload.ceilingVisible)));
+          }}
+        />
+      </EditorContext.Provider>
+    );
+    const view = render(ui("true"));
+    const box = screen.getByRole("checkbox", { name: "Show ceiling" });
+    expect(box.getAttribute("aria-checked")).toBe("true");
+    await userEvent.setup().click(box);
+    expect(sent).toEqual([{ type: "room.modify", payload: { ceilingVisible: false } }]);
+    expect(screen.getByRole("checkbox", { name: "Show ceiling" }).getAttribute("aria-checked")).toBe("false");
+    // the printed label is the caption, and clicking it reaches the box
+    expect(view.container.querySelector("label")?.textContent).toBe("Show");
   });
 });

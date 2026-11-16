@@ -1,6 +1,6 @@
 // Zone reducers and arrangement patterns (spec 03 sections 3 and 4; spec 05 section 6, grid and rows in phase 0).
 import type { Item, Point, Project, Size3, Zone } from "@fpv/ir";
-import { defaultItem, derive, normalizeDeg, poly } from "@fpv/ir";
+import { defaultItem, derive, normalizeDeg, poly, UNKNOWN_AUTHOR } from "@fpv/ir";
 import { type Changes, type Ctx, ensureSnapshot, levelById, roomById, zoneById } from "../context.js";
 import { precondition } from "../errors.js";
 import type { PayloadOf } from "../types.js";
@@ -12,7 +12,21 @@ interface Placement {
   rotation: number;
 }
 
-/** Grid or rows inside the polygon inset by margin; positions whose footprint corners leave the polygon are dropped. */
+/**
+ * Grid, rows or bench inside the polygon, inset by the margin. Positions whose footprint corners leave
+ * the polygon are dropped, so a zone that is not a rectangle still only holds what fits inside it.
+ *
+ * Two things this gets right that are easy to get wrong:
+ *
+ * The step is the footprint AS IT LIES, not the size as it was measured. A 1600 x 800 desk turned to
+ * face east is 800 across and 1600 deep, and stepping by 1600 across would have left it in a field of
+ * gaps — or, turned the other way, overlapping its neighbour.
+ *
+ * The block is centred in the zone rather than packed into its bottom-left corner. The margin is what
+ * is kept clear INSIDE the edge, so whatever is left over after the last row is shared between the two
+ * sides; packing to one corner made a zone look mis-drawn, because the gap at the far edge was whatever
+ * the arithmetic happened to leave.
+ */
 export function arrangePlacements(
   polygon: readonly Point[],
   rule: Rule,
@@ -30,12 +44,28 @@ export function arrangePlacements(
   const a = (rule.facing * Math.PI) / 180;
   const cos = Math.cos(a);
   const sin = Math.sin(a);
-  const pitchX = size.w + rule.spacing.x;
-  const pitchY = size.d + rule.spacing.y;
+  // How much room one piece takes along each axis once it is turned to face the way the rule says.
+  const spanX = Math.abs(size.w * cos) + Math.abs(size.d * sin);
+  const spanY = Math.abs(size.w * sin) + Math.abs(size.d * cos);
+  const usableX = b.maxX - b.minX - 2 * rule.margin;
+  const usableY = b.maxY - b.minY - 2 * rule.margin;
   const placements: Placement[] = [];
+  if (usableX < spanX || usableY < spanY) return { placements, requested: rule.count };
+
+  const columns = offsets(spanX, rule.spacing.x, usableX, false);
+  const rows = offsets(spanY, rule.spacing.y, usableY, rule.pattern === "bench");
+  const blockX = (columns[columns.length - 1] ?? 0) + spanX;
+  const blockY = (rows[rows.length - 1] ?? 0) + spanY;
+  const originX = b.minX + rule.margin + (usableX - blockX) / 2 + spanX / 2;
+  const originY = b.minY + rule.margin + (usableY - blockY) / 2 + spanY / 2;
+
+  // The corners are pulled a hair towards the middle before they are tested. A piece that exactly fills
+  // its zone has corners ON the polygon's edge, where containment is a coin toss, and a zone drawn to
+  // hold ten desks would come back holding nine. The shrink is a millionth of the piece — under a
+  // thousandth of a millimetre — so it cannot let anything hang outside a zone it does not fit in.
   const fits = (c: Point): boolean => {
-    const hw = size.w / 2;
-    const hd = size.d / 2;
+    const hw = (size.w / 2) * (1 - 1e-6);
+    const hd = (size.d / 2) * (1 - 1e-6);
     const corners = [
       { x: -hw, y: hd },
       { x: hw, y: hd },
@@ -44,21 +74,40 @@ export function arrangePlacements(
     ].map((q) => ({ x: c.x + q.x * cos - q.y * sin, y: c.y + q.x * sin + q.y * cos }));
     return corners.every((q) => poly.containsPoint(polygon, q));
   };
-  const startX = b.minX + rule.margin + size.w / 2;
-  const startY = b.minY + rule.margin + size.d / 2;
-  outer: for (let y = startY; y <= b.maxY - rule.margin - size.d / 2 + 1e-9; y += pitchY) {
-    for (let x = startX; x <= b.maxX - rule.margin - size.w / 2 + 1e-9; x += pitchX) {
-      const c = { x: Math.round(x), y: Math.round(y) };
+
+  outer: for (let row = 0; row < rows.length; row += 1) {
+    for (const acrossOffset of columns) {
+      const c = {
+        x: Math.round(originX + acrossOffset),
+        y: Math.round(originY + (rows[row] as number)),
+      };
       if (!fits(c)) continue;
-      // bench: pairs of desks back to back along rows; alternate rows face opposite ways
-      const rowIndex = Math.round((y - startY) / pitchY);
+      // bench: desks are back to back in pairs, so every second row faces the way it came from
       const rotation =
-        rule.pattern === "bench" && rowIndex % 2 === 1 ? normalizeDeg(rule.facing + 180) : rule.facing;
+        rule.pattern === "bench" && row % 2 === 1 ? normalizeDeg(rule.facing + 180) : rule.facing;
       placements.push({ position: c, rotation });
       if (placements.length >= rule.count) break outer;
     }
   }
   return { placements, requested: rule.count };
+}
+
+/**
+ * Where each row or column begins, measured from the near edge of the first one, for as many as fit in
+ * `available`.
+ *
+ * Paired rows are what makes a bench a bench: two desks meet back to back with nothing between them,
+ * and the gap is what separates one pair from the next. Spreading the gap evenly instead would be a
+ * grid of desks that happen to face opposite ways.
+ */
+function offsets(span: number, gap: number, available: number, paired: boolean): number[] {
+  const out: number[] = [];
+  for (let i = 0; ; i += 1) {
+    const at = paired ? i * span + Math.floor(i / 2) * gap : i * (span + gap);
+    if (at + span > available + 1e-9) break;
+    out.push(at);
+  }
+  return out;
 }
 
 function ruleRef(rule: Rule): Item["ref"] {
@@ -114,6 +163,7 @@ function deleteGenerated(p: Project, zone: Zone, changes: Changes): void {
 export function zoneCreate(p: Project, payload: PayloadOf<"zone.create">, ctx: Ctx, changes: Changes): Zone {
   levelById(p, payload.levelId);
   const zone: Zone = {
+    by: { ...UNKNOWN_AUTHOR },
     id: ctx.ids.next("zone"),
     levelId: payload.levelId,
     name: payload.name ?? null,
@@ -128,11 +178,81 @@ export function zoneCreate(p: Project, payload: PayloadOf<"zone.create">, ctx: C
   return zoneById(p, zone.id);
 }
 
-export function zoneModify(p: Project, payload: PayloadOf<"zone.modify">, _ctx: Ctx, changes: Changes): Zone {
+/**
+ * Changes a zone, and keeps what it made in step with it.
+ *
+ * A zone's pieces exist because the zone says so, so a zone whose shape changed while its pieces stayed
+ * put would be a lie on the plan. How they follow depends on what changed:
+ *
+ * Moved, and nothing else — every corner shifted by the same amount — and the pieces move with it. They
+ * keep their ids, which means anything done to one of them since (a colour, a different product on the
+ * end of a row) survives being dragged across the floor.
+ *
+ * Reshaped, and they are laid out again, because the old positions were worked out for a shape that is
+ * gone. That does replace them, ids and all; there is no way to keep them and honour the new shape.
+ *
+ * Moved, but with every piece already standing outside it, and they are laid out again too. That is a
+ * zone which parted company with its own pieces — a host that moved the outline and left them behind,
+ * before this reducer walked them along — and translating them again would only carry the mistake to a
+ * new place. Laying them out puts the cluster back together. One piece dragged out on purpose does not
+ * count: it takes ALL of them being outside, which no healthy cluster ever is.
+ */
+export function zoneModify(p: Project, payload: PayloadOf<"zone.modify">, ctx: Ctx, changes: Changes): Zone {
   const z = zoneById(p, payload.zoneId);
+  const before = z.polygon.map((q) => ({ x: q.x, y: q.y }));
   Object.assign(z, payload.changes);
+  if (payload.changes.polygon) {
+    const shift = translationBetween(before, z.polygon);
+    if (shift && !parted(p, z, before)) moveGenerated(p, z, shift, changes);
+    else {
+      deleteGenerated(p, z, changes);
+      placeGenerated(p, ctx, z, changes);
+    }
+  }
   changes.update("zone", z.id);
   return z;
+}
+
+/** The one offset that turns `from` into `to`, or null when the shape changed as well as the place. */
+function translationBetween(from: readonly Point[], to: readonly Point[]): Point | null {
+  if (from.length !== to.length || from.length === 0) return null;
+  const first = from[0] as Point;
+  const shift = { x: (to[0] as Point).x - first.x, y: (to[0] as Point).y - first.y };
+  for (let i = 1; i < from.length; i += 1) {
+    const a = from[i] as Point;
+    const b = to[i] as Point;
+    if (b.x - a.x !== shift.x || b.y - a.y !== shift.y) return null;
+  }
+  return shift;
+}
+
+/**
+ * Whether the zone has parted company with its pieces: it has some, and not one of them stands inside
+ * the shape it had. A cluster is built with every footprint inside its polygon, so this can only be the
+ * wreckage of something that moved the zone without them.
+ */
+function parted(p: Project, zone: Zone, polygon: readonly Point[]): boolean {
+  const ids = new Set(zone.generatedItemIds);
+  if (ids.size === 0 || polygon.length < 3) return false;
+  let found = 0;
+  for (const it of p.items) {
+    if (!ids.has(it.id)) continue;
+    found += 1;
+    if (poly.containsPoint(polygon, it.position)) return false;
+  }
+  return found > 0;
+}
+
+function moveGenerated(p: Project, zone: Zone, shift: Point, changes: Changes): void {
+  if (shift.x === 0 && shift.y === 0) return;
+  const ids = new Set(zone.generatedItemIds);
+  for (const it of p.items) {
+    if (!ids.has(it.id)) continue;
+    it.position = { x: it.position.x + shift.x, y: it.position.y + shift.y };
+    // Which room a piece counts in is where it stands, so it is worked out again where it now stands.
+    it.roomId = derive.containingRoom(p, it.levelId, it.position)?.id ?? null;
+    changes.update("item", it.id);
+  }
 }
 
 export function zoneRegenerate(
@@ -165,6 +285,9 @@ export function itemArrange(
   let zone: Zone;
   if ("zoneId" in payload.target) {
     zone = zoneById(p, payload.target.zoneId);
+    // A new shape arrives with the rule when a cluster is resized, so the pieces are laid out once, for
+    // the zone as it now is, rather than once for the old shape and again for the new one.
+    if (payload.target.polygon) zone.polygon = payload.target.polygon.map((q) => ({ x: q.x, y: q.y }));
     zone.rule = payload.rule;
     if (payload.replace) deleteGenerated(p, zone, changes);
   } else {

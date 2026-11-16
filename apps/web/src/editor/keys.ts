@@ -175,3 +175,19 @@ export function isTypingTarget(target: TargetLike | null | undefined): boolean {
     type,
   );
 }
+
+/** The one thing asked of a target to tell whether it sits in an open popup; a real element satisfies it. */
+export interface NestedLike {
+  closest?: ((selector: string) => unknown) | undefined;
+}
+
+const POPUPS = '[role="listbox"], [role="menu"], [role="menubar"], [role="dialog"], [role="alertdialog"]';
+
+/**
+ * Where a key belongs to an open list, menu or dialog. Typing letters in an open list jumps between its
+ * options, and Escape closes it; neither may also pick a tool or leave one. A list's options are not text
+ * fields, so isTypingTarget does not cover them: typing "Board" to find Boardroom switched to Draw room.
+ */
+export function isInsidePopup(target: NestedLike | null | undefined): boolean {
+  return Boolean(target?.closest?.(POPUPS));
+}

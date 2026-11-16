@@ -19,7 +19,7 @@ payload lengths are integer millimetres and angles degrees. `ctx` provides
 Command = { type: CommandType, payload: object }
 Result  = { ok: true, project, changes: ChangeSet, inverse: Patch[], forward: Patch[], warnings: string[] }
         | { ok: false, error: { code, message, entityId: string | null, hint: string | null } }
-ChangeSet = { added: Ref[], updated: Ref[], removed: Ref[] }   // Ref = { type, id }
+ChangeSet = { added: Ref[], updated: Ref[], removed: Ref[] }   // Ref = { type, id, aspect?: "plan" }
 ```
 
 Error codes are the validation codes of spec 01 section 5 plus the command
@@ -51,8 +51,8 @@ Changes: added walls; updated any pre-existing wall joined at the ends.
 ### wall.modify
 Payload: `{ wallId, changes: Partial<Wall minus joins> }`
 Preconditions: thickness > 0; start != end after change.
-Effect: applies changes. If start or end moves, joined neighbours' coincident endpoints move with it (propagation as in wall.move). heightAtEnd equal to height stored as null; arcExtent 0 stored as null.
-Changes: updated wall, joined neighbours, openings on the wall.
+Effect: applies changes. If start or end moves, joined neighbours' coincident endpoints move with it (propagation as in wall.move). heightAtEnd equal to height stored as null; arcExtent 0 stored as null. `finishes` and `skirting` replace the whole object, so a change to one side sends the other side as it is.
+Changes: updated wall, joined neighbours, openings on the wall. A change to `pattern` alone lists only the wall, with `aspect: "plan"`: only the plan draws it, so nothing else depends on it (W-121, S-011). Where one change set holds both, the unnarrowed ref wins, in a transaction's merged set as in a single command.
 
 ### wall.move
 Payload: `{ wallIds: WallId[], dx: Mm, dy: Mm }`
@@ -99,7 +99,8 @@ Changes: updated opening, old wall, new wall.
 Payload: `{ openingIds }`. Changes: removed openings; updated walls.
 
 ### room.create
-Payload: `{ levelId, polygon?: Point[], rect?: { x, y, w, d }, atPoint?: Point, name?, purpose?, capacity?, gapToleranceMm?: Mm (default 20) }`
+Payload: `{ levelId, polygon?: Point[], rect?: { x, y, w, d }, atPoint?: Point, name?, purpose?, capacity?, gapToleranceMm?: Mm (default 20), properties?: Record<string, string> }`
+`properties.enclosure: "open"` marks a zone a design left unwalled on purpose (ADR-028 D3); `validate` does not report it as `room.unenclosed`.
 Preconditions: exactly one of polygon, rect, atPoint. For atPoint, detection (spec 05 section 4) must find an enclosure containing the point (`room.not-enclosed`). Polygon simple, at least 3 points.
 Effect: adds the room with `source` manual, manual, or detected respectively; detected rooms record `boundingWallIds`. Items whose centre lies inside and have `roomId` null get `roomId` set.
 Changes: added room; updated items.
@@ -176,14 +177,14 @@ Effect: sets parentId; elevation set to the parent's surface height when dropRat
 Changes: updated item.
 
 ### item.setProduct
-Payload: `{ itemId, ref }`. Effect: swaps the reference, keeps position and rotation, clears size if the new product is not deformable, re-snapshots. Changes: updated item.
+Payload: `{ itemId, ref }`. Effect: swaps the reference, keeps position and rotation, clears size if the new product is not deformable, drops `materials` for slots the new reference does not have, re-snapshots. Changes: updated item.
 
 ### item.mirror
 Payload: `{ itemIds }`. Effect: toggles mirrored. Changes: updated items.
 
 ### item.setFinish
 Payload: `{ itemIds, finish?: FinishRef | null, materials?: Record<slot, FinishRef | null> }`
-Preconditions: slots exist on the product's materialSlots.
+Preconditions: slots exist on the item: a recipe's slots, a product's `materialSlots`, or, when those are empty, the slots of the recipe its category falls back to (spec 02 section 3.1). A null finish for a slot removes it. The item's `finish` covers every slot without one of its own.
 Changes: updated items.
 
 ### item.duplicate
@@ -205,14 +206,16 @@ Changes: updated items.
 Payload: `{ itemIds (>= 3), axis: "x" | "y" }`. Effect: F-168. Changes: updated items.
 
 ### item.arrange
-Payload: `{ target: { roomId } | { zoneId } | { polygon, levelId }, rule: ArrangementRule, replace?: boolean }`
-Effect: computes placements for the pattern inside the target polygon minus clearances (spec 05 section 6); creates a zone when the target is a room or polygon; places items with parentId null; with `replace`, previously generated items of the zone are deleted first.
+Payload: `{ target: { roomId } | { zoneId, polygon? } | { polygon, levelId }, rule: ArrangementRule, replace?: boolean }`
+Effect: computes placements for the pattern inside the target polygon minus clearances (spec 05 section 6); creates a zone when the target is a room or polygon; places items with parentId null; with `replace`, previously generated items of the zone are deleted first. A `polygon` beside a `zoneId` reshapes that zone before it is filled, so resizing a cluster and filling the room it gains is one command.
+
+The step between placements is the piece's footprint as the rule turns it, not its measured size, and the block is centred within the zone inside the margin. A piece whose footprint lands exactly on the zone's edge counts as inside. `bench` pairs its rows back to back and puts the gap between the pairs.
 Changes: added zone and items; removed replaced items.
 
 ## 4. Zone, annotation, project commands
 
 ### zone.create `{ levelId, polygon, kind, name?, rule? }` — added zone.
-### zone.modify `{ zoneId, changes }` — updated zone.
+### zone.modify `{ zoneId, changes }` — updated zone. A `polygon` in `changes` carries what the zone generated with it: the pieces are translated, keeping their ids, when every corner moved by the same offset, and laid out again when the shape itself changed.
 ### zone.regenerate `{ zoneId }` — deletes generatedItemIds, re-runs the rule; removed and added items, updated zone.
 ### zone.delete `{ zoneIds, deleteItems?: boolean }` — removed zone and optionally items.
 ### annotation.add `{ annotation minus id }` / annotation.modify `{ annotationId, changes }` / annotation.delete `{ annotationIds }`.

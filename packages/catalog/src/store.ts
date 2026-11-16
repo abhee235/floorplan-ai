@@ -432,12 +432,17 @@ export class CatalogStore implements VerifyStore {
           )
           .all(fts) as Row[])
           if (accept(row)) add(row.id, "text");
-    } else if (q.category) {
-      // an empty query with a category lists that category
-      for (const row of this.db
-        .prepare("select id, category, status from products where category = ? order by name")
-        .all(q.category) as Row[])
-        if (accept(row)) add(row.id, "term");
+    } else {
+      // An empty query lists the catalog, to browse it: a category's products by name when one is given,
+      // otherwise everything by category and then name.
+      const rows = (
+        q.category
+          ? this.db
+              .prepare("select id, category, status from products where category = ? order by name, id")
+              .all(q.category)
+          : this.db.prepare("select id, category, status from products order by category, name, id").all()
+      ) as Row[];
+      for (const row of rows) if (accept(row)) add(row.id, "term");
     }
     const page = ordered.slice(offset, offset + limit);
     const hits = page.map(({ id, tier }) => this.hitOf(this.get(id) as Product, tier));
@@ -608,6 +613,27 @@ export class CatalogStore implements VerifyStore {
       )
       .run(t.id, options.library ?? null, JSON.stringify(t));
     return t;
+  }
+
+  /** The same as getTexture, under the name the tools' catalog interface uses. */
+  texture(id: string): Texture | null {
+    return this.getTexture(id);
+  }
+
+  /**
+   * Where a texture comes from: its library and the version of it in use, for finding its file under
+   * the data directory; null for a texture written directly or one not in the catalog.
+   */
+  textureOrigin(id: string): { texture: Texture; library: string; version: string } | null {
+    const row = this.db.prepare("select library, json from textures where id = ?").get(id) as
+      | { library: string | null; json: string }
+      | undefined;
+    if (!row?.library) return null;
+    const versions = (
+      this.db.prepare("select version from libraries where id = ?").all(row.library) as { version: string }[]
+    ).map((r) => r.version);
+    const version = versions.sort(compareVersions).at(-1);
+    return version ? { texture: JSON.parse(row.json) as Texture, library: row.library, version } : null;
   }
 
   removeTexture(id: string): boolean {

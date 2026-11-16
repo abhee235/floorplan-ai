@@ -7,12 +7,13 @@
 //     [--cards boardroom,import-office] [--reliability low|medium|high] [--think] [--steps <n>]
 // Models: ollama:<model> (http://127.0.0.1:11434/v1, reasoning switched off unless --think),
 //         openai:<model> (OPENAI_API_KEY), openrouter:<model> (OPENROUTER_API_KEY),
+//         anthropic:<model> (ANTHROPIC_API_KEY, e.g. anthropic:claude-opus-5-5),
 //         config:<name> (a provider in the host data directory's config.json).
 // Keys and the default model list (FPV_EVAL_MODELS) come from the nearest .env; see .env.example.
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { openAICompatible, type ProviderConfig } from "@fpv/agents";
+import { claudeReachable, createProvider, type ProviderConfig, runArchitect } from "@fpv/agents";
 import type { ToolReliability } from "@fpv/tools";
 import { AGENT_TIMEOUT_MS, describeEvent, runAgentTask } from "../../apps/host/src/agent.js";
 import { loadDotEnv } from "../../apps/host/src/env.js";
@@ -37,11 +38,27 @@ const list = (v: string | undefined) =>
         .filter(Boolean)
     : [];
 
-function providerFor(spec: string, think: boolean, reliability: ToolReliability | undefined): ProviderConfig {
+/**
+ * How long one model call may take, from FPV_AGENT_TIMEOUT_MS or five minutes.
+ *
+ * The host has read this since the agent existed and the cards did not, which is how a local model
+ * came to fail a card on a wall the host would not have hit: one turn of a reasoning model on a big
+ * prompt takes longer than five minutes on consumer hardware, and the card had no way to say so.
+ */
+const timeoutMs = Number(process.env.FPV_AGENT_TIMEOUT_MS) || AGENT_TIMEOUT_MS;
+
+function configFor(spec: string, think: boolean, reliability: ToolReliability | undefined): ProviderConfig {
   const colon = spec.indexOf(":");
   const kind = colon < 0 ? "" : spec.slice(0, colon);
   const name = spec.slice(colon + 1);
-  const profile = { toolCalls: true, toolReliability: reliability ?? ("medium" as ToolReliability) };
+  const profile = {
+    toolCalls: true,
+    toolReliability: reliability ?? ("medium" as ToolReliability),
+    // Read here as well as in the host, so a card measures the same thing the product runs.
+    ...(Number(process.env.FPV_AGENT_CONTEXT_TOKENS) > 0
+      ? { contextTokens: Number(process.env.FPV_AGENT_CONTEXT_TOKENS) }
+      : {}),
+  };
   switch (kind) {
     case "ollama":
       return {
@@ -49,7 +66,7 @@ function providerFor(spec: string, think: boolean, reliability: ToolReliability 
         baseUrl: process.env.OLLAMA_BASE_URL ?? "http://127.0.0.1:11434/v1",
         model: name,
         profile,
-        timeoutMs: AGENT_TIMEOUT_MS,
+        timeoutMs,
         ...(think ? {} : { extraBody: { reasoning_effort: "none" } }),
       };
     case "openai":
@@ -62,8 +79,30 @@ function providerFor(spec: string, think: boolean, reliability: ToolReliability 
         baseUrl: kind === "openai" ? "https://api.openai.com/v1" : "https://openrouter.ai/api/v1",
         model: name,
         apiKey,
+        // OpenAI on the wire where its models think while calling tools (ADR-029 D2).
+        api: kind === "openai" ? "openai-responses" : "openai-chat",
+        ...(process.env.FPV_AGENT_REASONING
+          ? { reasoning: process.env.FPV_AGENT_REASONING as NonNullable<ProviderConfig["reasoning"]> }
+          : {}),
         profile: { ...profile, toolReliability: reliability ?? "high" },
-        timeoutMs: AGENT_TIMEOUT_MS,
+        timeoutMs,
+      };
+    }
+    case "anthropic": {
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) throw new Error(`${spec} needs ANTHROPIC_API_KEY`);
+      return {
+        id: spec,
+        baseUrl: process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com",
+        model: name,
+        apiKey,
+        // Claude on its own Messages API (ADR-029 D2); every current model sees, as in the product.
+        api: "anthropic",
+        ...(process.env.FPV_AGENT_REASONING
+          ? { reasoning: process.env.FPV_AGENT_REASONING as NonNullable<ProviderConfig["reasoning"]> }
+          : {}),
+        profile: { ...profile, toolReliability: reliability ?? "high" },
+        timeoutMs,
       };
     }
     case "config": {
@@ -83,17 +122,21 @@ function providerFor(spec: string, think: boolean, reliability: ToolReliability 
           ) as Partial<NonNullable<ProviderConfig["profile"]>>),
           ...(reliability ? { toolReliability: reliability } : {}),
         },
-        timeoutMs: entry.timeoutMs ?? AGENT_TIMEOUT_MS,
+        timeoutMs: entry.timeoutMs ?? timeoutMs,
         ...(entry.extraBody ? { extraBody: entry.extraBody } : {}),
+        ...(entry.api ? { api: entry.api } : {}),
+        ...(entry.reasoning ? { reasoning: entry.reasoning } : {}),
       };
     }
     default:
-      throw new Error(`model "${spec}" must start with ollama:, openai:, openrouter: or config:`);
+      throw new Error(`model "${spec}" must start with ollama:, openai:, openrouter:, anthropic: or config:`);
   }
 }
 
 /** A model server that does not answer is skipped, not scored: a connection failure says nothing about the model. */
 async function unreachable(config: ProviderConfig): Promise<string | null> {
+  // Anthropic authenticates its own way, and is asked through its SDK, which also checks the model id.
+  if (config.api === "anthropic") return claudeReachable(config);
   try {
     const res = await fetch(`${config.baseUrl.replace(/\/+$/, "")}/models`, {
       headers: config.apiKey ? { authorization: `Bearer ${config.apiKey}` } : {},
@@ -130,18 +173,31 @@ async function main() {
   const cards = loadCards(list(argValue("--cards")));
   mkdirSync(join(EVAL, "transcripts"), { recursive: true });
   for (const spec of models) {
-    const config = providerFor(spec, think, reliability);
+    const config = configFor(spec, think, reliability);
     const down = await unreachable(config);
     if (down) {
       console.log(`\nskipped ${spec}: ${config.baseUrl} does not answer (${down}); nothing recorded`);
       continue;
     }
-    const provider = openAICompatible(config);
+    const provider = createProvider(config);
     for (const card of cards) {
       const { session, close } = evalSession();
       const at = new Date().toISOString();
       const started = Date.now();
       console.log(`\n${card.id} on ${spec} (${provider.profile.toolReliability})`);
+      // The architect, so a card measures the path the product ships rather than the tools alone.
+      // Without it design_layout answers "unavailable" and the model quietly does something else,
+      // which would make the suite green about a road nobody travels (ADR-024 D6).
+      session.ctx.subagent = {
+        run: (request) =>
+          runArchitect(provider, session.registry, request, {
+            ...(reliability ? { reliability } : {}),
+            onEvent: (event) => {
+              const line = describeEvent(event);
+              if (line) console.log(`  architect ${line}`);
+            },
+          }),
+      };
       try {
         const {
           run,

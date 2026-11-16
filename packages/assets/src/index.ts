@@ -15,3 +15,10 @@ export {
   RecipeKind,
   validateManifest,
 } from "./schema.js";
+export {
+  encodePng,
+  GENERATED_TEXTURES,
+  type GeneratedTexture,
+  type RgbImage,
+  renderGeneratedTexture,
+} from "./textures.js";

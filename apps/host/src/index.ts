@@ -9,8 +9,15 @@ export {
   loadAgentConfig,
   runAgentTask,
 } from "./agent.js";
+export {
+  AgentRuns,
+  type AgentRunsOptions,
+  MAX_ATTACHMENT_BYTES,
+  type StartResult,
+  summarise,
+} from "./agent-runs.js";
 export { Bridge, type BridgeSocket } from "./bridge.js";
-export { main, parseArgs } from "./cli.js";
+export { main, parseArgs, readLogLevel } from "./cli.js";
 export {
   type DotEnvResult,
   expandProviderShortcuts,
@@ -38,6 +45,7 @@ export {
   sha256,
   writeAtomic,
 } from "./files.js";
+export { createLog, type EventLog, type LogLevel, silentLog } from "./log.js";
 export { createMcpServer, HOST_VERSION, type McpOptions, serveStdio, toCallToolResult } from "./mcp.js";
 export { createReader, loadReaderConfig, READER_TIMEOUT_MS } from "./reader.js";
 export { DEFAULT_PORT, defaultWebDir, type Served, type ServeOptions, serve } from "./server.js";

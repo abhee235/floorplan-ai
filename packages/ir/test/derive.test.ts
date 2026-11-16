@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { defaultItem, defaultOpening, defaultWall, derive, type Level, type Wall } from "../src/index.js";
+import {
+  defaultItem,
+  defaultOpening,
+  defaultWall,
+  derive,
+  type Level,
+  UNKNOWN_AUTHOR,
+  type Wall,
+} from "../src/index.js";
 import { EXPECTED, fixture, LEVEL } from "./helpers.js";
 
 const level = (p: ReturnType<typeof fixture>): Level => p.levels[0] as Level;
@@ -39,6 +47,7 @@ describe("walls", () => {
       index: 0,
       viewable: true,
       backgroundImage: null,
+      by: { ...UNKNOWN_AUTHOR },
     };
     expect(derive.isTrapezoidal(w)).toBe(true);
     expect(derive.wallMaxHeight(w, l)).toBe(2500);
@@ -135,6 +144,7 @@ describe("rooms", () => {
       source: "manual" as const,
       boundingWallIds: [],
       properties: {},
+      by: { ...UNKNOWN_AUTHOR },
     };
     const anchor = derive.roomLabelAnchor(r);
     expect(derive.roomContains(r, { x: anchor.x - 100, y: anchor.y })).toBe(true);
@@ -171,6 +181,7 @@ describe("rooms", () => {
       source: "manual" as const,
       boundingWallIds: [],
       properties: {},
+      by: { ...UNKNOWN_AUTHOR },
     });
     p.rooms.push(mk("room_zz0002", big), mk("room_zz0003", small));
     expect(derive.containingRoom(p, LEVEL, { x: 1500, y: 1500 })?.id).toBe("room_zz0003");
@@ -209,6 +220,7 @@ describe("items", () => {
       index: 0,
       viewable: true,
       backgroundImage: null,
+      by: { ...UNKNOWN_AUTHOR },
     };
     expect(derive.itemGroundElevation(item, l)).toBe(240);
   });

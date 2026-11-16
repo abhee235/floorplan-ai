@@ -140,6 +140,10 @@
      fractional line boxes put text on half pixels, which is exactly where hinting goes soft. */
   --text-xs: 11px;
   --text-xs--line-height: 16px;
+  /* Between the two: the properties panel names a field at 12px and shows its value at 13px, so a caption
+     reads as a caption without a second colour doing all the work. */
+  --text-2xs: 12px;
+  --text-2xs--line-height: 16px;
   --text-sm: 13px;
   --text-sm--line-height: 18px;
   --color-background: var(--background);
@@ -209,4 +213,11 @@
    makes them semibold, which is heavy for a panel where every row carries one. */
 [data-slot="label"] {
   font-weight: 400;
+}
+
+/* A pane the view mode does not show, and the divider beside it (EditorShell). Important, because the
+   resizable panel library sets display:flex inline on the panel, and only an important rule outranks an
+   inline style. The pane stays in the document, so the canvases and listeners inside it survive. */
+[data-view-hidden] {
+  display: none !important;
 }

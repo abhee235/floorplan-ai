@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { normalizeDeg, Project } from "../src/index.js";
+import { SCHEMA_VERSION } from "../src/schema.js";
 
 const fixtureDir = fileURLToPath(new URL("../../../tools/fixtures/six-wall-room.fpviz/", import.meta.url));
 const project = Project.parse(JSON.parse(readFileSync(`${fixtureDir}project.json`, "utf8")));
@@ -12,7 +13,7 @@ const expected = JSON.parse(readFileSync(`${fixtureDir}expected.json`, "utf8")) 
 
 describe("six-wall fixture", () => {
   it("parses against the Scene IR schema", () => {
-    expect(project.schemaVersion).toBe(1);
+    expect(project.schemaVersion).toBe(SCHEMA_VERSION);
     expect(project.walls).toHaveLength(expected.wallCount);
     expect(project.levels).toHaveLength(1);
   });

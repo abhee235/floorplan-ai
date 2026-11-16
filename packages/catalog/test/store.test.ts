@@ -7,6 +7,7 @@ import {
   normaliseMeshRotation,
   type ProductInput,
   ProductSnapshot,
+  SEED_LIBRARY,
   SEED_PRODUCTS,
   validateProduct,
 } from "../src/index.js";
@@ -56,7 +57,45 @@ describe("seed library (ADR-008 D5)", () => {
       ).not.toContain("specs.missing");
       expect(p.verification.status === "verified", p.id).toBe(false); // nothing is claimed verified without a source
     }
-    expect(store.libraries().map((l) => l.id)).toEqual(["seed"]);
+    expect(store.libraries().map((l) => l.id)).toEqual(["generated", "seed"]);
+    // P3-5: the drawn textures come with it, and say where they come from
+    expect(store.textures().map((t) => t.id)).toContain("generated/oak");
+    expect(store.texture("generated/oak")).toMatchObject({ image: "generated:oak", widthMm: 880 });
+    expect(store.textureOrigin("generated/oak")).toMatchObject({ library: "generated", version: "1.0.0" });
+    expect(store.textureOrigin("generated/nothing")).toBeNull();
+    store.close();
+  });
+
+  it("offers a table, a desk and a chair that can be any size, while branded furniture keeps its own", () => {
+    const store = seeded();
+    for (const id of ["generic-table-1800x900", "generic-desk-1600x800", "generic-chair"])
+      expect(store.get(id)?.deformable, id).toBe(true);
+    const branded = store
+      .all()
+      .filter((p) => ["table", "chair"].includes(p.category) && p.make !== "Generic");
+    expect(branded.length).toBeGreaterThan(0);
+    for (const p of branded) expect(p.deformable, p.id).toBe(false);
+    // a search for a table finds the one that can be sized
+    expect(store.search({ query: "table" }).hits.map((h) => h.id)).toContain("generic-table-1800x900");
+    store.close();
+  });
+
+  it("brings an older installed seed up to date, so a data folder in use gets the new products", () => {
+    const store = CatalogStore.open(":memory:");
+    store.installLibrary(
+      {
+        ...SEED_LIBRARY,
+        version: "1.0.0",
+        products: SEED_PRODUCTS.filter(
+          (p) => !["table", "desk", "chair"].includes(p.category) || p.make !== "Generic",
+        ),
+      },
+      AT,
+    );
+    expect(store.get("generic-chair")).toBeNull();
+    expect(ensureSeed(store, AT)).toBe(true);
+    expect(store.get("generic-chair")?.deformable).toBe(true);
+    expect(store.count()).toBe(SEED_PRODUCTS.length);
     store.close();
   });
 });
@@ -128,6 +167,12 @@ describe("search (spec 02 section 5, ADR-008 D4)", () => {
     const tables = store.search({ query: "stack", category: "table" });
     expect(tables.hits.map((h) => h.id)).toEqual(["acme-t1"]);
     expect(store.search({ query: "", category: "table" }).hits.map((h) => h.id)).toEqual(["acme-t1"]);
+    // an empty query browses everything, by category and then name, a page at a time (P3-5 catalog tab)
+    const all = store.search({ query: "" });
+    expect(all.total).toBe(26);
+    expect(all.hits.map((h) => h.category)).toEqual(Array.from({ length: 20 }, () => "chair"));
+    const rest = store.search({ query: "  ", cursor: all.cursor as string });
+    expect(rest.hits.at(-1)?.id).toBe("acme-t1");
     expect(() => store.search({ query: "stack", cursor: "nope" })).toThrow(/bad cursor/);
     store.close();
   });

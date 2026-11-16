@@ -3,7 +3,7 @@
 import { intersectLines, snapToFreeWallEnd } from "@fpv/geometry";
 import type { Join, Point, Project, Wall } from "@fpv/ir";
 import { DEFAULTS, defaultWall, derive, normalizeWall } from "@fpv/ir";
-import { type Changes, type Ctx, levelById, wallById } from "../context.js";
+import { type Changes, type Ctx, levelById, requireTextures, wallById } from "../context.js";
 import { precondition } from "../errors.js";
 import type { PayloadOf } from "../types.js";
 
@@ -173,9 +173,20 @@ function moveEndpoint(p: Project, w: Wall, end: End, to: Point, moved: Set<strin
   for (const o of openingsOn(p, n.id)) changes.update("opening", o.id);
 }
 
-export function wallModify(p: Project, payload: PayloadOf<"wall.modify">, _ctx: Ctx, changes: Changes): Wall {
+/** Wall fields only the plan draws: changing nothing else rebuilds nothing in 3D (W-121, S-011). */
+const PLAN_ONLY: ReadonlySet<string> = new Set(["pattern"]);
+
+export function wallModify(p: Project, payload: PayloadOf<"wall.modify">, ctx: Ctx, changes: Changes): Wall {
   const w = wallById(p, payload.wallId);
   const c = payload.changes;
+  if (c.finishes) requireTextures(p, ctx, [c.finishes.left, c.finishes.right, c.finishes.top], w.id);
+  const keys = Object.keys(c);
+  if (keys.length > 0 && keys.every((k) => PLAN_ONLY.has(k))) {
+    if (c.pattern !== undefined) w.pattern = c.pattern;
+    // neither its neighbours, its openings nor the rooms it bounds depend on how its cut is filled
+    changes.update("wall", w.id, "plan");
+    return w;
+  }
   const moved = new Set<string>([w.id]);
   if (c.start) moveEndpoint(p, w, "start", c.start, moved, changes);
   if (c.end) moveEndpoint(p, w, "end", c.end, moved, changes);
@@ -186,7 +197,9 @@ export function wallModify(p: Project, payload: PayloadOf<"wall.modify">, _ctx: 
   if (c.heightAtEnd !== undefined) w.heightAtEnd = c.heightAtEnd;
   if (c.arcExtent !== undefined) w.arcExtent = c.arcExtent;
   if (c.kind !== undefined) w.kind = c.kind;
+  if (c.pattern !== undefined) w.pattern = c.pattern;
   if (c.finishes !== undefined) w.finishes = c.finishes;
+  if (c.skirting !== undefined) w.skirting = c.skirting;
   if (c.properties !== undefined) w.properties = c.properties;
   Object.assign(w, normalizeWall(w));
   changes.update("wall", w.id);
@@ -242,6 +255,7 @@ export function wallSplit(
   const base = {
     thickness: w.thickness,
     kind: w.kind,
+    pattern: w.pattern,
     finishes: w.finishes,
     skirting: w.skirting,
     properties: { ...w.properties },

@@ -10,7 +10,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { inflateSync } from "node:zlib";
-import { openAICompatible, planReader } from "@fpv/agents";
+import { createProvider, planReader, type WireApi } from "@fpv/agents";
 import {
   decodePngGray,
   type ExpectedPlan,
@@ -69,8 +69,9 @@ if (process.env.FPV_READER_EXTRA_BODY)
 const reader = replay
   ? null
   : planReader(
-      openAICompatible({
+      createProvider({
         id: "eval-reader",
+        ...(process.env.FPV_READER_API ? { api: process.env.FPV_READER_API as WireApi } : {}),
         baseUrl: baseUrl as string,
         model: model as string,
         apiKey: process.env.FPV_READER_API_KEY ?? null,

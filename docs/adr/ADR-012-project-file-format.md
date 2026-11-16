@@ -86,6 +86,48 @@ never in the file (P-052).
 process id while a host has the project open (ADR-005 D6), and is removed on
 close. A stale file is detected by the process id.
 
+### D8. Managing projects from the editor
+
+Every one of D1..D7 is driven by the `project` tool — `new`, `open`, `save`,
+`info` — and until now nothing in the editor could call it, so a session could
+only ever hold the project the command line named. The editor's File menu
+offers New, Open, Open recent, Save and Save as, and each is that tool.
+
+**Choosing a project.** A browser cannot show a native picker for a directory
+on the machine running the host: its file input returns files the *browser*
+chose, with no path the host could open, and File System Access handles belong
+to the tab, not to the host process. So the host lists directories over the
+bridge (`files` with `browse` and `recent`) and the editor draws the listing.
+This adds no reach — `project open` and `project save` already take any path
+the caller names — but it is the difference between choosing and guessing. The
+path is editable outright for a place the listing cannot show.
+
+**Recently opened.** Kept in `recent.json` in the data directory and written by
+the file store itself, because a project is opened and saved from four places
+(the command line, the editor, the MCP adapter, the in-app agent) and a list
+that only some of them updated would be worse than none. Entries whose
+directory has gone are dropped when the list is read, not when it is written:
+a project on a drive that is not plugged in today is still worth remembering.
+
+**Saying whether it is saved.** A save writes the file without moving the
+store's history, so it emits no change and nothing in the change stream says
+it happened. `project.state` carries the history position and the saved
+position, and both sides call it modified when they differ.
+
+**A new project has no file.** `project new` lets go of the open directory.
+Without that the new project inherits the previous one's path and the next
+save writes a blank project over it; that is not a hypothetical, it destroyed
+a project during the first check of this feature. Save on a project with no
+file asks where rather than failing.
+
+**Recovery is a question for the person, not for stderr.** D6's newer-recovery
+detection was reported only on the host's standard error, where nobody editing
+in a browser will see it; work survived a crash and then sat unmentioned. The
+editor asks. What this session's own autosave writes is never offered back:
+`recoveryAt` means unsaved work from an *earlier* session, and nothing else.
+Setting it from the autosave asked the question every sixty seconds and, being
+a modal, tore down whatever menu was open at the time.
+
 ## Alternatives considered
 
 - **Single zip as the working format.** Rejected: zips are not diffable and
@@ -97,6 +139,13 @@ close. A stale file is detected by the process id.
   hash already.
 - **SQLite project files.** Rejected for now: readability and diffs matter
   more than query speed for one project.
+- **A typed path instead of a picker** (D8). Rejected: it puts the whole
+  burden of remembering where things are on the person, and it cannot show
+  what is there. The typed path is kept as the escape hatch beside the
+  listing, not as the only way in.
+- **Letting the browser pick, with the File System Access API** (D8).
+  Rejected: the handle belongs to the tab, the host cannot open it, and the
+  host is the only thing that can write a project.
 
 ## Consequences
 
