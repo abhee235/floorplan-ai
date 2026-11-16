@@ -520,6 +520,7 @@ export class Bridge {
               text: msg.text ?? "",
               ...(msg.attachments ? { attachments: msg.attachments } : {}),
               ...(msg.reliability ? { reliability: msg.reliability } : {}),
+              ...(msg.maxSteps ? { maxSteps: msg.maxSteps } : {}),
             });
             if (started.ok) this.reply(state, msg.id, true, { result: { runId: started.runId } });
             else this.reply(state, msg.id, false, { error: started.error });

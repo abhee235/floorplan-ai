@@ -4,7 +4,7 @@
 // these check the whole path: the body the provider asks for, the pieces it gives back, what it does
 // with a server that refuses the option, and that an abort actually stops it.
 import { describe, expect, it } from "vitest";
-import { openAICompatible, type Provider, ProviderError, type StreamEvent } from "../src/index.js";
+import { openAIChat, type Provider, ProviderError, type StreamEvent } from "../src/index.js";
 
 const frame = (o: unknown) => `data: ${JSON.stringify(o)}\n\n`;
 const text = (delta: string) => frame({ choices: [{ delta: { content: delta } }] });
@@ -30,7 +30,7 @@ function streamingFetch(pieces: string[], options: { status?: number; error?: st
 }
 
 const provider = (fetch: unknown) =>
-  openAICompatible({ id: "test", baseUrl: "http://x/v1", model: "m" }, fetch as never);
+  openAIChat({ id: "test", baseUrl: "http://x/v1", model: "m" }, fetch as never);
 
 /** The provider's stream, or a failed test: a provider without one is the fault being looked for. */
 function streamOf(fetch: unknown, req: Parameters<NonNullable<Provider["stream"]>>[0]) {

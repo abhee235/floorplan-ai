@@ -1,6 +1,6 @@
 # ADR-007: Provider abstraction over OpenAI-compatible APIs; agent runner; Claude Code for development
 
-Status: Proposed
+Status: Proposed; D1 superseded by ADR-029 (2026-09-24)
 Date: 2026-09-14
 Supersedes: section 5.6 of 00-brainstorm.md
 Related: ADR-005 (host), ADR-006 (tools), ADR-011 (plan reader)
@@ -17,6 +17,9 @@ which tools and prompts work on which models.
 ## Decision
 
 ### D1. One provider interface, OpenAI-compatible wire format
+
+**Superseded by ADR-029 on 2026-09-24.** OpenAI refuses reasoning with tools on this wire, and the
+conversation kept in its shape made every other wire a translation of it. Kept below as the record.
 
 ```
 Provider {

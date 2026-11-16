@@ -11,7 +11,7 @@ import {
   afterLoopTool,
   afterTool,
   applyPlan,
-  type ChatMessage,
+  type Message as ChatMessage,
   type Completion,
   type CompletionRequest,
   DEFAULT_PROFILE,
@@ -411,7 +411,7 @@ describe("what a model is shown of its own work", () => {
     await runAgent({ ...base, provider, callTool: async () => renderResult });
     const last = provider.requests.at(-1) as CompletionRequest;
     const images = last.messages.filter(
-      (m) => Array.isArray(m.content) && m.content.some((p) => p.type === "image_url"),
+      (m) => Array.isArray(m.content) && m.content.some((p) => p.type === "image"),
     );
     expect(images).toHaveLength(1); // only the newest picture is still there
     const stale = last.messages.filter(
@@ -428,6 +428,8 @@ describe("what a model is shown of its own work", () => {
     ]);
     await runAgent({ ...base, provider, callTool: async () => renderResult });
     const last = provider.requests.at(-1) as CompletionRequest;
-    expect(last.messages.some((m) => Array.isArray(m.content))).toBe(false);
+    expect(
+      last.messages.some((m) => Array.isArray(m.content) && m.content.some((b) => b.type === "image")),
+    ).toBe(false);
   });
 });

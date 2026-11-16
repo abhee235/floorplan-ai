@@ -5,7 +5,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { openAICompatible, type ProviderConfig, verifierExtractor } from "@fpv/agents";
+import { createProvider, type ProviderConfig, verifierExtractor } from "@fpv/agents";
 import {
   braveSearch,
   type PageFetcher,
@@ -18,6 +18,7 @@ import {
 import { httpPageFetcher } from "@fpv/catalog/store";
 import type { ProductVerifier, WebAccess } from "@fpv/tools";
 import { z } from "zod";
+import { wireSettings } from "./env.js";
 
 const ProviderEntry = z.object({
   baseUrl: z.string().url(),
@@ -39,7 +40,19 @@ const ProviderEntry = z.object({
   /** A cap on one reply's length, so a model that thinks forever does not outlast the timeout. */
   maxTokens: z.number().int().positive().optional(),
   extraBody: z.record(z.unknown()).optional(),
+  /** The wire to speak; absent, the provider's name decides (ADR-029 D2). */
+  api: z.enum(["openai-chat", "openai-responses", "anthropic", "ollama"]).optional(),
+  /** How hard the model is asked to think; absent, the vendor's default (ADR-029 D4). */
+  reasoning: z.enum(["none", "low", "medium", "high"]).optional(),
 });
+
+/** A config.json provider entry's wire settings, as ProviderConfig fields. */
+export function entryWire(entry: z.infer<typeof ProviderEntry>): Pick<ProviderConfig, "api" | "reasoning"> {
+  return {
+    ...(entry.api ? { api: entry.api } : {}),
+    ...(entry.reasoning ? { reasoning: entry.reasoning } : {}),
+  };
+}
 
 const SearchEntry = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("brave"), apiKey: z.string().optional(), apiKeyEnv: z.string().optional() }),
@@ -135,6 +148,7 @@ export function loadHostConfig(options: {
       baseUrl: env.FPV_VERIFIER_BASE_URL,
       model: env.FPV_VERIFIER_MODEL,
       apiKey: env.FPV_VERIFIER_API_KEY ?? null,
+      ...wireSettings(env, "VERIFIER").settings,
     };
   } else if (parsed.roles.verifier) {
     const name = parsed.roles.verifier;
@@ -146,6 +160,7 @@ export function loadHostConfig(options: {
         baseUrl: entry.baseUrl,
         model: entry.model,
         apiKey: keyOf(entry) ?? null,
+        ...entryWire(entry),
         ...(entry.profile ? { profile: entry.profile as NonNullable<ProviderConfig["profile"]> } : {}),
         ...(entry.timeoutMs ? { timeoutMs: entry.timeoutMs } : {}),
         ...(entry.extraBody ? { extraBody: entry.extraBody } : {}),
@@ -217,7 +232,7 @@ export function createVerifier(
     parts.extractor !== undefined
       ? parts.extractor
       : config.model
-        ? verifierExtractor(openAICompatible(config.model))
+        ? verifierExtractor(createProvider(config.model))
         : null;
   const fetcher = parts.fetcher ?? httpPageFetcher({ allowPrivate: config.allowPrivatePages });
   const verifier: ProductVerifier = {

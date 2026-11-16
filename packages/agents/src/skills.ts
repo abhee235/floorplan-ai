@@ -11,8 +11,8 @@
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import type { ToolSpec } from "./llm/provider.js";
 import { READ_SKILL } from "./loop-tools.js";
-import type { ToolSpec } from "./provider.js";
 
 export interface Skill {
   name: string;

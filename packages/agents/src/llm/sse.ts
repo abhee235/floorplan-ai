@@ -7,6 +7,7 @@
 //
 // Nothing here is OpenAI-specific except `decodeChunk`; the framing is the event-stream format itself.
 
+import type { ReasoningBlock } from "./messages.js";
 import type { Usage } from "./provider.js";
 
 /** What one streamed reply is made of, in the order it arrives. */
@@ -14,8 +15,10 @@ export type StreamEvent =
   | { type: "text"; delta: string }
   /** Reasoning a server chooses to show; not every one does, and it is never fed back as an answer. */
   | { type: "reasoning"; delta: string }
+  /** Reasoning to keep and send back to the same wire next turn (ADR-029 D1); the loop never reads it. */
+  | { type: "reasoning_block"; block: ReasoningBlock }
   | { type: "tool_call"; index: number; id?: string; name?: string; argumentsDelta: string }
-  | { type: "finish"; finishReason: string | null; usage: Usage | null };
+  | { type: "finish"; finishReason: string | null; usage: Usage | null; thinkingDropped?: number };
 
 /** The payload a `data:` line carries when the stream is over. */
 export const DONE = "[DONE]";

@@ -1,101 +1,24 @@
-// One provider interface over the OpenAI chat completions wire format (ADR-007 D1). The same code talks
-// to OpenAI, OpenRouter and local servers (Ollama, vLLM, LM Studio) hosting Qwen models. No vendor SDK.
+// The OpenAI-compatible chat completions wire (ADR-029 D2): OpenRouter, vLLM, LM Studio and any server
+// that speaks `/chat/completions`. OpenAI itself is on the Responses wire, because on this one its
+// reasoning models refuse to think while they call tools.
+//
+// The conversation arrives in our own blocks and is translated here: a tool_use block is a tool call on
+// the assistant message, a tool_result message is a `tool` message, an image block is an `image_url`
+// part, and reasoning blocks are dropped, because this wire has nowhere to put them.
 
-import { decodeChunk, type StreamEvent, sseData } from "./sse.js";
-
-export interface ProviderProfile {
-  vision: boolean;
-  toolCalls: boolean;
-  toolReliability: "high" | "medium" | "low";
-  contextTokens: number;
-  /** Ask for response_format json_object; never relied upon (ADR-007 D2). */
-  jsonMode: boolean;
-  /**
-   * Whether replies may be streamed. Optional, and absent means yes: a profile written before there
-   * was any streaming means "stream if you can", not "never". A server that cannot, or a run that
-   * wants one whole answer, sets it false and the loop asks for a complete reply instead.
-   */
-  streaming?: boolean;
-}
-
-export const DEFAULT_PROFILE: ProviderProfile = {
-  vision: false,
-  toolCalls: true,
-  toolReliability: "medium",
-  contextTokens: 32_000,
-  jsonMode: false,
-  streaming: true,
-};
-
-export type ContentPart = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
-
-export interface ToolCall {
-  id: string;
-  name: string;
-  /** The raw JSON string the model produced; the runner parses and validates it. */
-  arguments: string;
-}
-
-export interface ChatMessage {
-  role: "system" | "user" | "assistant" | "tool";
-  content: string | ContentPart[] | null;
-  toolCalls?: ToolCall[];
-  toolCallId?: string;
-}
-
-export interface ToolSpec {
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;
-}
-
-export interface CompletionRequest {
-  system?: string;
-  messages: ChatMessage[];
-  tools?: ToolSpec[];
-  temperature?: number;
-  maxTokens?: number;
-  json?: boolean;
-  signal?: AbortSignal;
-}
-
-export interface Usage {
-  promptTokens: number;
-  completionTokens: number;
-}
-
-export interface Completion {
-  text: string | null;
-  toolCalls: ToolCall[];
-  finishReason: string | null;
-  usage: Usage;
-  raw: unknown;
-}
-
-export interface Provider {
-  readonly id: string;
-  readonly model: string;
-  readonly profile: ProviderProfile;
-  /** Request changes the provider learned from the server's refusals, e.g. "max_tokens is sent as max_completion_tokens". */
-  readonly adaptations?: readonly string[];
-  /**
-   * Settle anything that has to be asked of the server before the profile can be trusted.
-   *
-   * Only `providerFor` has one: it decides which wire an address speaks, and on Ollama it asks the
-   * model what context it was built with, so until that has happened `profile.contextTokens` is
-   * still the default. A caller that budgets against the profile has to wait for this, and one that
-   * does not can ignore it.
-   */
-  ready?(): Promise<void>;
-  complete(req: CompletionRequest): Promise<Completion>;
-  /**
-   * The same request, answered in pieces as the model produces them (ADR-022).
-   *
-   * Optional so a provider written for something else still satisfies this interface; the loop falls
-   * back to `complete` when it is missing or when the profile says not to stream.
-   */
-  stream?(req: CompletionRequest): AsyncIterable<StreamEvent>;
-}
+import { type Message, pairedCalls, textOf, toolResultOf, toolUsesOf } from "./messages.js";
+import {
+  type Completion,
+  type CompletionRequest,
+  DEFAULT_PROFILE,
+  type FetchFn,
+  type Provider,
+  type ProviderConfig,
+  ProviderError,
+  reasoningOf,
+  requestSignal,
+} from "./provider.js";
+import { decodeChunk, sseData } from "./sse.js";
 
 type QuirkKey = "maxCompletionTokens" | "noTemperature" | "reasoningNone" | "noStreamOptions";
 
@@ -111,7 +34,7 @@ export function parameterQuirk(errorText: string): { key: QuirkKey; note: string
   if (t.includes("reasoning_effort") && t.includes("none") && (t.includes("tool") || t.includes("function")))
     return {
       key: "reasoningNone",
-      note: 'this server will not think while it calls tools, so reasoning_effort "none" is sent with them, whatever the configuration asked for',
+      note: 'this server will not think while it calls tools, so reasoning_effort "none" is sent with them, whatever the configuration asked for; on OpenAI use the Responses wire (FPV_<ROLE>_API=openai-responses)',
     };
   if (t.includes("stream_options"))
     return { key: "noStreamOptions", note: "stream_options is left off, so usage is not reported" };
@@ -123,73 +46,65 @@ export function parameterQuirk(errorText: string): { key: QuirkKey; note: string
   return null;
 }
 
-export interface ProviderConfig {
-  id: string;
-  /** e.g. https://openrouter.ai/api/v1, http://127.0.0.1:11434/v1 */
-  baseUrl: string;
-  apiKey?: string | null;
-  model: string;
-  profile?: Partial<ProviderProfile>;
-  timeoutMs?: number;
-  /**
-   * A cap on what one reply may generate, when the caller has not named one.
-   *
-   * The reason is the clock, not the bill. A reasoning model left to itself will think for as long
-   * as it likes, and on local hardware one turn can outlast the request timeout, which ends the run
-   * with nothing to show. A cap turns that into a short reply the loop can carry on from. It is sent
-   * as the wire's own field, so the quirk that renames it is honoured.
-   */
-  maxTokens?: number;
-  /**
-   * The sampling temperature when a request does not name one. Absent is 0, greedy, which is
-   * reproducible and what every eval here was measured at. Qwen's own guidance is 0.7 with thinking
-   * off: greedy decoding, it says, degrades output and can repeat without end, and a live architect
-   * did exactly that -- one design, word for word, six times.
-   */
-  temperature?: number;
-  /** Extra top-level request fields a server understands (for example a reasoning switch). */
-  extraBody?: Record<string, unknown>;
-  headers?: Record<string, string>;
-}
-
-export class ProviderError extends Error {
-  constructor(
-    readonly provider: string,
-    readonly status: number | null,
-    message: string,
-  ) {
-    super(`${provider}: ${message}`);
-    this.name = "ProviderError";
-  }
-}
-
-type FetchFn = (input: string, init?: RequestInit) => Promise<Response>;
+type WirePart = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
 
 interface WireMessage {
   role: string;
-  content: string | ContentPart[] | null;
+  content: string | WirePart[] | null;
   tool_calls?: { id: string; type: "function"; function: { name: string; arguments: string } }[];
   tool_call_id?: string;
 }
 
-function toWire(m: ChatMessage): WireMessage {
-  const w: WireMessage = { role: m.role, content: m.content };
-  if (m.toolCalls?.length)
-    w.tool_calls = m.toolCalls.map((c) => ({
-      id: c.id,
-      type: "function",
-      function: { name: c.name, arguments: c.arguments },
-    }));
-  if (m.toolCallId) w.tool_call_id = m.toolCallId;
-  return w;
+/** Our conversation as chat messages. Exported for the wire-parity tests. */
+export function toChatMessages(messages: readonly Message[], system?: string): WireMessage[] {
+  const out: WireMessage[] = [];
+  if (system) out.push({ role: "system", content: system });
+  for (const m of pairedCalls(messages)) {
+    const result = toolResultOf(m);
+    if (result) {
+      out.push({ role: "tool", tool_call_id: result.toolUseId, content: result.content });
+      continue;
+    }
+    if (m.role === "assistant") {
+      const text = textOf(m);
+      const calls = toolUsesOf(m);
+      out.push({
+        role: "assistant",
+        content: text.trim() ? text : null,
+        ...(calls.length
+          ? {
+              tool_calls: calls.map((c) => ({
+                id: c.id,
+                type: "function" as const,
+                function: { name: c.name, arguments: c.arguments },
+              })),
+            }
+          : {}),
+      });
+      continue;
+    }
+    if (typeof m.content === "string") {
+      out.push({ role: "user", content: m.content });
+      continue;
+    }
+    const parts: WirePart[] = [];
+    for (const b of m.content) {
+      if (b.type === "text") parts.push({ type: "text", text: b.text });
+      else if (b.type === "image") parts.push({ type: "image_url", image_url: { url: b.url } });
+      // A result inside a mixed user message cannot happen by the rules in messages.ts; if it ever
+      // did, it goes as its own tool message rather than being lost.
+      else if (b.type === "tool_result")
+        out.push({ role: "tool", tool_call_id: b.toolUseId, content: b.content });
+    }
+    if (parts.length) out.push({ role: "user", content: parts });
+  }
+  return out;
 }
 
-export function openAICompatible(
-  config: ProviderConfig,
-  fetchFn: FetchFn = globalThis.fetch as FetchFn,
-): Provider {
+export function openAIChat(config: ProviderConfig, fetchFn: FetchFn = globalThis.fetch as FetchFn): Provider {
   const profile = { ...DEFAULT_PROFILE, ...config.profile };
   const url = `${config.baseUrl.replace(/\/+$/, "")}/chat/completions`;
+  const reasoning = reasoningOf(config);
   // learned from refusals and kept for the provider's lifetime, so only the first request pays the extra round trip
   const quirks: Record<QuirkKey, boolean> = {
     maxCompletionTokens: false,
@@ -201,17 +116,15 @@ export function openAICompatible(
 
   /** The request body, with whatever this server has already refused sent the way it wants it. */
   const buildBody = (req: CompletionRequest, streaming: boolean): Record<string, unknown> => {
-    const messages: WireMessage[] = [];
-    if (req.system) messages.push({ role: "system", content: req.system });
-    messages.push(...req.messages.map(toWire));
     const body: Record<string, unknown> = {
       model: config.model,
-      messages,
+      messages: toChatMessages(req.messages, req.system),
       ...(quirks.noTemperature ? {} : { temperature: req.temperature ?? config.temperature ?? 0 }),
       stream: streaming,
       // Without this a streamed reply reports no tokens at all, and the context meter has nothing to
       // show; servers that refuse the option are learnt from their refusal like any other quirk.
       ...(streaming && !quirks.noStreamOptions ? { stream_options: { include_usage: true } } : {}),
+      ...(reasoning ? { reasoning_effort: reasoning } : {}),
       ...config.extraBody,
     };
     const cap = req.maxTokens ?? config.maxTokens;
@@ -239,8 +152,7 @@ export function openAICompatible(
    */
   const send = async (req: CompletionRequest, streaming: boolean): Promise<Response> => {
     for (let attempt = 0; ; attempt += 1) {
-      const timer = AbortSignal.timeout(config.timeoutMs ?? 120_000);
-      const signal = req.signal ? AbortSignal.any([req.signal, timer]) : timer;
+      const { signal, failure } = requestSignal(config, req);
       let res: Response;
       try {
         res = await fetchFn(url, {
@@ -254,19 +166,7 @@ export function openAICompatible(
           signal,
         });
       } catch (e) {
-        // A reply that outlasts the timeout is not a broken server: it is a local model still
-        // writing. Said as a timeout, with the seconds, so the loop asks for a shorter reply
-        // instead of ending the run on what reads as an unknown network fault (ADR-028 D11).
-        const aborted = timer.aborted && !req.signal?.aborted;
-        throw new ProviderError(
-          config.id,
-          null,
-          aborted
-            ? `the request timed out after ${Math.round((config.timeoutMs ?? 120_000) / 1000)}s while the model was still writing`
-            : e instanceof Error
-              ? e.message
-              : String(e),
-        );
+        throw failure(e);
       }
       if (res.ok) return res;
       const text = await res.text();
@@ -282,6 +182,7 @@ export function openAICompatible(
   return {
     id: config.id,
     model: config.model,
+    wire: "openai-chat" as const,
     profile,
     adaptations,
     async complete(req) {
@@ -317,7 +218,7 @@ export function openAICompatible(
           completionTokens: raw.usage?.completion_tokens ?? 0,
         },
         raw,
-      };
+      } satisfies Completion;
     },
     async *stream(req) {
       const res = await send(req, true);

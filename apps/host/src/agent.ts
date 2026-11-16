@@ -19,8 +19,9 @@ import {
 } from "@fpv/agents";
 import type { ToolReliability } from "@fpv/tools";
 import { NEEDS_SIGHT, NEEDS_WEB } from "@fpv/tools";
+import { wireSettings } from "./env.js";
 import type { Session } from "./session.js";
-import { HostConfigFile } from "./verifier.js";
+import { entryWire, HostConfigFile } from "./verifier.js";
 
 /** A tool-calling turn on a local model can take minutes. */
 /**
@@ -64,19 +65,27 @@ export function loadAgentConfig(options: { dataDir: string; env?: NodeJS.Process
     const reliability = reliabilityOf(env.FPV_AGENT_RELIABILITY);
     if (env.FPV_AGENT_RELIABILITY && !reliability)
       notes.push("FPV_AGENT_RELIABILITY must be high, medium or low; medium is used");
+    const wire = wireSettings(env, "AGENT");
+    notes.push(...wire.notes);
     return {
       model: {
         id: "env-agent",
         baseUrl: env.FPV_AGENT_BASE_URL,
         model: env.FPV_AGENT_MODEL,
         apiKey: env.FPV_AGENT_API_KEY ?? null,
+        ...wire.settings,
         profile: {
           toolCalls: true,
           toolReliability: reliability ?? "medium",
           // Whether the model can be shown a picture. Ollama is asked; every other server has no way
           // to say, so it is said here. Unsaid is no, and a model that cannot see is never offered
           // preview_design or look_at at all (ADR-028 D11).
-          ...(sees === undefined ? {} : { vision: sees }),
+          // Every current Claude model can see, so there it is yes unless said otherwise.
+          ...(sees === undefined
+            ? wire.settings.api === "anthropic"
+              ? { vision: true }
+              : {}
+            : { vision: sees }),
           // Named here, nothing is probed and nothing is capped: a number a person typed is a
           // decision, and the app's business is to send it, not to argue. On Ollama it becomes the
           // context the model is loaded with, which is the one setting that decides whether a model
@@ -115,6 +124,7 @@ export function loadAgentConfig(options: { dataDir: string; env?: NodeJS.Process
       baseUrl: entry.baseUrl,
       model: entry.model,
       apiKey: apiKey ?? null,
+      ...entryWire(entry),
       ...(entry.profile ? { profile: entry.profile as NonNullable<ProviderConfig["profile"]> } : {}),
       timeoutMs: entry.timeoutMs ?? AGENT_TIMEOUT_MS,
       ...(entry.maxTokens ? { maxTokens: entry.maxTokens } : {}),
@@ -214,7 +224,9 @@ export async function runAgentTask(
 export function describeEvent(event: AgentEvent): string | null {
   switch (event.type) {
     case "reply":
-      return `step ${event.step}: ${event.toolCalls.length ? event.toolCalls.map((c) => c.name).join(", ") : "answer"} (${Math.round(event.durationMs / 100) / 10} s, ${event.usage.promptTokens}+${event.usage.completionTokens} tokens)`;
+      return `step ${event.step}: ${event.toolCalls.length ? event.toolCalls.map((c) => c.name).join(", ") : "answer"} (${Math.round(event.durationMs / 100) / 10} s, ${event.usage.promptTokens}+${event.usage.completionTokens} tokens${
+        event.usage.cacheReadTokens !== undefined ? `, ${event.usage.cacheReadTokens} cached` : ""
+      }${event.thinkingDropped ? `, ${event.thinkingDropped} thinking dropped` : ""})`;
     case "tool.finished":
       return event.ok
         ? null
@@ -226,7 +238,7 @@ export function describeEvent(event: AgentEvent): string | null {
     case "question":
       return `  asking: ${event.request.question}`;
     case "compacted":
-      return `compacted: ${event.before} -> ${event.after} tokens`;
+      return `compacted (${event.label}${event.forced ? ", forced" : ""}): ${event.before} -> ${event.after} tokens`;
     case "reminder":
       return `  ${event.gate} gate: ${event.text.slice(0, 80)}`;
     case "warning":

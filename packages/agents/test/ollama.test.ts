@@ -14,6 +14,7 @@ import {
   probeModel,
   providerFor,
   type StreamEvent,
+  toolResultMessage,
 } from "../src/index.js";
 
 /** A fetch that answers each address from a table and records what it was asked. */
@@ -183,9 +184,10 @@ describe("a whole reply on the native wire", () => {
     const { fetch, seen } = fakeFetch({ "/api/chat": reply });
     await ollamaNative(config, fetch as never).complete({
       messages: [
-        { role: "assistant", content: null, toolCalls: [{ id: "a", name: "t", arguments: '{"x":1}' }] },
-        { role: "assistant", content: null, toolCalls: [{ id: "b", name: "t", arguments: "{not json" }] },
-        { role: "tool", content: "ok", toolCallId: "a" },
+        { role: "assistant", content: [{ type: "tool_use", id: "a", name: "t", arguments: '{"x":1}' }] },
+        { role: "assistant", content: [{ type: "tool_use", id: "b", name: "t", arguments: "{not json" }] },
+        toolResultMessage("a", "ok"),
+        toolResultMessage("b", "ok"),
       ],
     });
     const messages = (seen[0]?.body as { messages: Record<string, unknown>[] }).messages;
@@ -203,7 +205,7 @@ describe("a whole reply on the native wire", () => {
           role: "user",
           content: [
             { type: "text", text: "what is this" },
-            { type: "image_url", image_url: { url: "data:image/png;base64,AAAA" } },
+            { type: "image", url: "data:image/png;base64,AAAA" },
           ],
         },
       ],

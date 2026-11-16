@@ -10,7 +10,7 @@
 // Cascade informed this pair -- a plan tool with invariants, and a question that parks the loop on a
 // promise; no code was taken from it.
 
-import type { ToolSpec } from "./provider.js";
+import type { ToolSpec } from "./llm/provider.js";
 
 export type PlanStatus = "pending" | "doing" | "done" | "skipped";
 

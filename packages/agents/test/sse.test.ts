@@ -4,7 +4,7 @@
 // that matters most: a parser without a tail buffer passes every hand-written test and then drops
 // half a tool call the first time the network is slow.
 import { describe, expect, it } from "vitest";
-import { DONE, decodeChunk, sseData, sseReader } from "../src/sse.js";
+import { DONE, decodeChunk, sseData, sseReader } from "../src/llm/sse.js";
 
 const frame = (o: unknown) => `data: ${JSON.stringify(o)}\n\n`;
 const bytes = (s: string) => new TextEncoder().encode(s);

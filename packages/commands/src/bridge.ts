@@ -128,6 +128,8 @@ export const ClientMessage = z.discriminatedUnion("type", [
       .max(3)
       .optional(),
     reliability: z.enum(["high", "medium", "low"]).optional(),
+    /** For `start`: at most this many steps, below the host's own limit; an eval caps its spend with it. */
+    maxSteps: z.number().int().min(1).max(1000).optional(),
     questionId: z.string().optional(),
     answers: z.record(z.string()).optional(),
     /** For `history`: the sequence number a tab already has. */

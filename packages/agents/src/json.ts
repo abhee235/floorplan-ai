@@ -1,7 +1,8 @@
 // Structured output is ours, not the vendor's (ADR-007 D2): ask for JSON with the schema in the prompt,
 // parse and validate it ourselves, feed the error back, and give up after three attempts.
 import type { ZodType, ZodTypeDef } from "zod";
-import type { ChatMessage, Provider, Usage } from "./provider.js";
+import type { Message } from "./llm/messages.js";
+import type { Provider, Usage } from "./llm/provider.js";
 
 export class JsonOutputError extends Error {
   constructor(
@@ -84,13 +85,13 @@ export async function completeJson<T>(
   options: CompleteJsonOptions<T>,
 ): Promise<JsonResult<T>> {
   const maxAttempts = options.maxAttempts ?? 3;
-  const first: ChatMessage["content"] = options.images?.length
+  const first: Message["content"] = options.images?.length
     ? [
         { type: "text", text: options.prompt },
-        ...options.images.map((url) => ({ type: "image_url" as const, image_url: { url } })),
+        ...options.images.map((url) => ({ type: "image" as const, url })),
       ]
     : options.prompt;
-  const messages: ChatMessage[] = [{ role: "user", content: first }];
+  const messages: Message[] = [{ role: "user", content: first }];
   const usage: Usage = { promptTokens: 0, completionTokens: 0 };
   let lastText: string | null = null;
   let lastError = "no reply";

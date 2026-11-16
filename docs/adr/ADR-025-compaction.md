@@ -1,6 +1,6 @@
 # ADR-025: Compaction: what to drop when the conversation outgrows the window
 
-Status: Proposed
+Status: Proposed; D1 to D4 and D8 superseded by ADR-031 (2026-09-24), which ports Cascade's context management
 Date: 2026-09-20
 Related: ADR-007 D1 (provider, and the two wires), ADR-022 D8 (context is a
 budget), ADR-024 (how the agent gets better)

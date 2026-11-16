@@ -16,7 +16,7 @@ import {
   type SubagentResult,
   type ToolReliability,
 } from "@fpv/tools";
-import type { Provider } from "../provider.js";
+import type { Provider } from "../llm/provider.js";
 import type { AgentEvent } from "../runner.js";
 import { runAgent } from "../runner.js";
 import type { Skill } from "../skills.js";

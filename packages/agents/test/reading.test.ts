@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 import {
   type AgentEvent,
   applyNotes,
-  type ChatMessage,
+  type Message as ChatMessage,
   type Completion,
   type CompletionRequest,
   DEFAULT_PROFILE,
@@ -277,10 +277,10 @@ describe("a picture on demand (ADR-027 D3)", () => {
     });
     const lifted = provider.requests[1]?.messages.at(-1);
     expect(lifted?.role).toBe("user");
-    const parts = lifted?.content as { type: string; text?: string; image_url?: { url: string } }[];
+    const parts = lifted?.content as { type: string; text?: string; url?: string }[];
     expect(parts[0]?.text).toContain("as.png, which you asked to look at: what is it?");
     expect(parts[0]?.text).toContain("write what it shows into notes");
-    expect(parts[1]?.image_url?.url).toBe("data:image/jpeg;base64,AAAA");
+    expect(parts[1]?.url).toBe("data:image/jpeg;base64,AAAA");
   });
 });
 

@@ -4,7 +4,7 @@
 
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadSkills, providerFor } from "@fpv/agents";
+import { createProvider, loadSkills } from "@fpv/agents";
 import { CORE_RULES, ensureSeed } from "@fpv/catalog";
 import { CatalogStore } from "@fpv/catalog/store";
 import { PROTOCOL_VERSION } from "@fpv/commands";
@@ -287,7 +287,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
 `);
     const agent = new AgentRuns(workspace, {
       dataDir: catalog.dir,
-      provider: agentConfig.model ? providerFor(agentConfig.model) : null,
+      provider: agentConfig.model ? createProvider(agentConfig.model) : null,
       skills,
       note: agentConfig.model
         ? // Whether it can be shown a picture is said here, because it decides whether the architect
@@ -335,7 +335,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
       );
       process.exitCode = 2;
     } else {
-      const provider = providerFor(agentConfig.model);
+      const provider = createProvider(agentConfig.model);
       process.stderr.write(`floorplan-ai agent: ${provider.model} at ${agentConfig.model.baseUrl}\n`);
       const { run, transcriptPath } = await runAgentTask(session, provider, args.agent, {
         transcriptDir: join(catalog.dir, "transcripts"),

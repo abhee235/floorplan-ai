@@ -2,7 +2,7 @@
 // reliability profile (ADR-006 D6) as JSON Schema, and the runner calling the registry in-process.
 import type { Registry, ToolReliability } from "@fpv/tools";
 import { zodToJsonSchema } from "zod-to-json-schema";
-import type { Provider, ToolSpec } from "../provider.js";
+import type { Provider, ToolSpec } from "../llm/provider.js";
 import { type AgentOptions, type AgentRun, runAgent } from "../runner.js";
 import {
   asking,

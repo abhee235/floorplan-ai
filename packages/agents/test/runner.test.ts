@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { createSession } from "../../../apps/host/src/session.js";
 import {
   type AgentEvent,
-  type ChatMessage,
+  type Message as ChatMessage,
   type Completion,
   type CompletionRequest,
   type Provider,
@@ -15,6 +15,7 @@ import {
   runAgent,
   type ToolCall,
   toolCallsInText,
+  toolResultOf,
   toolResultText,
 } from "../src/index.js";
 
@@ -99,7 +100,9 @@ describe("agent runner (ADR-007 D3)", () => {
     // greedy is the provider's default, not the runner's to force; it names one only after a repeat
     expect(second.temperature).toBeUndefined();
     expect(second.system).toBe("sys");
-    expect(second.messages.map((m) => [m.role, m.toolCallId ?? null])).toEqual([
+    expect(
+      second.messages.map((m) => [toolResultOf(m) ? "tool" : m.role, toolResultOf(m)?.toolUseId ?? null]),
+    ).toEqual([
       ["user", null],
       ["assistant", null],
       ["tool", "a"],
@@ -155,7 +158,10 @@ describe("agent runner (ADR-007 D3)", () => {
     expect(run).toMatchObject({ reason: "done", toolCalls: 2, failedCalls: 1 });
     expect(seen).toEqual([["validate", {}]]);
     const toolMsg = (provider.requests[1] as CompletionRequest).messages.at(-1) as ChatMessage;
-    expect(JSON.parse(toolMsg.content as string)).toMatchObject({ ok: false, error: { code: "args.json" } });
+    expect(JSON.parse(toolResultOf(toolMsg)?.content ?? "")).toMatchObject({
+      ok: false,
+      error: { code: "args.json" },
+    });
     expect(run.events.find((e) => e.type === "reply" && e.fromText)).toBeDefined();
   });
 

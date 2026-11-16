@@ -13,10 +13,16 @@ import {
   architectSystem,
   type Completion,
   type CompletionRequest,
+  type Message,
   type Provider,
   runArchitect,
   type ToolCall,
+  textOf,
+  toolResultOf,
 } from "../src/index.js";
+
+/** What the newest message says: a result's text, or the words of a person's turn. */
+const words = (m: Message | undefined): string => (m ? (toolResultOf(m)?.content ?? textOf(m)) : "");
 
 const usage = { promptTokens: 10, completionTokens: 5 };
 const reply = (text: string | null, toolCalls: ToolCall[] = []): Completion => ({
@@ -153,7 +159,7 @@ describe("the architect's reach", () => {
     const provider = scripted([
       () => reply(null, [call("create_walls", { levelId: "level_000000", points: [], closed: true })]),
       (req) => {
-        seen.push(String(req.messages.at(-1)?.content));
+        seen.push(words(req.messages.at(-1)));
         return reply(null, [call("check_design", { design: GOOD })]);
       },
       () => reply("Designed a studio. designId is in the check."),
@@ -249,7 +255,7 @@ describe("when it cannot get there", () => {
       () => reply(null, [call("check_design", { design: BAD })]),
       () => reply(null, [call("check_design", { design: BAD }, "again")]),
       (req) => {
-        seen.push(String(req.messages.at(-1)?.content));
+        seen.push(words(req.messages.at(-1)));
         return reply("Giving up: the bedroom cannot fit.");
       },
     ]);
@@ -288,14 +294,7 @@ describe("the architect draws (ADR-028 D1, D9)", () => {
 });
 
 describe("the look gate (ADR-028 D11)", () => {
-  const lastText = (req: CompletionRequest): string => {
-    const content = req.messages.at(-1)?.content;
-    return typeof content === "string"
-      ? content
-      : Array.isArray(content)
-        ? content.map((p) => (p.type === "text" ? p.text : "")).join(" ")
-        : "";
-  };
+  const lastText = (req: CompletionRequest): string => words(req.messages.at(-1));
   const idIn = (text: string) => /design_[0-9a-z]+/.exec(text)?.[0] ?? "design_?";
 
   it("has a model that can see look at the design and judge it before it may answer", async () => {
@@ -311,7 +310,7 @@ describe("the look gate (ADR-028 D11)", () => {
       },
       (req) => {
         pictured = req.messages.some(
-          (m) => Array.isArray(m.content) && m.content.some((p) => p.type === "image_url"),
+          (m) => Array.isArray(m.content) && m.content.some((p) => p.type === "image"),
         );
         told.push(lastText(req));
         return reply(
@@ -391,8 +390,8 @@ describe("an answer with no design behind it (ADR-028 D11)", () => {
     const provider = scripted([
       () => reply(null, [call("get_scene", { detail: "summary" })]),
       (req) => {
-        const c = req.messages.at(-1)?.content;
-        if (typeof c === "string" && c.includes("not checked a design")) told.push(c);
+        const c = words(req.messages.at(-1));
+        if (c.includes("not checked a design")) told.push(c);
         return reply("I have read the skill and will write my notes.");
       },
     ]);
@@ -420,11 +419,11 @@ describe("a design sent whole, twice (ADR-028 D10)", () => {
       () => reply(null, [call("check_design", { design: GOOD }, "c1")]),
       () => reply(null, [call("check_design", { design: { ...GOOD, brief: "the same rooms again" } }, "c2")]),
       (req) => {
-        told.push(String(req.messages.at(-1)?.content));
+        told.push(words(req.messages.at(-1)));
         return reply(null, [call("check_design", { design: other }, "c3")]);
       },
       (req) => {
-        told.push(String(req.messages.at(-1)?.content));
+        told.push(words(req.messages.at(-1)));
         return reply("LOOK design\n- Verdict: DONE");
       },
     ]);

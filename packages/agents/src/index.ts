@@ -1,24 +1,46 @@
 // @fpv/agents: Provider interface, agent runner, roles, prompts (ADR-007)
 export const PACKAGE = "agents" as const;
+export { DEFAULT_SHIELD, type ForNextRunOptions, forNextRun } from "./compact.js";
 export {
-  type Budget,
-  type CompactionOptions,
-  type CompactionResult,
-  compact,
-  compactionTarget,
-  conversationBudget,
-  conversationTokens,
-  DEFAULT_GROWTH_PER_STEP,
-  DEFAULT_HEADROOM_STEPS,
-  DEFAULT_SHIELD,
+  ACTION_TOOLS,
+  COMPACTABLE_TOOLS,
+  type CompactionKind,
+  collapseSuperseded,
+  compactionKindLabel,
+  isClearedContent,
+  maskObservations,
+  microcompactToolResults,
+  OBSERVATION_TOOLS,
+  shieldedResultIds,
+  snipLargeToolInputs,
+  unconsumedReadIds,
+} from "./context/compactionLayers.js";
+export {
+  ALL_COMPACTION_LAYERS,
+  AUTOCOMPACT_BUFFER,
+  type CompactionLayer,
+  type CompactionPlan,
+  constrainedAutoThreshold,
+  DEFAULT_MAX_OUTPUT_TOKENS,
+  HARD_BUFFER,
+  KEEP_RECENT_RESULTS,
+  planCompaction,
+  resolveCompactionPlan,
+  SUMMARY_OUTPUT_RESERVE,
+  WARN_BUFFER,
+} from "./context/compactionPlan.js";
+export {
+  type CompactDeps,
+  compactIfNeeded,
   estimateTokens,
-  forNextRun,
-  MIN_SHIELD,
-  messageTokens,
-  needsCompaction,
-  outputRoom,
-  REPLY_RESERVE,
-} from "./compact.js";
+  estimateTokensWithThinking,
+  isOverflowError,
+  measureWireOverhead,
+  olderBoundary,
+  stripAnalysisBlock,
+  turnAlignedBoundary,
+} from "./context/compactor.js";
+export { contextWindowForModel, type WindowTier, windowTier } from "./context/windows.js";
 export {
   afterGate,
   afterLoopTool,
@@ -32,6 +54,14 @@ export {
   VERIFY_GATE_FIRINGS,
 } from "./gates.js";
 export {
+  builtCounts,
+  COPY_GATE_FIRINGS,
+  copyReminder,
+  type Inventory,
+  inventoryFrom,
+  inventoryGap,
+} from "./inventory.js";
+export {
   type CompleteJsonOptions,
   completeJson,
   extractJson,
@@ -39,6 +69,61 @@ export {
   type JsonResult,
   stripThinking,
 } from "./json.js";
+export {
+  ANTHROPIC_WIRE,
+  anthropicMessages,
+  claudeReachable,
+  thinksAdaptively,
+  toClaudeMessages,
+} from "./llm/anthropic.js";
+export { createProvider, providerFor, wireForName } from "./llm/factory.js";
+export {
+  type Block,
+  blocksOf,
+  dataUrl,
+  fromLegacyMessages,
+  type ImageBlock,
+  imagesOf,
+  type Message,
+  pairedCalls,
+  type ReasoningBlock,
+  type TextBlock,
+  type ToolResultBlock,
+  type ToolUseBlock,
+  textOf,
+  toolResultMessage,
+  toolResultOf,
+  toolUsesOf,
+  withResultText,
+} from "./llm/messages.js";
+export {
+  ARCH_CONTEXT_CAP,
+  looksLikeOllama,
+  type ModelLimits,
+  ollamaNative,
+  ollamaRoot,
+  probeModel,
+} from "./llm/ollama.js";
+export { openAIChat, parameterQuirk, toChatMessages } from "./llm/openai-chat.js";
+export { openAIResponses, RESPONSES_WIRE, toResponsesInput } from "./llm/openai-responses.js";
+export {
+  type Completion,
+  type CompletionRequest,
+  DEFAULT_PROFILE,
+  type FetchFn,
+  type ModelProvider,
+  type Provider,
+  type ProviderConfig,
+  ProviderError,
+  type ProviderProfile,
+  type ReasoningEffort,
+  reasoningOf,
+  type ToolCall,
+  type ToolSpec,
+  type Usage,
+  type WireApi,
+} from "./llm/provider.js";
+export { DONE, decodeChunk, type StreamEvent, sseData, sseReader } from "./llm/sse.js";
 export {
   ASK_USER,
   ASK_USER_SPEC,
@@ -66,30 +151,6 @@ export {
   planIsOpen,
   READ_SKILL,
 } from "./loop-tools.js";
-export {
-  ARCH_CONTEXT_CAP,
-  looksLikeOllama,
-  type ModelLimits,
-  ollamaNative,
-  ollamaRoot,
-  probeModel,
-} from "./ollama.js";
-export {
-  type ChatMessage,
-  type Completion,
-  type CompletionRequest,
-  type ContentPart,
-  DEFAULT_PROFILE,
-  openAICompatible,
-  type Provider,
-  type ProviderConfig,
-  ProviderError,
-  type ProviderProfile,
-  parameterQuirk,
-  type ToolCall,
-  type ToolSpec,
-  type Usage,
-} from "./provider.js";
 export {
   ARCHITECT_TOOLS,
   type ArchitectOptions,
@@ -142,5 +203,3 @@ export {
   type SkillIndexEntry,
   skillsIndex,
 } from "./skills.js";
-export { DONE, decodeChunk, type StreamEvent, sseData, sseReader } from "./sse.js";
-export { providerFor } from "./wire.js";

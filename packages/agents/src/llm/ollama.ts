@@ -1,4 +1,4 @@
-// Ollama's own wire, behind the same Provider interface (ADR-007 D1, amended 2026-09-20).
+// Ollama's own wire (ADR-007 D1 as amended 2026-09-20; one of the adapters of ADR-029 D2).
 //
 // The one thing this buys that the OpenAI-compatible wire cannot: the context a model is loaded
 // with. That format has no field for it, so Ollama's compatibility layer has nothing to map and
@@ -11,20 +11,19 @@
 // all, images ride beside the text rather than inside it, thinking has its own field, and the token
 // counts are named after what the server did rather than after the request.
 
+import { dataUrl, type Message, pairedCalls, textOf, toolResultOf, toolUsesOf } from "./messages.js";
 import {
-  type ChatMessage,
   type Completion,
   type CompletionRequest,
-  type ContentPart,
   DEFAULT_PROFILE,
+  type FetchFn,
   type Provider,
   type ProviderConfig,
   ProviderError,
+  reasoningOf,
   type ToolCall,
 } from "./provider.js";
 import type { StreamEvent } from "./sse.js";
-
-type FetchFn = (input: string, init?: RequestInit) => Promise<Response>;
 
 /**
  * The server's own address, given the OpenAI-compatible one we are configured with.
@@ -127,33 +126,25 @@ interface NativeMessage {
   tool_calls?: { function: { name: string; arguments: unknown } }[];
 }
 
-const DATA_URL = /^data:[^;]+;base64,/;
-
-/** Text and images travel in separate fields here, not as parts of one content array. */
-function toNative(m: ChatMessage): NativeMessage {
-  const out: NativeMessage = { role: m.role, content: "" };
-  if (typeof m.content === "string") out.content = m.content;
-  else if (Array.isArray(m.content)) {
-    const parts = m.content as ContentPart[];
-    out.content = parts
-      .filter((p) => p.type === "text")
-      .map((p) => (p as { text: string }).text)
-      .join("\n");
-    const images = parts
-      .filter((p) => p.type === "image_url")
-      .map((p) => (p as { image_url: { url: string } }).image_url.url.replace(DATA_URL, ""));
-    if (images.length) out.images = images;
-  }
-  if (m.toolCalls?.length)
-    out.tool_calls = m.toolCalls.map((c) => ({
+/** Our messages on this wire: text and images in separate fields, results as `tool` messages. */
+function toNative(m: Message): NativeMessage {
+  const result = toolResultOf(m);
+  // There are no tool-call ids on this wire: a result is matched to its call by the order results
+  // are sent in, which is the order the calls came in, which is the order the loop runs them. So
+  // the id has nothing to map to and is dropped rather than translated into a lie.
+  if (result) return { role: "tool", content: result.content };
+  const out: NativeMessage = { role: m.role, content: textOf(m) };
+  const images = typeof m.content === "string" ? [] : m.content.filter((b) => b.type === "image");
+  if (images.length)
+    out.images = images.map((b) => (b.type === "image" ? (dataUrl(b.url)?.base64 ?? b.url) : ""));
+  const calls = toolUsesOf(m);
+  if (calls.length)
+    out.tool_calls = calls.map((c) => ({
       // Arguments are an object on this wire. A model's own arguments are not always valid JSON, and
       // a message we are replaying is history rather than something to validate: if it will not
       // parse, it goes back as the string it was, which is what the model said.
       function: { name: c.name, arguments: safeParse(c.arguments) },
     }));
-  // There are no tool-call ids on this wire: a result is matched to its call by the order results
-  // are sent in, which is the order the calls came in, which is the order the loop runs them. So
-  // `toolCallId` has nothing to map to and is dropped rather than translated into a lie.
   return out;
 }
 
@@ -213,7 +204,7 @@ export function ollamaNative(
   const body = (req: CompletionRequest, streaming: boolean): Record<string, unknown> => {
     const messages: NativeMessage[] = [];
     if (req.system) messages.push({ role: "system", content: req.system });
-    for (const m of req.messages) messages.push(toNative(m));
+    for (const m of pairedCalls(req.messages)) messages.push(toNative(m));
     const options: Record<string, unknown> = {
       // The whole reason this wire exists.
       num_ctx: profile.contextTokens,
@@ -222,9 +213,10 @@ export function ollamaNative(
     const cap = req.maxTokens ?? config.maxTokens;
     if (cap) options.num_predict = cap;
     const extra = config.extraBody ?? {};
-    // The compatible wire's reasoning switch, said the way this one says it. Everything else in the
-    // extra body is a field of that other format and does not belong here.
-    const think = extra.reasoning_effort !== undefined ? extra.reasoning_effort !== "none" : undefined;
+    // The reasoning setting, said the way this wire says it (ADR-029 D4). Everything else in the
+    // extra body is a field of the compatible format and does not belong here.
+    const effort = reasoningOf(config);
+    const think = effort !== undefined ? effort !== "none" : undefined;
     const out: Record<string, unknown> = {
       model: config.model,
       messages,
@@ -267,6 +259,7 @@ export function ollamaNative(
   return {
     id: config.id,
     model: config.model,
+    wire: "ollama" as const,
     profile,
     adaptations: [`talking to Ollama directly, with a ${profile.contextTokens}-token context`],
     async complete(req) {

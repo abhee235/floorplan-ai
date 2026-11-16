@@ -7,7 +7,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  type ChatMessage,
+  type Message as ChatMessage,
   type Completion,
   type CompletionRequest,
   DEFAULT_PROFILE,
@@ -126,6 +126,16 @@ describe("one run at a time, per project", () => {
     expect(of("plan.updated")).toHaveLength(1);
     // no "plan work" row beside the plan card, saying the same thing in worse words
     expect(events().filter((e) => e.type === "tool.started" || e.type === "tool.finished")).toEqual([]);
+  });
+
+  it("stops at the run's own step limit, which caps an eval's spend (cards asked for 80, runs took 170)", async () => {
+    const look = () => reply(null, [{ id: "c", name: "get_scene", args: { detail: "summary" } }]);
+    const { agent, held, done, of } = await setup([look, look, look, look, look, look, () => reply("Done.")]);
+    expect(agent.start(held, { text: "keep looking", maxSteps: 2 }).ok).toBe(true);
+    await done();
+    const finished = of("run.finished")[0];
+    expect(finished?.steps).toBeLessThanOrEqual(2);
+    expect(finished?.reason).not.toBe("done");
   });
 
   it("refuses a second run while one is in flight, and says why", async () => {

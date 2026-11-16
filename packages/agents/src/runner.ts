@@ -2,18 +2,28 @@
 // in-process by the caller. A step is one model turn. Tool calls run in order; a malformed call becomes an error
 // result the model can correct, never an exception. Every request, reply, retry and tool call is emitted as an
 // event, so the host can write a transcript and a viewer can follow along.
+
+import { compactionKindLabel } from "./context/compactionLayers.js";
 import {
-  type Budget,
-  type CompactionOptions,
-  compact,
-  conversationBudget,
-  conversationTokens,
+  compactIfNeeded,
   estimateTokens,
-  needsCompaction,
-  outputRoom,
-} from "./compact.js";
+  isOverflowError,
+  measureWireOverhead,
+  resolveCompactionPlan,
+} from "./context/compactor.js";
+import { contextWindowForModel } from "./context/windows.js";
 import { afterGate, afterLoopTool, afterTool, type GateState, gateFor, newGateState } from "./gates.js";
 import { extractJson, stripThinking } from "./json.js";
+import { type Block, type Message, type ReasoningBlock, toolResultMessage } from "./llm/messages.js";
+import {
+  type Completion,
+  DEFAULT_PROFILE,
+  type Provider,
+  ProviderError,
+  type ToolCall,
+  type ToolSpec,
+  type Usage,
+} from "./llm/provider.js";
 import {
   ASK_USER,
   ASK_USER_SPEC,
@@ -35,16 +45,6 @@ import {
   planForPrompt,
   READ_SKILL,
 } from "./loop-tools.js";
-import {
-  type ChatMessage,
-  type Completion,
-  type ContentPart,
-  type Provider,
-  ProviderError,
-  type ToolCall,
-  type ToolSpec,
-  type Usage,
-} from "./provider.js";
 import { READ_SKILL_SPEC, readSkill, type Skill } from "./skills.js";
 
 export type StopReason = "done" | "step-budget" | "provider-error" | "stalled" | "aborted" | "context-full";
@@ -65,6 +65,8 @@ export type AgentEvent =
       fromText: boolean;
       finishReason: string | null;
       usage: Usage;
+      /** Earlier thinking the server left out because the conversation before it had changed. */
+      thinkingDropped?: number;
       durationMs: number;
       attempts: number;
     }
@@ -103,9 +105,15 @@ export type AgentEvent =
       type: "compacted";
       step: number;
       at: string;
+      /** Estimated prompt tokens, overhead included, before and after. */
       before: number;
       after: number;
-      dropped: Record<string, number>;
+      /** The most aggressive layer that ran (ADR-031): collapsed, masked, microcompacted, snipped, summarized, dropped. */
+      kind: string;
+      /** In words, for the chat. */
+      label: string;
+      /** True when the server refused the prompt as too long and the compaction was forced. */
+      forced: boolean;
     }
   | {
       type: "done";
@@ -132,13 +140,13 @@ export interface AgentOptions {
    */
   callTool(name: string, args: unknown, released: ReadonlySet<string>): Promise<unknown>;
   system: string;
-  /** What to do. Image parts carry an attached plan to a model that can see one. */
-  task: string | ContentPart[];
+  /** What to do. Image blocks carry an attached plan to a model that can see one. */
+  task: string | Block[];
   /**
    * Earlier turns of the same conversation, so a follow-up ("now add chairs") knows what "the table"
    * means. The task is appended to these; the run returns the whole conversation for the next one.
    */
-  history?: readonly ChatMessage[];
+  history?: readonly Message[];
   /** Model turns before the run stops (default 40, the PRD P1-7 bound). */
   maxSteps?: number;
   /** Tool result text longer than this is cut, with a note telling the model to narrow the call. */
@@ -169,7 +177,7 @@ export interface AgentOptions {
    * On by default. A caller that wants the old behaviour -- send everything and let the server cut
    * the front off -- has to ask for it, because that behaviour loses the system prompt first.
    */
-  compaction?: CompactionOptions & { enabled?: boolean; reserve?: number };
+  compaction?: { enabled?: boolean; window?: number };
   /** Which gates may speak; all three do unless a caller says otherwise. */
   gates?: { plan?: boolean; verify?: boolean; idle?: boolean };
   /**
@@ -206,7 +214,7 @@ export interface AgentRun {
   usage: Usage;
   error: string | null;
   events: AgentEvent[];
-  messages: ChatMessage[];
+  messages: Message[];
   /** The plan as the run left it, for the next turn of the same conversation. */
   plan: PlanItem[];
   /** The notes as the run left them. */
@@ -372,19 +380,19 @@ function captionOf(result: unknown): string {
  * context window in ten turns, and an old picture of a room that has since changed is worse than no
  * picture at all.
  */
-function liftImages(messages: ChatMessage[], result: unknown, max: number): void {
+function liftImages(messages: Message[], result: unknown, max: number): void {
   const urls = imagesIn(result).slice(0, max);
   if (urls.length === 0) return;
   for (const m of messages) {
     if (m.role !== "user" || !Array.isArray(m.content)) continue;
-    if (!m.content.some((p) => p.type === "image_url")) continue;
+    if (!m.content.some((p) => p.type === "image")) continue;
     m.content = [{ type: "text", text: "[an earlier render, taken away to save room]" }];
   }
   messages.push({
     role: "user",
     content: [
       { type: "text", text: captionOf(result) },
-      ...urls.map((url) => ({ type: "image_url" as const, image_url: { url } })),
+      ...urls.map((url) => ({ type: "image" as const, url })),
     ],
   });
 }
@@ -400,12 +408,16 @@ async function streamed(
   const parts = new Map<number, { id?: string; name?: string; arguments: string }>();
   let finishReason: string | null = null;
   const usage: Usage = { promptTokens: 0, completionTokens: 0 };
+  const reasoning: ReasoningBlock[] = [];
+  let thinkingDropped = 0;
   for await (const event of stream) {
     if (event.type === "text") {
       text += event.delta;
       onDelta({ type: "text.delta", text: event.delta });
     } else if (event.type === "reasoning") {
       onDelta({ type: "reasoning.delta", text: event.delta });
+    } else if (event.type === "reasoning_block") {
+      reasoning.push(event.block);
     } else if (event.type === "tool_call") {
       const at = parts.get(event.index) ?? { arguments: "" };
       if (event.id) at.id = event.id;
@@ -417,13 +429,26 @@ async function streamed(
       if (event.usage) {
         usage.promptTokens += event.usage.promptTokens;
         usage.completionTokens += event.usage.completionTokens;
+        if (event.usage.cacheReadTokens !== undefined)
+          usage.cacheReadTokens = (usage.cacheReadTokens ?? 0) + event.usage.cacheReadTokens;
+        if (event.usage.cacheWriteTokens !== undefined)
+          usage.cacheWriteTokens = (usage.cacheWriteTokens ?? 0) + event.usage.cacheWriteTokens;
       }
+      thinkingDropped += event.thinkingDropped ?? 0;
     }
   }
   const toolCalls: ToolCall[] = [...parts.entries()]
     .sort(([a], [b]) => a - b)
     .map(([i, c]) => ({ id: c.id ?? `call_${i}`, name: c.name ?? "", arguments: c.arguments || "{}" }));
-  return { text: text || null, toolCalls, finishReason, usage, raw: null };
+  return {
+    text: text || null,
+    toolCalls,
+    finishReason,
+    usage,
+    ...(reasoning.length ? { reasoning } : {}),
+    ...(thinkingDropped ? { thinkingDropped } : {}),
+    raw: null,
+  };
 }
 
 export async function runAgent(options: AgentOptions): Promise<AgentRun> {
@@ -444,7 +469,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
   ];
   const known = new Set(tools.map((t) => t.name));
   const events: AgentEvent[] = [];
-  const messages: ChatMessage[] = [...(options.history ?? []), { role: "user", content: options.task }];
+  const messages: Message[] = [...(options.history ?? []), { role: "user", content: options.task }];
   const usage: Usage = { promptTokens: 0, completionTokens: 0 };
   let plan: PlanItem[] = [...(options.loop?.plan ?? [])];
   // Whether this run has written a plan of its own. Until it has, the plan above is somebody else's
@@ -465,22 +490,50 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
   // stopped saying the conversation would not fit in 32,000 tokens -- the built-in default -- while
   // the model it was talking to had been asked for 32,768 and could have had far more.
   await options.provider.ready?.();
-  // What every prompt costs before a word of conversation: the system prompt and the tool schemas,
-  // re-sent on every step. Measured at 48% of a 32,768-token window, which is why the floor
-  // compaction can reach is an absolute number and not a share (ADR-025).
   const pinned = () => `${planForPrompt(plan)}${notesForPrompt(notes)}`;
-  const fixedTokens = () =>
-    estimateTokens(options.system) + estimateTokens(JSON.stringify(tools)) + estimateTokens(pinned());
-  const budget: Budget = {
-    contextTokens: options.provider.profile.contextTokens,
-    fixedTokens: fixedTokens(),
-    ...(options.compaction?.reserve !== undefined ? { reserve: options.compaction.reserve } : {}),
+  // Context management is Cascade's (ADR-031): a plan sized from the model's window, the layers run
+  // before every call, the wire overhead measured from what the server reports, per-turn growth sampled
+  // for the constrained trigger, and a forced compaction when the server refuses the prompt.
+  //
+  // The window: what a person set or the server reported (a profile that is not the built-in default),
+  // else the model's known window, else the profile's default (ADR-031 D2.9).
+  const profile = options.provider.profile;
+  const window =
+    options.compaction?.window ??
+    (profile.contextTokens !== DEFAULT_PROFILE.contextTokens ? profile.contextTokens : undefined) ??
+    contextWindowForModel(options.provider.model) ??
+    profile.contextTokens;
+  const compactPlan =
+    options.compaction?.enabled === false
+      ? null
+      : resolveCompactionPlan({
+          model: options.provider.model,
+          contextWindow: window,
+          ...(options.maxTokens ? { maxOutputTokens: options.maxTokens } : {}),
+          // ADR-031 D3: a local server pays a full re-prefill for every rewrite; a hosted API does not.
+          economics: options.provider.wire === "ollama" ? "constrained" : "hosted",
+        });
+  // What the wire carries beyond the messages: the static estimate is the floor, the measured one (the
+  // server's real prompt size minus our estimate) takes over once there is one (Cascade ADR-052).
+  const staticOverhead = () =>
+    Math.ceil((options.system.length + pinned().length + JSON.stringify(tools).length) / 4) + 256;
+  let wireOverhead: number | undefined;
+  let lastInputTokens: number | undefined;
+  const growthSamples: number[] = [];
+  const turnGrowthP75 = (): number | undefined => {
+    if (growthSamples.length < 5) return undefined; // the plan's fallback applies until there is signal
+    const sorted = [...growthSamples].sort((a, b) => a - b);
+    return sorted[Math.floor(sorted.length * 0.75)];
   };
-  const compaction = options.compaction?.enabled === false ? null : (options.compaction ?? {});
-  // What one more step is likely to add, so the question is about the prompt about to be sent
-  // rather than the one that already was. Seeded from the measured median and then learnt.
-  let growth = 545;
-  let lastConversation = 0;
+  const compactDeps = (overheadTokens: number) => ({
+    provider: options.provider,
+    plan: compactPlan as NonNullable<typeof compactPlan>,
+    overheadTokens,
+    ...(turnGrowthP75() !== undefined ? { turnGrowth: turnGrowthP75() as number } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
+  });
+  // Forced compactions this step, when the server refused the prompt as too long (Cascade: at most 2).
+  let overflowForced = 0;
   let steps = 0;
   let toolCalls = 0;
   let failedCalls = 0;
@@ -490,7 +543,6 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
   let warnedTruncation = false;
   // Replies the server could not read, answered by telling the model so (see below).
   let unreadable = 0;
-  let warnedCramped = false;
   let stall: string | null = null;
   /** The previous step's calls, by content, so a step that only repeats it can be told apart. */
   let lastStepCalls: string = "";
@@ -538,57 +590,35 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
 
   step: while (steps < maxSteps) {
     if (options.signal?.aborted) return finish("aborted");
+    const overheadTokens = Math.max(staticOverhead(), wireOverhead ?? 0);
     // A window that cannot hold the prompt is not a compaction problem: none of what overflows it
-    // is conversation, so there is nothing to remove and no amount of cleverness helps. Said once,
-    // before anything is sent, with the numbers (ADR-025 D8).
-    if (steps === 0 && conversationBudget(budget) <= 0)
+    // is conversation, so there is nothing to remove. Said once, before anything is sent, with the numbers.
+    if (steps === 0 && compactPlan && overheadTokens >= compactPlan.effectiveWindow)
       return finish(
         "context-full",
         null,
-        `${options.provider.model} has a ${budget.contextTokens}-token context, and the instructions and tool schemas alone are about ${budget.fixedTokens}. Give it a larger context, or use a model with one.`,
+        `${options.provider.model} has a ${compactPlan.window}-token context, and the instructions and tool schemas alone are about ${overheadTokens}. Give it a larger context, or use a model with one.`,
       );
     steps += 1;
-    // As late as is safe and no earlier: a conversation that fits is never touched, because
-    // rewriting it breaks the server's cached prefix and everything after the first changed message
-    // is prefilled again (ADR-025 D2a).
-    if (compaction && needsCompaction(messages, budget, growth)) {
-      const result = compact(messages, budget, { ...compaction, growthPerStep: growth });
-      // Only when something actually moved. The trigger above asks about the step that has not
-      // happened yet, so it fires a little before the conversation is over the line and there is
-      // genuinely nothing to remove; saying "compacted" then would be a lie in the chat.
-      if (result.compacted) {
-        messages.splice(0, messages.length, ...result.messages);
+    overflowForced = 0;
+    // Compaction (Cascade ADR-012/039/078): BEFORE each model call, the layers run cheapest first and stop
+    // the moment the prompt is back under the plan's trigger; a conversation that fits is never touched.
+    if (compactPlan) {
+      const before = estimateTokens(messages) + overheadTokens;
+      const { messages: compacted, kind } = await compactIfNeeded(messages, compactDeps(overheadTokens));
+      if (kind !== "none") {
+        messages.splice(0, messages.length, ...compacted);
         emit({
           type: "compacted",
           step: steps,
           at: now(),
-          before: result.before,
-          after: result.after,
-          dropped: result.dropped,
+          before,
+          after: estimateTokens(messages) + overheadTokens,
+          kind,
+          label: compactionKindLabel(kind),
+          forced: false,
         });
       }
-      // Compaction that has to run again almost immediately is the failure mode this was designed
-      // against: each one breaks the cached prefix and is paid for in prefill. When it can no
-      // longer buy a few steps, the window is too small for the work rather than the conversation
-      // being too big, and saying so once is more use than saying it every step.
-      if (result.compacted && !warnedCramped) {
-        const stepsBought = (conversationBudget(budget) - result.after) / Math.max(1, growth);
-        if (stepsBought < 3) {
-          warnedCramped = true;
-          emit({
-            type: "warning",
-            step: steps,
-            at: now(),
-            message: `there is only room for ${stepsBought.toFixed(1)} more steps after compacting, so this will compact again almost every step and each one costs time; ${options.provider.model} needs a larger context for work this size`,
-          });
-        }
-      }
-      if (result.overflows)
-        return finish(
-          "context-full",
-          null,
-          `the conversation will not fit in ${budget.contextTokens} tokens even with everything droppable dropped; start a new chat, or give the model a larger context`,
-        );
     }
     emit({ type: "step.started", step: steps, at: now(), messages: messages.length, tools: tools.length });
     // One step's worth: the reply after a repeated step is sampled, and the one after that is not,
@@ -598,8 +628,11 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
     const started = Date.now();
     let completion: Completion | null = null;
     let attempts = 0;
+    // For calibrating the wire overhead once the server reports the real prompt size (Cascade ADR-052).
+    let sentEstimate = estimateTokens(messages);
     while (!completion) {
       attempts += 1;
+      sentEstimate = estimateTokens(messages);
       const request = {
         // The plan and the notes ride on the system prompt rather than in the conversation, so they
         // survive whatever is later done to the conversation to make it fit.
@@ -611,12 +644,10 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
         // A configured cap is a ceiling, never a promise of room: a model allowed eight thousand
         // tokens cannot have them in a window with three thousand left.
         ...(() => {
-          const room = outputRoom(
-            budget,
-            budget.fixedTokens + conversationTokens(messages),
-            options.maxTokens,
-          );
-          return room > 0 ? { maxTokens: room } : {};
+          if (!options.maxTokens) return {};
+          const room =
+            (compactPlan?.window ?? profile.contextTokens) - (estimateTokens(messages) + overheadTokens);
+          return room > 0 ? { maxTokens: Math.min(options.maxTokens, room) } : {};
         })(),
         ...(options.signal ? { signal: options.signal } : {}),
       };
@@ -628,6 +659,30 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
       } catch (e) {
         if (options.signal?.aborted) return finish("aborted");
         const message = e instanceof Error ? e.message : String(e);
+        // The server refused the prompt as too long: force a compaction regardless of the threshold and
+        // try again, at most twice (Cascade ADR-039 `force`, resilience.ts onOverflow).
+        if (compactPlan && isOverflowError(e) && overflowForced < 2) {
+          overflowForced += 1;
+          const before = estimateTokens(messages) + overheadTokens;
+          const { messages: compacted, kind } = await compactIfNeeded(messages, compactDeps(overheadTokens), {
+            force: true,
+          });
+          if (kind !== "none") {
+            messages.splice(0, messages.length, ...compacted);
+            emit({
+              type: "compacted",
+              step: steps,
+              at: now(),
+              before,
+              after: estimateTokens(messages) + overheadTokens,
+              kind,
+              label: compactionKindLabel(kind),
+              forced: true,
+            });
+          }
+          emit({ type: "retry", step: steps, at: now(), error: message, waitMs: 0 });
+          continue;
+        }
         // The server accepted the request and then could not read what the model wrote: a tool call
         // cut off mid-JSON, reported inside a stream that had already said 200. Sending the same
         // prompt again at temperature 0 writes the same broken reply, so the model is told instead,
@@ -691,10 +746,17 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
       });
     }
     lastPromptTokens = promptTokens;
-    // What a step actually costs here, rather than what it cost on the machine this was measured on.
-    const nowConversation = conversationTokens(messages);
-    if (lastConversation > 0) growth = Math.max(growth, nowConversation - lastConversation);
-    lastConversation = nowConversation;
+    // Calibrate: the server just told us the REAL prompt size — remember what the wire adds beyond our
+    // message estimate, and sample per-turn growth (positive, sane deltas only — a compaction shrink isn't
+    // growth) for the constrained trigger (Cascade ADR-052, ADR-078).
+    if (promptTokens > 0) {
+      wireOverhead = measureWireOverhead(wireOverhead, promptTokens, sentEstimate);
+      if (lastInputTokens !== undefined) {
+        const d = promptTokens - lastInputTokens;
+        if (d > 0 && d < 30_000) growthSamples.push(d);
+      }
+      lastInputTokens = promptTokens;
+    }
     usage.promptTokens += completion.usage.promptTokens;
     usage.completionTokens += completion.usage.completionTokens;
 
@@ -718,13 +780,23 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
       fromText,
       finishReason: completion.finishReason,
       usage: completion.usage,
+      ...(completion.thinkingDropped ? { thinkingDropped: completion.thinkingDropped } : {}),
       durationMs: Date.now() - started,
       attempts,
     });
+    // Reasoning is never replayed and never accumulates (ADR-031 D2.6): only the newest assistant message
+    // keeps any, which is what Claude needs to continue a turn of tool use and all it needs.
+    for (const [i, m] of messages.entries())
+      if (m.role === "assistant" && Array.isArray(m.content) && m.content.some((b) => b.type === "reasoning"))
+        messages[i] = { role: "assistant", content: m.content.filter((b) => b.type !== "reasoning") };
+    // Reasoning first, as every wire that keeps it produced it; then what was said, then the calls.
     messages.push({
       role: "assistant",
-      content: content && content.trim() ? content : null,
-      ...(calls.length > 0 ? { toolCalls: calls } : {}),
+      content: [
+        ...(completion.reasoning ?? []),
+        ...(content && content.trim() ? [{ type: "text" as const, text: content }] : []),
+        ...calls.map((c) => ({ type: "tool_use" as const, id: c.id, name: c.name, arguments: c.arguments })),
+      ],
     });
     if (calls.length === 0) {
       // The model thinks it is finished. A gate may disagree, in which case it says why and the run
@@ -784,7 +856,6 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
         if (applied.ok) {
           plan = applied.items;
           planTouched = true;
-          budget.fixedTokens = fixedTokens();
           emit({ type: "plan.updated", step: steps, at: now(), items: plan });
           result = { ok: true, result: { plan: plan.length, summary: applied.summary }, warnings: [] };
         } else {
@@ -798,7 +869,6 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
         const applied = applyNotes(parsed.value);
         if (applied.ok) {
           notes = applied.text;
-          budget.fixedTokens = fixedTokens();
           emit({ type: "notes.updated", step: steps, at: now(), text: notes });
           result = { ok: true, result: { chars: notes.length }, warnings: [] };
         } else {
@@ -873,7 +943,7 @@ export async function runAgent(options: AgentOptions): Promise<AgentRun> {
         result,
         durationMs: Date.now() - callStarted,
       });
-      messages.push({ role: "tool", toolCallId: call.id, content: toolResultText(result, maxChars) });
+      messages.push(toolResultMessage(call.id, toolResultText(result, maxChars), !ok));
       if (liftRenders && ok) liftImages(messages, result, maxImages);
       // The same call is the same content, not the same text: a model re-sent one design four
       // times with its keys in a different order each time, and the breaker saw four calls.

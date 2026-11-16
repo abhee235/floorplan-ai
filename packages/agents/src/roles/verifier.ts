@@ -8,7 +8,7 @@ import {
   type ProposalExtractor,
 } from "@fpv/catalog";
 import { completeJson } from "../json.js";
-import type { Provider } from "../provider.js";
+import type { Provider } from "../llm/provider.js";
 
 export const VERIFIER_SYSTEM =
   "You extract product facts from web pages for an audio-visual and office furniture catalog. " +

@@ -17,11 +17,16 @@ import {
   type AgentEvent,
   ASK_USER,
   type AskRequest,
-  type ChatMessage,
+  type Block,
+  builtCounts,
   CONSENT_OPTIONS,
-  type ContentPart,
+  copyReminder,
+  DEFAULT_MAX_STEPS,
   designerSystem,
   forNextRun,
+  fromLegacyMessages,
+  inventoryFrom,
+  type Message,
   NOTES,
   PLAN_WORK,
   type Provider,
@@ -78,7 +83,7 @@ interface Active {
 }
 
 interface Held2 {
-  conversation: ChatMessage[];
+  conversation: Message[];
   /** What the model wrote down (ADR-027 D2); kept with the plan, cleared with it. */
   notes: string;
   attachments: Map<string, Attachment>;
@@ -138,6 +143,8 @@ export class AgentRuns {
       text: string;
       attachments?: { name: string; mime: string; data: string }[];
       reliability?: ToolReliability;
+      /** At most this many steps; it lowers the host's limit and never raises it. */
+      maxSteps?: number;
     },
   ): StartResult {
     const provider = this.options.provider;
@@ -235,7 +242,9 @@ export class AgentRuns {
     // Nothing is shown before the model has read the message. An earlier run's plan used to appear
     // here the instant a message was sent, and read as the agent's answer to it (ADR-027 D5, amended).
 
-    void this.run(held, mine, active, { text, attached, reliability, provider });
+    const hostSteps = this.options.maxSteps ?? DEFAULT_MAX_STEPS;
+    const maxSteps = req.maxSteps ? Math.min(req.maxSteps, hostSteps) : this.options.maxSteps;
+    void this.run(held, mine, active, { text, attached, reliability, provider, maxSteps });
     return { ok: true, runId };
   }
 
@@ -307,6 +316,7 @@ export class AgentRuns {
       attached: { id: string; name: string; mime: string; bytes: number }[];
       reliability: ToolReliability;
       provider: Provider;
+      maxSteps: number | undefined;
     },
   ): Promise<void> {
     const { session } = held;
@@ -334,6 +344,18 @@ export class AgentRuns {
     let pictures = 0;
     /** What the designer built and whether it has looked at it since (ADR-028 D11 D5). */
     const builder = { built: false, looked: false, asked: 0 };
+    /** Whether this run is copying an attached picture with code, and how often it was held back. */
+    const copying = req.attached.some((a) => a.mime.startsWith("image/"));
+    const copier = {
+      coded: false,
+      asked: 0,
+      warned: false,
+      // Changed the project since it last drew what it built over the picture, and was asked to.
+      unchecked: false,
+      looked: 0,
+      // The notes as they stood when the count was first written: what a copy is held to.
+      inventory: null as string | null,
+    };
     session.ctx.subagent = {
       run: (request) =>
         runArchitect(req.provider, registry, request, {
@@ -376,10 +398,45 @@ export class AgentRuns {
               warnings: [],
             });
           if (name === "preview_design") builder.looked = true;
+          // A picture being copied (ADR-030 D6). Two live runs showed an instruction is not enough: one
+          // sent a measured picture to the architect, which redesigned it, and one wrote its "inventory"
+          // after building, equal to what it had built. So both are facts the tools enforce.
+          if (copying && copier.coded) {
+            const invents = inventingTool(name, args);
+            if (invents)
+              return Promise.resolve(
+                refused(
+                  "copy.no-architect",
+                  `you are copying the attached picture; ${invents} makes up its own ${invents === "design_layout" ? "building" : "furniture"} instead`,
+                  "draw what you measured yourself: create_walls, add_opening, create_room, place_item (or tools.call from run_code)",
+                ),
+              );
+            if (copier.inventory === null) {
+              const found = inventoryFrom(mine.notes);
+              if (found) copier.inventory = mine.notes;
+              // Drawing, not history: a live run's checkpoint was refused here, and it went on to undo
+              // the walls it drew next, one at a time, until the run stalled.
+              else if (!copier.warned && name !== "history" && changesProject(name, args, mutating)) {
+                copier.warned = true;
+                return Promise.resolve(
+                  refused(
+                    "copy.count-first",
+                    "count what the picture holds before you draw it",
+                    "call notes with one line INVENTORY walls=N doors=N windows=N passages=N rooms=N items=N from your measurements, then draw",
+                  ),
+                );
+              }
+            }
+          }
+          if (name === "run_code") copier.coded = true;
           return registry.call(name, args, { origin: "agent", released }).then((r) => {
             if (name === "build_design" && r.ok) {
               builder.built = true;
               builder.looked = false;
+            }
+            if (copying && r.ok) {
+              if (changesProject(name, args, mutating)) copier.unchecked = true;
+              if (comparesWithPicture(name, args, r.result)) copier.unchecked = false;
             }
             return r;
           });
@@ -387,9 +444,29 @@ export class AgentRuns {
         // Built and never looked at. Two live runs furnished a whole office and reached for render,
         // which needs a tab, then answered without ever seeing the plan they drew (ADR-028 D11).
         beforeFinish: () => {
-          if (!canSee || !builder.built || builder.looked || builder.asked >= 1) return null;
-          builder.asked += 1;
-          return "You built this and have not looked at it. Call preview_design with no designId: it draws the plan as it stands, furniture and screens included, and needs no tab open. Say what is wrong with what you see, fix what you can, and then answer.";
+          if (canSee && builder.built && !builder.looked && builder.asked < 1) {
+            builder.asked += 1;
+            return "You built this and have not looked at it. Call preview_design with no designId: it draws the plan as it stands, furniture and screens included, and needs no tab open. Say what is wrong with what you see, fix what you can, and then answer.";
+          }
+          // A picture copied with code is held to what was measured in it (ADR-030 D6).
+          if (copying && copier.coded) {
+            const said = copyReminder(
+              copier.inventory ?? "",
+              builtCounts(session.store.project),
+              copier.asked,
+            );
+            if (said) {
+              copier.asked += 1;
+              return said;
+            }
+            // Drawn and never compared. Four live runs on four pictures never drew what they built
+            // back over the picture, and their openings and furniture sat off their ink (ADR-030 D6).
+            if (copier.unchecked && copier.looked < 1) {
+              copier.looked += 1;
+              return "You have not drawn what you built over the picture since you last changed it. In run_code, draw the walls, openings and furniture from project() over the picture with draw() and show() it, as the skill's last section does. Move whatever is off its ink, and then answer.";
+            }
+          }
+          return null;
         },
         // The prompt is built for this session, not for every session: a model that cannot see is
         // never told to look at a render, and a session without a rules pack is never told to
@@ -411,7 +488,7 @@ export class AgentRuns {
         // run, without a question (ADR-023 D3).
         released: session.store.selection,
         history: mine.conversation,
-        ...(this.options.maxSteps ? { maxSteps: this.options.maxSteps } : {}),
+        ...(req.maxSteps ? { maxSteps: req.maxSteps } : {}),
         signal: active.controller.signal,
         mutatingTools: mutating,
         verifyingTools: new Set(["validate", "get_bom", "compare_plan_image"]),
@@ -588,15 +665,14 @@ export class AgentRuns {
       case "reminder":
         return { type: "reminder", step: event.step, gate: event.gate, text: event.text };
       case "compacted": {
-        // In words rather than in counts. "Shortened 31 older results" is something a person can
-        // decide to worry about; "before 29410, after 8122" is a number they have to interpret.
-        const n = Object.values(event.dropped).reduce((a, b) => a + b, 0);
+        // In words rather than in counts: what was done, not "before 29410, after 8122" (ADR-031).
+        const summarized = event.kind === "summarized" || event.kind === "dropped";
         return {
           type: "compacted",
           step: event.step,
           before: event.before,
           after: event.after,
-          text: `The chat was getting long, so ${n} older tool ${n === 1 ? "result was" : "results were"} shortened. Nothing you said was changed, and the agent can read the project again whenever it needs to.`,
+          text: `The chat was getting long, so the agent ${event.label}${event.forced ? " after the model said the prompt was too long" : ""}. ${summarized ? "Your task and your latest instruction were kept word for word." : "Nothing you said was changed."} The agent can read the project again whenever it needs to.`,
         };
       }
       case "retry":
@@ -771,10 +847,13 @@ export class AgentRuns {
     if (!dir) return;
     try {
       const text = readFileSync(join(dir, "conversation.jsonl"), "utf8");
-      mine.conversation = text
-        .split("\n")
-        .filter((l) => l.trim())
-        .map((l) => JSON.parse(l) as ChatMessage);
+      // A file written before ADR-029 is in OpenAI's chat shape, and is read as ours (D5).
+      mine.conversation = fromLegacyMessages(
+        text
+          .split("\n")
+          .filter((l) => l.trim())
+          .map((l) => JSON.parse(l) as unknown),
+      );
     } catch {
       // no conversation yet, which is the usual case
     }
@@ -799,9 +878,65 @@ export class AgentRuns {
 
 // ---- the small decisions, out of the class ---------------------------------
 
-function withoutImages(content: ChatMessage["content"]): ChatMessage["content"] {
+/** A refusal in the registry's own envelope, for rules the host enforces around it. */
+function refused(code: string, message: string, hint: string) {
+  return { ok: false, error: { code, message, entityId: null, hint }, warnings: [] };
+}
+
+/** Tools that make up what they add, where a copy must draw what the picture has. */
+const INVENTING = new Set(["design_layout", "furnish_room"]);
+
+/**
+ * The tool in this call that would make things up, if any: called directly, in a batch, or from a
+ * run_code script. A live copy furnished a room from inside a batch, and none of it was in the picture.
+ */
+export function inventingTool(name: string, args: unknown): string | null {
+  if (INVENTING.has(name)) return name;
+  if (name === "batch") {
+    const calls = (args as { calls?: unknown } | null)?.calls;
+    if (Array.isArray(calls))
+      for (const c of calls) {
+        const inner = (c as { name?: unknown } | null)?.name;
+        if (typeof inner === "string" && INVENTING.has(inner)) return inner;
+      }
+    return null;
+  }
+  if (name !== "run_code") return null;
+  const code = (args as { code?: unknown } | null)?.code;
+  if (typeof code !== "string") return null;
+  for (const m of code.matchAll(/tools\.call\(\s*["'`](\w+)["'`]/g))
+    if (m[1] && INVENTING.has(m[1])) return m[1];
+  return null;
+}
+
+/** Did this call draw something over a picture and show it: a run_code script that ran with draw and show. */
+export function comparesWithPicture(name: string, args: unknown, result: unknown): boolean {
+  if (name !== "run_code") return false;
+  const code = (args as { code?: unknown } | null)?.code;
+  if (typeof code !== "string" || !/\bdraw\s*\(/.test(code) || !/\bshow\s*\(/.test(code)) return false;
+  const out = result as { ok?: unknown; images?: unknown } | null;
+  return out?.ok !== false && Array.isArray(out?.images) && out.images.length > 0;
+}
+
+/**
+ * Would this call change the project? A direct call to a mutating tool, or a script whose tools.call names
+ * one (run_code is mutating only through what it calls).
+ */
+export function changesProject(name: string, args: unknown, mutating: ReadonlySet<string>): boolean {
+  // A checkpoint or a look at the list changes nothing; undo, redo and restore do.
+  if (name === "history")
+    return ["undo", "redo", "restore"].includes(String((args as { op?: unknown } | null)?.op));
+  if (name !== "run_code") return mutating.has(name);
+  const code = (args as { code?: unknown } | null)?.code;
+  if (typeof code !== "string") return false;
+  for (const m of code.matchAll(/tools\.call\(\s*["'`](\w+)["'`]/g))
+    if (m[1] && m[1] !== "run_code" && mutating.has(m[1])) return true;
+  return false;
+}
+
+function withoutImages(content: Message["content"]): Message["content"] {
   if (!Array.isArray(content)) return content;
-  return content.map((p) => (p.type === "image_url" ? { type: "text" as const, text: "[image]" } : p));
+  return content.map((p) => (p.type === "image" ? { type: "text" as const, text: "[image]" } : p));
 }
 
 /**
@@ -814,12 +949,12 @@ function taskOf(
   selection: readonly string[],
   provider: Provider,
   mine: { attachments: Map<string, Attachment> },
-): string | ContentPart[] {
+): string | Block[] {
   const lines = [text];
   if (attached.length)
     lines.push(
       `Attached: ${attached.map((a) => `${a.name} (attachment ${a.id}, ${a.mime}, ${Math.round(a.bytes / 1024)} KB)`).join(", ")}. ` +
-        "A line drawing of a plan is read with import_plan and the attachment's id; a photograph, an illustration or a sketch is looked at with look_at. Never paste its bytes.",
+        "A clean line drawing of a plan with dimensions is read with import_plan and the attachment's id; a picture of a plan with furniture or no dimensions is measured with run_code (read the skill reading-a-picture-with-code first); a photograph, an illustration or a sketch is looked at with look_at. Never paste its bytes.",
     );
   if (selection.length) lines.push(`Selected in the editor: ${selection.join(", ")}.`);
   const said = lines.join("\n\n");
@@ -833,8 +968,8 @@ function taskOf(
       return bytes
         ? [
             {
-              type: "image_url" as const,
-              image_url: { url: `data:${a.mime};base64,${Buffer.from(bytes.bytes).toString("base64")}` },
+              type: "image" as const,
+              url: `data:${a.mime};base64,${Buffer.from(bytes.bytes).toString("base64")}`,
             },
           ]
         : [];

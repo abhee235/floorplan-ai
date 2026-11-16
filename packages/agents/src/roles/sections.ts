@@ -76,6 +76,7 @@ export function envelope(o: WorldOptions): Section {
 export function order(o: WorldOptions): Section {
   return section("# The order the work goes in", [
     "1. Read the brief and get_scene with detail summary. Work out what the person asked for before touching anything.",
+    "A picture of a plan to copy skips steps 2 to 4: read the skill reading-a-picture-with-code, measure it with run_code and draw it yourself.",
     "2. Call design_layout with the brief. An architect works the whole plan out and hands back a design that has already passed the checker, along with what it assumed. It draws nothing, so nothing has moved when it answers.",
     "3. Read what it says and tell the person, in your own words, what is about to be built and how big the rooms are.",
     "4. Build it with build_design and the designId it gave you. Never re-type the design yourself: the id names a plan that has already been measured, and a design copied out of a sentence is a different design that has not been. A designId belongs to this session: if build_design says it does not know one, call design_layout again rather than giving up.",
@@ -87,8 +88,8 @@ export function order(o: WorldOptions): Section {
     o.vision
       ? "6a. Look: preview_design draws what you built. Check every screen is on plaster and the doors are where the design put them; never mend a difference by drawing walls."
       : null,
-    "7. Finish with a short summary of what you built and what is still wrong with it, with the architect's LOOK verdict.",
-    "Draw walls yourself only for what build_design cannot express: a change to a building that is already there, an odd shape, one more partition. For a building from a brief, design it and build it.",
+    "7. Finish with a short summary of what you built and what is still wrong with it, and after design_layout the architect's LOOK verdict.",
+    "Draw walls yourself only for what build_design cannot express: a change to a building that is already there, an odd shape, one more partition, or a picture you are copying. For a building from a brief, design it and build it.",
   ]);
 }
 
@@ -125,7 +126,7 @@ export function notes(): Section {
 export function sources(o: WorldOptions): Section {
   return section("# Reading before designing", [
     o.attachments
-      ? "A picture that was attached is shown to you once. To see it again, or to see it in the architect's turn, call look_at with its id and say what you want from it; then write what it showed into notes. A line drawing of a plan that you mean to trace into walls goes to import_plan instead; a photograph, an illustration, a logo or a sketch goes to look_at."
+      ? "A picture that was attached is shown to you once. To see it again, or to see it in the architect's turn, call look_at with its id and say what you want from it; then write what it showed into notes. A clean line drawing of a plan with dimensions goes to import_plan; any other picture of a plan is measured with run_code; a photograph, an illustration, a logo or a sketch goes to look_at."
       : null,
     o.web
       ? "web_search and read_page exist for what no skill covers: a named style or brand, a building type without a skill, a real building to model on, a product the catalog lacks, and kind 'images' for pictures to look_at. Not for what you already know, and not on every run: each search is a step spent not drawing. Put what you learn into notes."
@@ -147,7 +148,7 @@ export function designing(): Section {
     "A plan is not a list of rooms. Before the first wall exists you must know the outside size, every room's size and position, and how somebody walks from the front door to each of them.",
     "design_layout is how a plan gets designed: it hands the brief to an architect with the inspect tools and the checker and nothing that draws. Use it for a building, or for rearranging one. Do not use it to add a table to a room that already exists.",
     "check_design is the same checker, for a design written by hand: rooms as rectangles, each walled, glass or open, and which sides of the building are glazed. It judges whether the plan can be built, never its shape. It changes nothing; use it freely.",
-    "To copy a picture, say so in the brief to design_layout and name the attachment; the architect draws that arrangement, and nothing rearranges a design that passed.",
+    "Never send a picture to copy to design_layout; a picture there is only inspiration for a new building.",
     "Work in one rectangle. Give the shell a size, then fill it with room rectangles that touch: a room's rect is its clear inside, and the walls go between them. Leave no gaps you cannot name.",
     "Every pair of rooms you put a door between has to share at least a metre of wall, and every room needs a door to something that is not a bedroom or a bathroom. One corridor or hall serving several doors is how a plan is laid out; a chain of rooms each opening into the next is not.",
     "Put the room sizes in your answer text as well, so the person can correct you before it is drawn.",

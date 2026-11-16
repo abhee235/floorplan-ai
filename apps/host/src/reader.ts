@@ -3,8 +3,9 @@
 // FPV_READER_EXTRA_BODY as JSON, FPV_READER_TIMEOUT_MS). Remote or local HTTP only; never a sidecar.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { type PlanReaderRole, type ProviderConfig, planReader, providerFor } from "@fpv/agents";
-import { HostConfigFile } from "./verifier.js";
+import { createProvider, type PlanReaderRole, type ProviderConfig, planReader } from "@fpv/agents";
+import { wireSettings } from "./env.js";
+import { entryWire, HostConfigFile } from "./verifier.js";
 
 /** Local vision models take minutes on a laptop CPU; the default leaves room for that. */
 export const READER_TIMEOUT_MS = 600_000;
@@ -16,6 +17,8 @@ export function loadReaderConfig(options: { dataDir: string; env?: NodeJS.Proces
   const env = options.env ?? process.env;
   const notes: string[] = [];
   if (env.FPV_READER_BASE_URL && env.FPV_READER_MODEL) {
+    const wire = wireSettings(env, "READER");
+    notes.push(...wire.notes);
     let extraBody: Record<string, unknown> | undefined;
     if (env.FPV_READER_EXTRA_BODY) {
       try {
@@ -30,6 +33,7 @@ export function loadReaderConfig(options: { dataDir: string; env?: NodeJS.Proces
         baseUrl: env.FPV_READER_BASE_URL,
         model: env.FPV_READER_MODEL,
         apiKey: env.FPV_READER_API_KEY ?? null,
+        ...wire.settings,
         profile: {
           vision: true,
           ...(Number(env.FPV_READER_CONTEXT_TOKENS) > 0
@@ -59,6 +63,7 @@ export function loadReaderConfig(options: { dataDir: string; env?: NodeJS.Proces
       baseUrl: entry.baseUrl,
       model: entry.model,
       apiKey: apiKey ?? null,
+      ...entryWire(entry),
       profile: {
         ...(entry.profile as NonNullable<ProviderConfig["profile"]> | undefined),
         vision: entry.profile?.vision ?? true,
@@ -76,7 +81,7 @@ export function createReader(model: ProviderConfig | null): {
 } {
   if (!model) return { reader: null, describe: "no reader model (image plans are refused; DXF plans work)" };
   return {
-    reader: planReader(providerFor(model)),
+    reader: planReader(createProvider(model)),
     describe: `${model.model} at ${model.baseUrl}${model.profile?.vision === false ? " (not marked as vision)" : ""}`,
   };
 }

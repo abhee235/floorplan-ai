@@ -6,6 +6,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { parseEnv } from "node:util";
+import type { ReasoningEffort, WireApi } from "@fpv/agents";
 
 export const MODEL_ROLES = ["AGENT", "READER", "VERIFIER"] as const;
 export type ModelRole = (typeof MODEL_ROLES)[number];
@@ -16,6 +17,8 @@ interface ProviderDefaults {
   keyVar: string | null;
   /** Request fields sent unless FPV_<ROLE>_EXTRA_BODY says otherwise. */
   extraBody: Record<string, unknown> | null;
+  /** The wire this provider is spoken to on, unless FPV_<ROLE>_API says otherwise (ADR-029 D2). */
+  api: WireApi;
 }
 
 export const PROVIDERS: Readonly<Record<string, ProviderDefaults>> = {
@@ -24,18 +27,55 @@ export const PROVIDERS: Readonly<Record<string, ProviderDefaults>> = {
     keyVar: null,
     // Qwen models on Ollama think before every answer unless told not to; tool turns are far faster without
     extraBody: { reasoning_effort: "none" },
+    api: "ollama",
   },
   openai: {
     baseUrl: (env) => env.OPENAI_BASE_URL || "https://api.openai.com/v1",
     keyVar: "OPENAI_API_KEY",
     extraBody: null,
+    // The only OpenAI wire on which its reasoning models will think while they call tools.
+    api: "openai-responses",
   },
   openrouter: {
     baseUrl: (env) => env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1",
     keyVar: "OPENROUTER_API_KEY",
     extraBody: null,
+    api: "openai-chat",
+  },
+  anthropic: {
+    baseUrl: (env) => env.ANTHROPIC_BASE_URL || "https://api.anthropic.com",
+    keyVar: "ANTHROPIC_API_KEY",
+    extraBody: null,
+    api: "anthropic",
   },
 };
+
+const WIRES: readonly WireApi[] = ["openai-chat", "openai-responses", "anthropic", "ollama"];
+const EFFORTS: readonly ReasoningEffort[] = ["none", "low", "medium", "high"];
+
+/**
+ * A role's wire and reasoning settings, FPV_<ROLE>_API and FPV_<ROLE>_REASONING (ADR-029 D2, D4), with a
+ * note for anything that is set and not understood. Unset, both are left for the factory and the
+ * vendor to decide.
+ */
+export function wireSettings(
+  env: NodeJS.ProcessEnv,
+  role: ModelRole,
+): { settings: { api?: WireApi; reasoning?: ReasoningEffort }; notes: string[] } {
+  const notes: string[] = [];
+  const settings: { api?: WireApi; reasoning?: ReasoningEffort } = {};
+  const api = env[`FPV_${role}_API`]?.trim().toLowerCase();
+  if (api) {
+    if ((WIRES as readonly string[]).includes(api)) settings.api = api as WireApi;
+    else notes.push(`FPV_${role}_API is ${api}; use ${WIRES.join(", ")}`);
+  }
+  const reasoning = env[`FPV_${role}_REASONING`]?.trim().toLowerCase();
+  if (reasoning) {
+    if ((EFFORTS as readonly string[]).includes(reasoning)) settings.reasoning = reasoning as ReasoningEffort;
+    else notes.push(`FPV_${role}_REASONING is ${reasoning}; use ${EFFORTS.join(", ")}`);
+  }
+  return { settings, notes };
+}
 
 /** FPV_ENV_FILE when set, else the first .env found from `start` up to the filesystem root. */
 export function findEnvFile(
@@ -113,6 +153,7 @@ export function expandProviderShortcuts(env: NodeJS.ProcessEnv): string[] {
     }
     if (provider.extraBody && unset(`FPV_${role}_EXTRA_BODY`))
       env[`FPV_${role}_EXTRA_BODY`] = JSON.stringify(provider.extraBody);
+    if (unset(`FPV_${role}_API`)) env[`FPV_${role}_API`] = provider.api;
   }
   return notes;
 }
