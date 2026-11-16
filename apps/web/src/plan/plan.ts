@@ -1,11 +1,30 @@
 // The 2D plan (ADR-003 D6): four stacked Canvas 2D layers (static, structure, items, overlay), one
 // transform (scale, translate, y flip), all drawing in IR millimetres. The drawing context is an
 // interface so tests can record calls without a DOM.
+//
+// What is drawn comes from the engine's plan shapes (planStructure, planItems, planZones), the same list
+// a layout drawing prints (ADR-013 D5); this file decides only how they look on a screen.
 import type { ChangeSet } from "@fpv/commands";
-import { emptyRebuildSet, expand, type Layer, type RebuildSet, skirtingOutlines } from "@fpv/engine";
-import { type PolyWithHoles, unionRings, wallFootprints } from "@fpv/geometry";
-import type { Item, Opening, Point, Project, Room, Wall, WallPattern, Zone } from "@fpv/ir";
+import {
+  emptyRebuildSet,
+  expand,
+  hatchLines,
+  type Layer,
+  PLAN_INK,
+  planItems,
+  planStructure,
+  planZones,
+  type RebuildSet,
+  type RoomShape,
+  type SwingShape,
+  type ZoneShape,
+  zoneLabel,
+} from "@fpv/engine";
+import { type PolyWithHoles, wallFootprints } from "@fpv/geometry";
+import type { Item, Point, Project, WallPattern, Zone } from "@fpv/ir";
 import { derive, poly } from "@fpv/ir";
+
+export { zoneLabel };
 
 /** The subset of CanvasRenderingContext2D the plan uses. */
 export interface Ctx2D {
@@ -47,64 +66,17 @@ export interface PlanView {
 
 export type PlanLayers = Record<Layer, Ctx2D>;
 
+/** The plan's own inks, plus what only the editor draws: the grid and the selection. */
 const COLOURS = {
-  // the plan's own background, so a hatched or outlined wall hides the grid and the room edges under it
-  paper: "#fbfaf7",
+  ...PLAN_INK,
   grid: "#e6e3dd",
   gridMajor: "#d3cfc7",
-  wall: "#3a3a3a",
-  wallGlass: "#7fb3d5",
-  // a mid grey against the near-black wall: a baseboard is a thin second edge, not more wall
-  skirting: "#9b958c",
-  room: "rgba(214, 226, 240, 0.55)",
-  roomEdge: "#8fa6bf",
-  opening: "#ffffff",
-  swing: "#6b6b6b",
-  item: "rgba(140, 120, 90, 0.35)",
-  itemEdge: "#6f5b3e",
   selection: "#1e88e5",
-  text: "#333333",
-  // A zone is an instruction, not a thing that was built, so it is drawn in a colour nothing else uses
-  // and never filled: a tint would wash over the desks standing inside it.
-  zone: "#7a5cc4",
 };
 
 /** A zone's name sits this many screen pixels above its top-left corner, and is reachable there. */
 const ZONE_LABEL_PX = 5;
 const ZONE_LABEL_HEIGHT_PX = 13;
-
-/**
- * What a zone is called on the plan: its own name if it has one, else the piece it lays out, and how many
- * are standing. A cluster of chairs reads "Chair · 24" rather than "Desk cluster", because what it holds
- * is the thing you need to know at a glance.
- */
-export function zoneLabel(z: Zone, project?: Project): string {
-  const count = z.generatedItemIds.length;
-  const name = z.name ?? (project ? zonePieceName(z, project) : null) ?? zoneKindLabel(z.kind);
-  return count > 0 ? `${name} · ${count}` : name;
-}
-
-/** The piece a zone lays out, in words, or null when it lays out nothing. */
-function zonePieceName(z: Zone, project: Project): string | null {
-  const rule = z.rule;
-  if (!rule) return null;
-  if (rule.productId) {
-    const snap = project.catalogRefs[rule.productId] as { name?: unknown } | undefined;
-    const full = typeof snap?.name === "string" && snap.name.trim() !== "" ? snap.name : rule.productId;
-    // The part before the first comma: a catalogue name is a sentence, and the plan has no room for one.
-    return (full.split(",")[0] as string).trim();
-  }
-  if (!rule.recipe) return null;
-  const label = "label" in rule.recipe ? rule.recipe.label.trim() : "";
-  if (label !== "") return label;
-  const words = rule.recipe.kind.replace(/-/g, " ");
-  return words.charAt(0).toUpperCase() + words.slice(1);
-}
-
-function zoneKindLabel(kind: Zone["kind"]): string {
-  const words = kind.replace(/-/g, " ");
-  return words.charAt(0).toUpperCase() + words.slice(1);
-}
 
 /** Hatch lines are this many screen pixels apart and this wide; an outlined cut is edged this wide. */
 const HATCH_GAP_PX = 5;
@@ -359,12 +331,11 @@ export class PlanRenderer {
 
   private drawStructure(project: Project, levelId: string): void {
     const ctx = this.begin("structure");
+    const shapes = planStructure(project, levelId);
     // rooms under walls
-    for (const r of project.rooms) {
-      if (r.levelId !== levelId) continue;
+    for (const r of shapes.rooms) {
       ctx.beginPath();
-      this.ring(ctx, r.polygon);
-      for (const h of r.holes) this.ring(ctx, h);
+      for (const ring of r.rings) this.ring(ctx, ring);
       ctx.fillStyle = COLOURS.room;
       ctx.fill("evenodd");
       ctx.strokeStyle = COLOURS.roomEdge;
@@ -372,66 +343,34 @@ export class PlanRenderer {
       ctx.stroke();
       this.label(ctx, r);
     }
-    // walls as a fused union per kind and pattern: walls of one kind drawn alike merge at their corners, and
-    // a change of either shows as a seam, as it does on a drawing
-    const walls = project.walls.filter((w) => w.levelId === levelId);
-    const fps = wallFootprints(walls);
-    const groups = new Map<string, { ink: string; pattern: WallPattern; rings: Point[][] }>();
-    for (const w of walls) {
-      const fp = fps.get(w.id);
-      if (!fp || fp.length < 3) continue;
-      const key = `${w.kind}|${w.pattern}`;
-      const group = groups.get(key) ?? {
-        ink: w.kind === "glass" ? COLOURS.wallGlass : COLOURS.wall,
-        pattern: w.pattern,
-        rings: [],
-      };
-      group.rings.push(fp);
-      groups.set(key, group);
-    }
-    for (const { ink, pattern, rings } of groups.values()) this.wallCut(ctx, unionRings(rings), ink, pattern);
-    // Baseboards, from the outlines the 3D faces are built from. A baseboard is a centimetre or two deep, a
-    // fraction of a pixel at most plan scales, so each is stroked a pixel wide as well as filled: it shows as
-    // a line along the face at a distance and as a strip close up.
-    const level = project.levels.find((l) => l.id === levelId);
-    if (level) {
-      const lowest = derive.lowestLevel(project);
-      const boards = skirtingOutlines(project.walls, project.openings, {
-        level,
-        isLowest: lowest.id === level.id,
-        isHighest: true,
-        footprints: fps,
-      });
-      if (boards.length > 0) {
-        ctx.beginPath();
-        for (const board of boards) for (const ring of board.rings) this.ring(ctx, ring);
-        ctx.fillStyle = COLOURS.skirting;
-        ctx.fill();
-        ctx.strokeStyle = COLOURS.skirting;
-        ctx.lineWidth = 1 / this.view.scale;
-        ctx.stroke();
-      }
-    }
-    // openings: a gap through the wall plus the door swing
-    for (const o of project.openings) {
-      const w = walls.find((x) => x.id === o.wallId);
-      if (!w) continue;
+    for (const cut of shapes.walls)
+      this.wallCut(ctx, cut.shape, cut.glass ? COLOURS.wallGlass : COLOURS.wall, cut.pattern);
+    // A baseboard is a centimetre or two deep, a fraction of a pixel at most plan scales, so each is stroked a
+    // pixel wide as well as filled: it shows as a line along the face at a distance and as a strip close up.
+    if (shapes.skirting.length > 0) {
       ctx.beginPath();
-      this.ring(ctx, derive.openingFootprint(o, w, 2));
+      for (const ring of shapes.skirting) this.ring(ctx, ring);
+      ctx.fillStyle = COLOURS.skirting;
+      ctx.fill();
+      ctx.strokeStyle = COLOURS.skirting;
+      ctx.lineWidth = 1 / this.view.scale;
+      ctx.stroke();
+    }
+    // openings: a gap through the wall plus the glass or the door swing
+    for (const o of shapes.openings) {
+      ctx.beginPath();
+      this.ring(ctx, o.gap);
       ctx.fillStyle = COLOURS.opening;
       ctx.fill();
-      if (o.kind === "window") {
+      if (o.glazing) {
         ctx.beginPath();
-        const iv = derive.openingAlongInterval(o, w);
-        const a = derive.pointAlongWall(w, iv.from / derive.wallLength(w));
-        const b = derive.pointAlongWall(w, iv.to / derive.wallLength(w));
-        ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
+        ctx.moveTo(o.glazing.a.x, o.glazing.a.y);
+        ctx.lineTo(o.glazing.b.x, o.glazing.b.y);
         ctx.strokeStyle = COLOURS.wallGlass;
-        ctx.lineWidth = Math.max(w.thickness / 3, 2 / this.view.scale);
+        ctx.lineWidth = Math.max(o.glazing.widthMm, 2 / this.view.scale);
         ctx.stroke();
       } else if (o.swing) {
-        this.swing(ctx, o, w);
+        this.swing(ctx, o.swing);
       }
     }
   }
@@ -490,32 +429,18 @@ export class PlanRenderer {
 
   /** Diagonal lines across a box, rising to the right for `slope` 1 and falling for -1, added to the path. */
   private hatch(ctx: Ctx2D, box: poly.Rect, slope: 1 | -1): void {
-    // Each line is y = slope * x + c. Lines HATCH_GAP_PX apart on screen are that far apart times √2 in c.
-    const step = (HATCH_GAP_PX / this.view.scale) * Math.SQRT2;
-    const ends = [box.minX, box.maxX].flatMap((x) => [box.minY - slope * x, box.maxY - slope * x]);
-    const first = Math.floor(Math.min(...ends) / step) * step;
-    const last = Math.max(...ends);
-    for (let c = first; c <= last; c += step) {
-      ctx.moveTo(box.minX, slope * box.minX + c);
-      ctx.lineTo(box.maxX, slope * box.maxX + c);
+    // HATCH_GAP_PX apart on screen at any zoom, as hatching is on paper at any scale.
+    for (const [a, b] of hatchLines(box, HATCH_GAP_PX / this.view.scale, slope)) {
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
     }
   }
 
-  /** Quarter-circle door swing from the hinge end, on the side the swing direction names. */
-  private swing(ctx: Ctx2D, o: Opening, w: Wall): void {
-    if (!o.swing) return;
-    const iv = derive.openingAlongInterval(o, w);
-    const len = derive.wallLength(w);
-    const hingeT = (o.swing.hinge === "start" ? iv.from : iv.to) / len;
-    const hinge = derive.pointAlongWall(w, hingeT);
-    const angle = (derive.wallAngle(w) * Math.PI) / 180;
-    const along = o.swing.hinge === "start" ? angle : angle + Math.PI;
-    // "left" opens to the wall's left side (positive rotation from the along direction), "right" the other way
-    const sign = (o.swing.direction === "left") !== (o.swing.hinge === "end") ? 1 : -1;
-    const end = along + (sign * Math.PI) / 2;
+  /** Quarter-circle door swing from the hinge, closed back to it so both leaf positions show. */
+  private swing(ctx: Ctx2D, s: SwingShape): void {
     ctx.beginPath();
-    ctx.moveTo(hinge.x, hinge.y);
-    ctx.arc(hinge.x, hinge.y, o.width, along, end, sign < 0);
+    ctx.moveTo(s.hinge.x, s.hinge.y);
+    ctx.arc(s.hinge.x, s.hinge.y, s.radius, s.start, s.start + s.sweep, s.sweep < 0);
     ctx.closePath();
     ctx.strokeStyle = COLOURS.swing;
     ctx.lineWidth = 1 / this.view.scale;
@@ -523,19 +448,17 @@ export class PlanRenderer {
     ctx.stroke();
   }
 
-  private label(ctx: Ctx2D, r: Room): void {
-    const at = derive.roomLabelAnchor(r);
+  private label(ctx: Ctx2D, r: RoomShape): void {
     const px = 12 / this.view.scale;
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    const s = this.toScreen(at);
+    const s = this.toScreen(r.labelAt);
     ctx.fillStyle = COLOURS.text;
     ctx.font = "12px system-ui, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    const area = (derive.roomArea(r) / 1e6).toFixed(1);
-    ctx.fillText(r.name ?? r.purpose, s.x, s.y - px * this.view.scale * 0.6);
-    ctx.fillText(`${area} m²`, s.x, s.y + px * this.view.scale * 0.6);
+    ctx.fillText(r.name, s.x, s.y - px * this.view.scale * 0.6);
+    ctx.fillText(`${r.areaM2.toFixed(1)} m²`, s.x, s.y + px * this.view.scale * 0.6);
     ctx.restore();
   }
 
@@ -544,39 +467,33 @@ export class PlanRenderer {
    * ring goes on the overlay, over the desks it made, because the area is the thing being pointed at and
    * an outline under the furniture would be hidden by exactly what it stands for.
    */
-  private zone(ctx: Ctx2D, z: Zone, project: Project): void {
-    if (z.polygon.length < 3) return;
+  private zone(ctx: Ctx2D, z: ZoneShape): void {
     const px = 1 / this.view.scale;
     ctx.beginPath();
-    this.ring(ctx, z.polygon);
+    this.ring(ctx, z.ring);
     ctx.strokeStyle = COLOURS.zone;
     ctx.lineWidth = 1.2 * px;
     ctx.setLineDash([8 * px, 5 * px]);
     ctx.stroke();
     ctx.setLineDash([]);
 
-    const b = poly.bounds(z.polygon);
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    const s = this.toScreen({ x: b.minX, y: b.maxY });
+    const s = this.toScreen(z.labelAt);
     ctx.fillStyle = COLOURS.zone;
     ctx.font = "11px system-ui, sans-serif";
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
-    ctx.fillText(zoneLabel(z, project), s.x, s.y - ZONE_LABEL_PX);
+    ctx.fillText(z.label, s.x, s.y - ZONE_LABEL_PX);
     ctx.restore();
   }
 
   private drawItems(project: Project, levelId: string): void {
     const ctx = this.begin("items");
     const sizes = this.sizes ?? derive.snapshotSizeSource(project);
-    for (const it of project.items) {
-      if (it.levelId !== levelId || !it.visible) continue;
-      const size = derive.itemSize(it, sizes);
-      if (!size) continue;
-      const fp = derive.itemFootprint(it, size);
+    for (const it of planItems(project, levelId, sizes)) {
       ctx.beginPath();
-      this.ring(ctx, fp);
+      this.ring(ctx, it.footprint);
       ctx.fillStyle = COLOURS.item;
       ctx.fill();
       ctx.strokeStyle = COLOURS.itemEdge;
@@ -584,8 +501,8 @@ export class PlanRenderer {
       ctx.stroke();
       // front edge marker: the footprint's last edge is the front (front-right to front-left)
       ctx.beginPath();
-      ctx.moveTo((fp[2] as Point).x, (fp[2] as Point).y);
-      ctx.lineTo((fp[3] as Point).x, (fp[3] as Point).y);
+      ctx.moveTo(it.front[0].x, it.front[0].y);
+      ctx.lineTo(it.front[1].x, it.front[1].y);
       ctx.lineWidth = 3 / this.view.scale;
       ctx.stroke();
     }
@@ -594,7 +511,7 @@ export class PlanRenderer {
   private drawOverlay(project: Project, levelId: string): void {
     const ctx = this.begin("overlay");
     const sizes = this.sizes ?? derive.snapshotSizeSource(project);
-    for (const z of project.zones) if (z.levelId === levelId) this.zone(ctx, z, project);
+    for (const z of planZones(project, levelId)) this.zone(ctx, z);
     ctx.strokeStyle = COLOURS.selection;
     ctx.lineWidth = 2 / this.view.scale;
     ctx.setLineDash([6 / this.view.scale, 4 / this.view.scale]);

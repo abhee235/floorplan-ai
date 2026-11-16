@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { apply, type Ctx } from "@fpv/commands";
-import type { Layer } from "@fpv/engine";
-import { Project, type Project as ProjectT, sequentialIdGenerator, type WallPattern } from "@fpv/ir";
+import { type Layer, PLAN_INK, planItems, planStructure } from "@fpv/engine";
+import { derive, Project, type Project as ProjectT, sequentialIdGenerator, type WallPattern } from "@fpv/ir";
 import { describe, expect, it } from "vitest";
 import { type Ctx2D, PlanRenderer } from "../src/index.js";
 
@@ -121,6 +121,34 @@ describe("plan renderer (ADR-003 D6)", () => {
     expect(rec.structure.texts.some((t) => t.endsWith("m²"))).toBe(true);
     expect(rec.items.calls.filter((c) => c === "fill")).toHaveLength(1);
     expect(plan.draws).toEqual({ static: 1, structure: 1, items: 1, overlay: 1 });
+  });
+
+  it("P3-7 paints the engine's plan shapes, each once: the list a layout drawing prints", () => {
+    const boardroom = Project.parse(
+      JSON.parse(
+        readFileSync(
+          fileURLToPath(new URL("../../../tools/fixtures/boardroom.fpviz/project.json", import.meta.url)),
+          "utf8",
+        ),
+      ),
+    );
+    const { layers: ctxs, rec } = layers();
+    const plan = new PlanRenderer(ctxs, 800, 600);
+    plan.setProject(boardroom);
+    plan.fit();
+    plan.flush();
+    const shapes = planStructure(boardroom, L);
+    const items = planItems(boardroom, L, derive.snapshotSizeSource(boardroom));
+    const count = (r: ReturnType<typeof recorder>, paint: string) =>
+      r.painted.filter((x) => x === paint).length;
+    expect(count(rec.structure, `fill ${PLAN_INK.room}`)).toBe(shapes.rooms.length);
+    expect(count(rec.structure, `fill ${PLAN_INK.wall}`)).toBe(shapes.walls.length);
+    expect(count(rec.structure, `fill ${PLAN_INK.opening}`)).toBe(shapes.openings.length);
+    expect(rec.structure.calls.filter((c) => c === "arc")).toHaveLength(
+      shapes.openings.filter((o) => o.swing).length,
+    );
+    expect(count(rec.items, `fill ${PLAN_INK.item}`)).toBe(items.length);
+    expect(rec.structure.texts).toEqual(shapes.rooms.flatMap((r) => [r.name, `${r.areaM2.toFixed(1)} m²`]));
   });
 
   it("redraws only the layers a change touches; selection touches the overlay only", () => {
