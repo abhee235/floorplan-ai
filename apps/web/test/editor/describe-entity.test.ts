@@ -24,6 +24,7 @@ import {
   type EditCommand,
   type EditOutcome,
   type Fact,
+  FROM_IMAGE,
   HEIGHT_RANGE,
   NAME_LIMIT,
   OPENING_KINDS,
@@ -1253,6 +1254,30 @@ describe("choosing what a surface is made of (P3-5)", () => {
     expect(describeEntity(p, W1)?.facts.find((f) => f.label === "Material, left side")?.choices).toEqual([
       { value: PAINT, label: "Paint" },
     ]);
+  });
+
+  it("P3-8 offers a picture of one's own last, and puts what it becomes on the surface that asked", () => {
+    const p = fixture();
+    const asked: { then?: (textureId: string) => EditCommand } = {};
+    const row = describeEntity(p, W1, {
+      textures,
+      importTexture: (then) => {
+        asked.then = then;
+      },
+    })?.facts.find((f) => f.label === "Material, left side");
+    expect(row?.choices?.at(-1)).toEqual({ value: FROM_IMAGE, label: "From an image…" });
+    // choosing it asks for a picture and changes nothing yet
+    expect(row?.edit?.(FROM_IMAGE)).toEqual({ ok: true, command: null, said: "Choose a picture" });
+    // and once the picture is a texture, the command is the one picking that texture would have sent
+    expect(asked.then).toBeDefined();
+    const later = asked.then?.(OAK.id);
+    expect(rowWith(p, W1, "Material, left side").edit?.(OAK.id)).toEqual({
+      ok: true,
+      command: later,
+      said: OAK.name,
+    });
+    // without a way to bring a picture in, the row does not offer one
+    expect(rowWith(p, W1, "Material, left side").choices?.some((c) => c.value === FROM_IMAGE)).toBe(false);
   });
 
   it("dresses an opening's fill and its frame separately", () => {

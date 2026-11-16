@@ -36,6 +36,7 @@ import { SessionLogDialog } from "./SessionLogDialog.js";
 import { StatusBar } from "./StatusBar.js";
 import { deleteCommands, describeEntity, kindOf, type TextureChoice } from "./selection.js";
 import { scaleLabel } from "./status.js";
+import { TextureImportDialog, type TexturePicture } from "./TextureImportDialog.js";
 import { Toolbar } from "./Toolbar.js";
 import { ToolRail } from "./ToolRail.js";
 import {
@@ -106,6 +107,20 @@ export function EditorShell(): JSX.Element {
   const zoneDrawingRef = useRef<ZoneDrawing | null>(null);
   // the catalog's search field, which the item tool hands focus to when there is nothing to place yet
   const catalogInputRef = useRef<HTMLInputElement | null>(null);
+  // A picture being made into a material (P3-8): the file picker, the picture once read, and what to do
+  // with the texture once the host has made it, when a material row asked rather than the File menu.
+  const textureFileRef = useRef<HTMLInputElement>(null);
+  const textureApply = useRef<((textureId: string) => Promise<void>) | null>(null);
+  const [texturePick, setTexturePick] = useState<{
+    file: File;
+    picture: TexturePicture;
+    busy: boolean;
+    error: string | null;
+  } | null>(null);
+  const importTexture = useCallback((apply?: (textureId: string) => Promise<void>) => {
+    textureApply.current = apply ?? null;
+    textureFileRef.current?.click();
+  }, []);
 
   const commands = useMemo(() => new CommandRegistry(), []);
 
@@ -637,6 +652,13 @@ export function EditorShell(): JSX.Element {
         detail: "a DXF, a PDF or an image",
         run: () => importFileRef.current?.click(),
       },
+      {
+        id: "file.importTexture",
+        title: "Import texture…",
+        group: "File",
+        detail: "a picture of a surface, used at its real size",
+        run: () => importTexture(),
+      },
       // Export was a button running `file.export`, which was registered nowhere: every click did
       // nothing, silently. These are the formats the host can write; the layout drawing (P3-7) is a PDF
       // of every level, or a DXF of the level on screen, since a DXF holds one.
@@ -841,7 +863,7 @@ export function EditorShell(): JSX.Element {
       itemPlacingRef.current = null;
       zoneDrawingRef.current = null;
     };
-  }, [app, announcer, commands, setTool, setOption]);
+  }, [app, announcer, commands, setTool, setOption, importTexture]);
 
   // The panel is the selection (ADR-017 D3): picking something on the plan shows its properties. Not while
   // placing, where each new piece is selected in turn and the catalog should stay where it is.
@@ -925,6 +947,93 @@ export function EditorShell(): JSX.Element {
   }, [commands, paletteOpen, setTool]);
 
   const replica = app?.replica ?? null;
+
+  // ---- a picture made into a material (P3-8) ----
+  const forgetTexturePick = (): void => {
+    if (texturePick) URL.revokeObjectURL(texturePick.picture.url);
+    textureApply.current = null;
+    setTexturePick(null);
+  };
+  const onTextureFile = (input: HTMLInputElement): void => {
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) {
+      textureApply.current = null;
+      return;
+    }
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type) && !/\.(png|jpe?g|webp)$/i.test(file.name)) {
+      textureApply.current = null;
+      announcer.alert(`${file.name} is not a PNG, JPEG or WebP picture, so it cannot be a material.`);
+      return;
+    }
+    // Read here for the preview and its shape; the host reads the bytes again and has the last word.
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () =>
+      setTexturePick({
+        file,
+        picture: { url, fileName: file.name, width: image.naturalWidth, height: image.naturalHeight },
+        busy: false,
+        error: null,
+      });
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      textureApply.current = null;
+      announcer.alert(`${file.name} could not be read as a picture.`);
+    };
+    image.src = url;
+  };
+  const addTexture = async (name: string, widthMm: number): Promise<void> => {
+    const pick = texturePick;
+    const client = app?.client;
+    if (!pick || !client) return;
+    setTexturePick({ ...pick, busy: true, error: null });
+    let made: { id?: string; name?: string } | undefined;
+    let warnings: string[] = [];
+    try {
+      const reply = await client.tool("import_texture", {
+        contentBase64: await base64Of(pick.file),
+        fileName: pick.file.name,
+        name,
+        widthMm,
+      });
+      if (!reply.ok) {
+        setTexturePick({
+          ...pick,
+          busy: false,
+          error: reply.error?.message ?? "The host refused the picture.",
+        });
+        return;
+      }
+      const envelope = reply.result as
+        | { result?: { id?: string; name?: string }; warnings?: string[] }
+        | undefined;
+      made = envelope?.result;
+      warnings = envelope?.warnings ?? [];
+    } catch (e) {
+      setTexturePick({ ...pick, busy: false, error: e instanceof Error ? e.message : String(e) });
+      return;
+    }
+    // The catalog has one more texture now; the rows offer it from here on.
+    const listed = await client.request({ type: "get", what: "textures" }).catch(() => null);
+    const list = (listed?.result as { textures?: unknown } | undefined)?.textures;
+    if (Array.isArray(list)) setTextures(list as TextureChoice[]);
+    const apply = textureApply.current;
+    forgetTexturePick();
+    const called = made?.name ?? name;
+    if (!made?.id || !apply) {
+      announcer.say(`${called} is among the materials now.${warnings[0] ? ` ${warnings[0]}` : ""}`);
+      return;
+    }
+    try {
+      await apply(made.id);
+      announcer.say(`${called} is the material now.`);
+    } catch (e) {
+      announcer.alert(
+        `${called} was added, but could not be put on the surface: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  };
 
   return (
     <EditorContext.Provider value={editor}>
@@ -1092,6 +1201,7 @@ export function EditorShell(): JSX.Element {
                     send={(command) => sendOrThrow(app.client, command)}
                     textures={textures}
                     preview={app.preview}
+                    importTexture={(then) => importTexture((id) => sendOrThrow(app.client, then(id)))}
                   />
                 </TabsContent>
                 <TabsContent value="catalog" forceMount className="min-h-0 data-[state=inactive]:hidden">
@@ -1122,6 +1232,20 @@ export function EditorShell(): JSX.Element {
           type="file"
           hidden
           accept=".dxf,.dwg,.pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp"
+        />
+        <input
+          ref={textureFileRef}
+          type="file"
+          hidden
+          accept="image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"
+          onChange={(e) => onTextureFile(e.currentTarget)}
+        />
+        <TextureImportDialog
+          picture={texturePick?.picture ?? null}
+          busy={texturePick?.busy ?? false}
+          error={texturePick?.error ?? null}
+          onCancel={forgetTexturePick}
+          onImport={(name, widthMm) => void addTexture(name, widthMm)}
         />
         <div ref={politeRef} aria-live="polite" aria-atomic="true" className="sr-only" />
         <div ref={assertiveRef} aria-live="assertive" aria-atomic="true" className="sr-only" />
