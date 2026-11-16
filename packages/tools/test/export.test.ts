@@ -86,7 +86,7 @@ describe("export tool (PRD P1-5, ADR-013 D2)", () => {
     catalog.close();
   });
 
-  it("scopes, existing files, formats of later phases and sessions without a writer", async () => {
+  it("scopes, existing files and sessions without a writer", async () => {
     const { h, writer, catalog } = await furnishedBoardroom();
     const room = h.ctx.store.project.rooms[0]?.id as string;
     await h.ok("export", { format: "csv", path: "room.csv", scope: `room:${room}`, includeUnverified: true });
@@ -112,9 +112,6 @@ describe("export tool (PRD P1-5, ADR-013 D2)", () => {
         })
       ).ok,
     ).toBe(true);
-    const pdf = await h.call("export", { format: "pdf", path: "x.pdf" });
-    expect(pdf.ok).toBe(false);
-    if (!pdf.ok) expect(pdf.error.code).toBe("unavailable");
     const badScope = await h.call("export", { format: "csv", path: "x.csv", scope: "room:room_zzzzzz" });
     expect(badScope.ok).toBe(false);
     const noWriter = harness(undefined, { rules: AV_CORE });
@@ -122,6 +119,71 @@ describe("export tool (PRD P1-5, ADR-013 D2)", () => {
     expect(nw.ok).toBe(false);
     if (!nw.ok)
       expect(nw.error.message).toBe("export is unavailable because this session cannot write files");
+    catalog.close();
+  });
+
+  it("P3-7 writes the layout drawing as a PDF and as a DXF, with no rules pack or verification needed", async () => {
+    const { h, writer, catalog } = await furnishedBoardroom();
+    const pdf = await h.ok<{ path: string; pages: number; scale: number; lines: number; draft: boolean }>(
+      "export",
+      {
+        format: "pdf",
+        path: "layout.pdf",
+      },
+    );
+    expect(pdf.result).toMatchObject({ path: "/exports/layout.pdf", pages: 1, scale: 50, draft: false });
+    expect(pdf.result.lines).toBeGreaterThan(3);
+    const pdfText = new TextDecoder("latin1").decode(writer.files.get("layout.pdf"));
+    expect(pdfText.startsWith("%PDF-1.4")).toBe(true);
+    expect(pdfText).toContain("(floorplan-ai 9.9.9) Tj");
+    const dxf = await h.ok<{ pages: number; scale: number }>("export", {
+      format: "dxf",
+      path: "layout.dxf",
+      paper: "A2",
+    });
+    expect(dxf.result).toMatchObject({ pages: 1, scale: 50 });
+    expect(dxf.warnings).toContain("paper applies to pdf only; a DXF has no sheet");
+    expect(new TextDecoder().decode(writer.files.get("layout.dxf"))).toContain("AC1009");
+    // a room scope frames the room on A4
+    const room = h.ctx.store.project.rooms[0]?.id as string;
+    const framed = await h.ok<{ pages: number }>("export", {
+      format: "pdf",
+      path: "room.pdf",
+      scope: `room:${room}`,
+      paper: "A4",
+    });
+    expect(framed.result.pages).toBe(1);
+    catalog.close();
+  });
+
+  it("P3-7 draws a sheet per level, asks a DXF for one level, and marks a drawing forced over errors DRAFT", async () => {
+    const { h, writer, catalog } = await furnishedBoardroom();
+    await h.ok("add_level", { name: "First floor" });
+    const levels = h.ctx.store.project.levels;
+    expect(levels).toHaveLength(2);
+    const pdf = await h.ok<{ pages: number }>("export", { format: "pdf", path: "all.pdf" });
+    expect(pdf.result.pages).toBe(2);
+    expect(pdf.warnings).toEqual([]);
+    const refused = await h.call("export", { format: "dxf", path: "all.dxf" });
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) {
+      expect(refused.error.code).toBe("export.scope");
+      expect(refused.error.hint).toContain(`level:${levels[0]?.id}`);
+    }
+    const upstairs = await h.ok("export", {
+      format: "dxf",
+      path: "first.dxf",
+      scope: `level:${levels[1]?.id}`,
+    });
+    expect(upstairs.warnings).toContain("the drawing is empty for this scope");
+    // without the snapshots every placed product is an error
+    h.ctx.store.load({ ...h.ctx.store.project, catalogRefs: {} });
+    const invalid = await h.call("export", { format: "pdf", path: "bad.pdf" });
+    expect(invalid.ok).toBe(false);
+    if (!invalid.ok) expect(invalid.error.code).toBe("export.invalid");
+    const forced = await h.ok<{ draft: boolean }>("export", { format: "pdf", path: "bad.pdf", force: true });
+    expect(forced.result.draft).toBe(true);
+    expect(new TextDecoder("latin1").decode(writer.files.get("bad.pdf"))).toContain("(DRAFT) Tj");
     catalog.close();
   });
 

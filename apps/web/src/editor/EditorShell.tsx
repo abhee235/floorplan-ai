@@ -638,21 +638,28 @@ export function EditorShell(): JSX.Element {
         run: () => importFileRef.current?.click(),
       },
       // Export was a button running `file.export`, which was registered nowhere: every click did
-      // nothing, silently. These are the three formats the host can actually write today; the drawing
-      // formats arrive with P3-7 and will be added here then rather than offered and refused.
+      // nothing, silently. These are the formats the host can write; the layout drawing (P3-7) is a PDF
+      // of every level, or a DXF of the level on screen, since a DXF holds one.
       ...(
         [
           ["csv", "Bill of materials (CSV)"],
           ["xlsx", "Bill of materials (Excel)"],
+          ["pdf", "Layout drawing (PDF)"],
+          ["dxf", "Layout drawing (DXF)"],
           ["glb", "3D model (GLB)"],
         ] as const
       ).map(([format, title]) => ({
         id: `file.export.${format}`,
         title,
         group: "File",
-        detail: "written beside the project",
+        detail:
+          format === "dxf" ? "the level on screen, written beside the project" : "written beside the project",
         run: async () => {
-          const name = (replica.project?.meta.name ?? "project").replace(/[^\w-]+/g, "-").toLowerCase();
+          const project = replica.project;
+          const slug = (s: string) => s.replace(/[^\w-]+/g, "-").toLowerCase();
+          const level = format === "dxf" ? project?.levels.find((l) => l.id === app?.plan.level) : undefined;
+          const many = (project?.levels.length ?? 0) > 1;
+          const name = `${slug(project?.meta.name ?? "project")}${level && many ? `-${slug(level.name)}` : ""}`;
           announcer.say(`Writing the ${format.toUpperCase()}…`);
           // includeUnverified: a line whose product is unverified is HIGHLIGHTED in the file, which is
           // the designed behaviour (ADR-013). Refusing the person's own Export over it would only send
@@ -661,6 +668,7 @@ export function EditorShell(): JSX.Element {
           const reply = await client.tool("export", {
             format,
             path: `${name}.${format}`,
+            ...(level ? { scope: `level:${level.id}` } : {}),
             includeUnverified: true,
             overwrite: true,
           });

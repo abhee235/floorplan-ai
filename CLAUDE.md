@@ -78,7 +78,9 @@ fetcher), a Node-only subpath that only the host may import. A new package needs
    `bridge.ts` here defines the host–browser WebSocket protocol, shared by both sides.
 3. **Engine** (`packages/engine`, ADR-003/015): renderer-neutral mesh buffers for walls, rooms and items,
    rebuilt from change sets through a dependency table. `geometry` holds the polygon booleans, wall joins,
-   room detection and magnetism it relies on.
+   room detection and magnetism it relies on. `drawing.ts` (`planStructure`, `planItems`, `planZones`) is
+   the 2D plan as shapes: the web plan view paints them and the PDF/DXF layout drawings print them
+   (ADR-013 D5), so a change to what the plan shows belongs there, not in `apps/web/src/plan/plan.ts`.
 4. **Tools** (`packages/tools`, ADR-005/006, spec 04): one registry of zod-schema'd tools with a uniform result
    envelope. Tools are filtered by reliability profile (high, medium, low), by a per-role `granted` set, and
    by consent: entities a person made are refused to the agent unless released (ADR-023). `run_code` executes

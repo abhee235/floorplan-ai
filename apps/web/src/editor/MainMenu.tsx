@@ -75,7 +75,15 @@ export function menus(view: string): MenuDefinition[] {
         "file.import",
         {
           title: "Export",
-          entries: ["file.export.csv", "file.export.xlsx", { separator: true }, "file.export.glb"],
+          entries: [
+            "file.export.csv",
+            "file.export.xlsx",
+            { separator: true },
+            "file.export.pdf",
+            "file.export.dxf",
+            { separator: true },
+            "file.export.glb",
+          ],
         },
       ],
     },

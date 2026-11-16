@@ -87,6 +87,37 @@ heights for wall and ceiling items as callouts) and DXF (layers per entity
 kind: `WALL`, `OPENING`, `ROOM`, `ITEM`, `TEXT`, `DIM`, in millimetres, y up).
 Because both come from the same primitives, the PDF and the DXF agree.
 
+Amended 2026-11-17, when P3-7 was built:
+
+- **The primitives are the engine's.** `planStructure`, `planItems` and
+  `planZones` in `@fpv/engine` turn one level of the IR into shapes in plan
+  millimetres: rooms with their labels, wall cuts fused by kind and pattern,
+  baseboards, openings with their gap and glass or swing, items with their
+  front edge, title and mount height, and zones. The editor's plan view paints
+  them on a canvas; the PDF and the DXF print them. Moving the plan view onto
+  them changed none of its drawing calls.
+- **The sheet.** A PDF has one landscape sheet per level, A3 unless asked
+  otherwise, at the largest standard scale (1:10 to 1:5000) at which the
+  level fits; a scale that is asked for and does not fit is drawn cut at the
+  frame, with a warning. A schedule names every kind of item once, by name,
+  size and mount, and each item carries the schedule's tag when the tag fits
+  inside it on paper. A wall item's note is its centre line above the floor
+  (`CL 1 400`), a ceiling item's the ceiling (`CLG 2 700`): the heights the
+  rules pack measures cable runs from. A room scope frames that room.
+- **The DXF is R12,** which every CAD program still opens. What paper paints
+  over, the DXF cuts: walls are broken at their openings, filled with
+  triangles, and hatched with lines already cut to the wall. The layers
+  refine D5's list so that a reader, ours included, can tell what each holds
+  from its name: `OPENING-DOOR` and `OPENING-WINDOW` for `OPENING`; `TEXT`
+  holds room names and areas only, so a room is never named after a note;
+  tags and mount notes go on `ITEM` with their items; zones on `CLUSTER`
+  rather than being read as rooms; the title and schedule on `TITLE`. Reading
+  an exported DXF back through the app's own importer returns its walls,
+  doors and room names.
+- **Our own writers.** Both formats are written by hand in
+  `@fpv/exporters`, as the spreadsheet and glTF writers are: the PDF uses the
+  standard Helvetica every reader carries, so nothing is embedded.
+
 ### D6. IFC
 
 Scoped to `IfcWall`, `IfcOpeningElement`, `IfcDoor`, `IfcWindow`, `IfcSpace`
