@@ -46,6 +46,13 @@ export {
   sha256,
   writeAtomic,
 } from "./files.js";
+export {
+  BUILT_IN_LIBRARIES,
+  Libraries,
+  LibraryError,
+  type LibraryView,
+  MAX_LIBRARY_BYTES,
+} from "./libraries.js";
 export { createLog, type EventLog, type LogLevel, silentLog } from "./log.js";
 export { createMcpServer, HOST_VERSION, type McpOptions, serveStdio, toCallToolResult } from "./mcp.js";
 export { createReader, loadReaderConfig, READER_TIMEOUT_MS } from "./reader.js";

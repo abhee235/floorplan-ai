@@ -18,6 +18,7 @@ import {
 import type { DraftPresentation, RenderedImage, RenderRequest, ViewerRenderer } from "@fpv/tools";
 import type { WebSocket } from "ws";
 import type { AgentRuns } from "./agent-runs.js";
+import { type Libraries, LibraryError } from "./libraries.js";
 import { plainDetail, silentLog } from "./log.js";
 import { entriesFrom, pickRun, runs } from "./log-read.js";
 import type { Session } from "./session.js";
@@ -75,6 +76,8 @@ export interface BridgeOptions {
   library?: () => RecentEntry[];
   /** The in-app agent (ADR-022); without one the agent message is refused with a reason. */
   agent?: AgentRuns | null;
+  /** Installs and removes catalog libraries (P3-8); without it the library message is refused. */
+  libraries?: Libraries | null;
 }
 
 /**
@@ -313,6 +316,11 @@ export class Bridge {
     }
     if (msg.type === "workspace") {
       await this.workspaceMessage(state, msg);
+      return;
+    }
+    // The installation's catalog, not any one project's: answered whatever the tab is looking at.
+    if (msg.type === "library") {
+      this.libraryMessage(state, msg);
       return;
     }
     // Everything else is about one project, and a tab that is not looking at one has nothing to say
@@ -602,6 +610,51 @@ export class Bridge {
       stale: behind,
     });
     if (held) this.showProjectTo(state, held);
+  }
+
+  /**
+   * Catalog libraries (P3-8): what is installed, a library's zip to install, one version to remove. Each
+   * answer carries the list as it now stands, so the editor shows what is true without asking again.
+   */
+  private libraryMessage(state: ClientState, msg: Extract<ClientMessage, { type: "library" }>): void {
+    const libraries = this.options.libraries;
+    if (!libraries) {
+      this.reply(state, msg.id, false, {
+        error: { code: "unavailable", message: "this host does not install libraries", hint: null },
+      });
+      return;
+    }
+    try {
+      if (msg.op === "list") {
+        this.reply(state, msg.id, true, { result: { libraries: libraries.list() } });
+        return;
+      }
+      if (msg.op === "install") {
+        if (!msg.data) {
+          this.reply(state, msg.id, false, {
+            error: { code: "invalid", message: "no file was sent", hint: null },
+          });
+          return;
+        }
+        const { library, replaced } = libraries.installZip(new Uint8Array(Buffer.from(msg.data, "base64")));
+        this.reply(state, msg.id, true, { result: { library, replaced, libraries: libraries.list() } });
+        return;
+      }
+      if (!msg.library || !msg.version) {
+        this.reply(state, msg.id, false, {
+          error: { code: "invalid", message: "which library, and which version?", hint: null },
+        });
+        return;
+      }
+      const removed = libraries.uninstall(msg.library, msg.version);
+      this.reply(state, msg.id, true, { result: { removed, libraries: libraries.list() } });
+    } catch (e) {
+      const error =
+        e instanceof LibraryError
+          ? { code: e.code, message: e.message, hint: e.hint }
+          : { code: "library.failed", message: e instanceof Error ? e.message : String(e), hint: null };
+      this.reply(state, msg.id, false, { error });
+    }
   }
 
   /** Opening, making, listing and leaving projects (ADR-020 D4). */

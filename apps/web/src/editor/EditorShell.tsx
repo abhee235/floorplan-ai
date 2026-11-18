@@ -28,6 +28,7 @@ import { AboutDialog, ShortcutsDialog } from "./HelpDialogs.js";
 import { bindItemPlacing, type ItemPlacing } from "./item-placing.js";
 import type { Placeable } from "./item-tool.js";
 import { isInsidePopup, isTypingTarget } from "./keys.js";
+import { contentsOf, LibrariesDialog, type LibraryRow } from "./LibrariesDialog.js";
 import { bindMeasureDrawing } from "./measure-drawing.js";
 import { bindOpeningDrawing } from "./opening-drawing.js";
 import { PropertiesPanel } from "./PropertiesPanel.js";
@@ -121,6 +122,14 @@ export function EditorShell(): JSX.Element {
     textureApply.current = apply ?? null;
     textureFileRef.current?.click();
   }, []);
+  // The catalog's libraries (P3-8). A change to them remounts the catalog tab, so its search asks again.
+  const libraryFileRef = useRef<HTMLInputElement>(null);
+  const [librariesOpen, setLibrariesOpen] = useState(false);
+  const [libraryRows, setLibraryRows] = useState<readonly LibraryRow[] | null>(null);
+  const [libraryBusy, setLibraryBusy] = useState(false);
+  const [libraryError, setLibraryError] = useState<string | null>(null);
+  const [libraryNotice, setLibraryNotice] = useState<string | null>(null);
+  const [catalogVersion, setCatalogVersion] = useState(0);
 
   const commands = useMemo(() => new CommandRegistry(), []);
 
@@ -659,6 +668,13 @@ export function EditorShell(): JSX.Element {
         detail: "a picture of a surface, used at its real size",
         run: () => importTexture(),
       },
+      {
+        id: "file.libraries",
+        title: "Libraries…",
+        group: "File",
+        detail: "install or remove catalogs of products and materials",
+        run: () => setLibrariesOpen(true),
+      },
       // Export was a button running `file.export`, which was registered nowhere: every click did
       // nothing, silently. These are the formats the host can write; the layout drawing (P3-7) is a PDF
       // of every level, or a DXF of the level on screen, since a DXF holds one.
@@ -948,6 +964,70 @@ export function EditorShell(): JSX.Element {
 
   const replica = app?.replica ?? null;
 
+  // ---- the catalog's libraries (P3-8) ----
+  /** The textures the material rows offer, asked for again after the catalog changed. */
+  const refreshTextures = async (): Promise<void> => {
+    const listed = await app?.client.request({ type: "get", what: "textures" }).catch(() => null);
+    const list = (listed?.result as { textures?: unknown } | undefined)?.textures;
+    if (Array.isArray(list)) setTextures(list as TextureChoice[]);
+  };
+  /** Ask the host about its libraries; every answer carries the list as it now stands. */
+  const libraryRequest = async (
+    body: Parameters<NonNullable<typeof app>["client"]["library"]>[0],
+  ): Promise<Record<string, unknown> | null> => {
+    const client = app?.client;
+    if (!client) return null;
+    setLibraryError(null);
+    try {
+      const reply = await client.library(body);
+      if (!reply.ok) {
+        setLibraryError(reply.error?.message ?? "the host refused");
+        return null;
+      }
+      const result = (reply.result ?? {}) as Record<string, unknown>;
+      if (Array.isArray(result.libraries)) setLibraryRows(result.libraries as LibraryRow[]);
+      return result;
+    } catch (e) {
+      setLibraryError(e instanceof Error ? e.message : String(e));
+      return null;
+    }
+  };
+  useEffect(() => {
+    if (!librariesOpen) return;
+    setLibraryNotice(null);
+    setLibraryError(null);
+    void libraryRequest({ op: "list" });
+  }, [librariesOpen]);
+  const onLibraryFile = async (input: HTMLInputElement): Promise<void> => {
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+    setLibraryBusy(true);
+    setLibraryNotice(null);
+    const result = await libraryRequest({ op: "install", data: await base64Of(file) });
+    setLibraryBusy(false);
+    const library = result?.library as LibraryRow | undefined;
+    if (!library) return;
+    const said = `${result?.replaced ? "Reinstalled" : "Installed"} ${library.name} ${library.version}: ${contentsOf(library)}.`;
+    setLibraryNotice(said);
+    announcer.say(said);
+    setCatalogVersion((v) => v + 1);
+    await refreshTextures();
+  };
+  const uninstallLibrary = async (id: string, version: string): Promise<void> => {
+    const name = libraryRows?.find((l) => l.id === id && l.version === version)?.name ?? id;
+    setLibraryBusy(true);
+    setLibraryNotice(null);
+    const result = await libraryRequest({ op: "uninstall", library: id, version });
+    setLibraryBusy(false);
+    if (!result) return;
+    const said = `Removed ${name} ${version}.`;
+    setLibraryNotice(said);
+    announcer.say(said);
+    setCatalogVersion((v) => v + 1);
+    await refreshTextures();
+  };
+
   // ---- a picture made into a material (P3-8) ----
   const forgetTexturePick = (): void => {
     if (texturePick) URL.revokeObjectURL(texturePick.picture.url);
@@ -1015,9 +1095,7 @@ export function EditorShell(): JSX.Element {
       return;
     }
     // The catalog has one more texture now; the rows offer it from here on.
-    const listed = await client.request({ type: "get", what: "textures" }).catch(() => null);
-    const list = (listed?.result as { textures?: unknown } | undefined)?.textures;
-    if (Array.isArray(list)) setTextures(list as TextureChoice[]);
+    await refreshTextures();
     const apply = textureApply.current;
     forgetTexturePick();
     const called = made?.name ?? name;
@@ -1206,6 +1284,7 @@ export function EditorShell(): JSX.Element {
                 </TabsContent>
                 <TabsContent value="catalog" forceMount className="min-h-0 data-[state=inactive]:hidden">
                   <CatalogPanel
+                    key={catalogVersion}
                     inputRef={catalogInputRef}
                     search={searchCatalog}
                     onPlace={placePiece}
@@ -1246,6 +1325,23 @@ export function EditorShell(): JSX.Element {
           error={texturePick?.error ?? null}
           onCancel={forgetTexturePick}
           onImport={(name, widthMm) => void addTexture(name, widthMm)}
+        />
+        <input
+          ref={libraryFileRef}
+          type="file"
+          hidden
+          accept=".zip,application/zip"
+          onChange={(e) => void onLibraryFile(e.currentTarget)}
+        />
+        <LibrariesDialog
+          open={librariesOpen}
+          libraries={libraryRows}
+          busy={libraryBusy}
+          error={libraryError}
+          notice={libraryNotice}
+          onOpenChange={setLibrariesOpen}
+          onInstall={() => libraryFileRef.current?.click()}
+          onUninstall={(id, version) => void uninstallLibrary(id, version)}
         />
         <div ref={politeRef} aria-live="polite" aria-atomic="true" className="sr-only" />
         <div ref={assertiveRef} aria-live="assertive" aria-atomic="true" className="sr-only" />

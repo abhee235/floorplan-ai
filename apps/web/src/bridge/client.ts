@@ -158,6 +158,15 @@ export class BridgeClient {
   workspace(body: Record<string, unknown>): Promise<ResultMsg> {
     return this.request({ type: "workspace", ...body });
   }
+  /** List, install or remove the installation's catalog libraries (P3-8). */
+  library(body: {
+    op: "list" | "install" | "uninstall";
+    data?: string;
+    library?: string;
+    version?: string;
+  }): Promise<ResultMsg> {
+    return this.request({ type: "library", ...body });
+  }
   /**
    * Tell the host what the person did, for the session log (ADR-019 D4). The one message that expects no
    * result: there is nothing to wait for, and a gesture with nowhere to go is dropped rather than queued.

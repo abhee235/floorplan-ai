@@ -184,6 +184,14 @@ found from the pixels of a PNG, not only from whether it has an alpha
 channel, because most RGBA files are opaque. Library install from the editor
 and model import are the next parts of P3-8.
 
+Amended 2026-11-18, when library install was built (P3-8, second part): a
+library is installed from its zip through File ▸ Libraries…, which lists what
+is installed and removes a version; spec 02 section 4 has the rules. Installing
+is the person's act from the editor, not a tool the agent is offered, because
+it changes the catalog under every project on the host. The zip reader that
+came with it reads deflated zips, which also lets a project archive re-zipped
+by an operating system be imported.
+
 ## Alternatives considered
 
 - **Runtime OBJ and Collada loading with zip archives.**

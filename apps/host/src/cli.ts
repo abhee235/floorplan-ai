@@ -14,6 +14,7 @@ import { AgentRuns } from "./agent-runs.js";
 import { HOST_VERSION } from "./bridge.js";
 import { loadDotEnv } from "./env.js";
 import { FileExportWriter } from "./exports.js";
+import { Libraries } from "./libraries.js";
 import { libraryRoot } from "./library.js";
 import { createLog, type LogLevel } from "./log.js";
 import { formatEntry, formatRuns, pickRun, readFrom, readRun, runs } from "./log-read.js";
@@ -283,6 +284,8 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   }
   if (args.serve) {
     const images = new TextureImages(catalog.store, catalog.dir, userTextures);
+    // Catalog libraries installed from the editor (P3-8); a change drops the images read so far.
+    const libraries = new Libraries(catalog.store, catalog.dir, now, () => images.forget());
     // The in-app agent (P4-1). Without a configured model the editor still opens and says why the
     // chat is unavailable, which is more use than a chat box that refuses every message.
     const agentConfig = loadAgentConfig({ dataDir: catalog.dir });
@@ -312,6 +315,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     const served = await serve(workspace, {
       port: args.port,
       agent,
+      libraries,
       textures: (id) => images.image(id),
       // Read fresh per request: another host may have opened something since this one started.
       library: () => projects.recentPresent(),

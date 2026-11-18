@@ -101,6 +101,10 @@ export interface LibraryRecord {
   id: string;
   version: string;
   name: string;
+  /** Who made it, as its manifest says; null when it does not say. */
+  provider: string | null;
+  /** Its licence's id, e.g. "CC0-1.0", so a list can say what may be done with it. */
+  licence: string;
   installedAt: string;
   productCount: number;
   textureCount: number;
@@ -686,6 +690,8 @@ export class CatalogStore implements VerifyStore {
         id: r.id,
         version: r.version,
         name: m.name,
+        provider: m.provider ?? null,
+        licence: m.licence.id,
         installedAt: r.installed_at,
         productCount: m.products.length,
         textureCount: m.textures.length,
