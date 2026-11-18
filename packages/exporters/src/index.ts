@@ -54,4 +54,14 @@ export {
   sheetNames,
   writeXlsx,
 } from "./xlsx.js";
-export { crc32, unzipStore, type ZipEntry, zipStore } from "./zip.js";
+export {
+  crc32,
+  type ReadZipOptions,
+  readZip,
+  unzipStore,
+  ZIP_MAX_BYTES,
+  ZIP_MAX_ENTRIES,
+  type ZipEntry,
+  ZipError,
+  zipStore,
+} from "./zip.js";
