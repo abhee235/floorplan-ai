@@ -742,6 +742,9 @@ export class CatalogStore implements VerifyStore {
     return this.transaction(() => {
       const r = this.db.prepare("delete from libraries where id = ? and version = ?").run(id, version);
       if (r.changes === 0) return false;
+      // its last version gone, the id is no longer one reindex clears, so its rows are cleared here
+      this.db.prepare("delete from textures where library = ?").run(id);
+      this.db.prepare("delete from assets where library = ?").run(id);
       this.reindex(now);
       return true;
     });
@@ -778,9 +781,11 @@ export class CatalogStore implements VerifyStore {
     }[])
       if (wanted.get(row.id)?.owner !== row.library) this.remove(row.id);
     for (const { owner, product } of wanted.values()) this.upsert(product, { library: owner, now });
-    // textures and assets belong wholly to their library
-    this.db.prepare("delete from textures where library is not null").run();
-    this.db.prepare("delete from assets").run();
+    // Textures and assets belong wholly to their library, so an installed library's are rebuilt from its
+    // manifest. A row filed under a name no library is installed as is not this index's to rebuild: the
+    // person's own imported textures sit in the "user" library, which has no manifest (P3-8).
+    this.db.prepare("delete from textures where library in (select id from libraries)").run();
+    this.db.prepare("delete from assets where library in (select id from libraries)").run();
     const asset = this.db.prepare("insert into assets(key, library, version, json) values (?, ?, ?, ?)");
     for (const m of winners.values()) {
       for (const t of m.textures) this.upsertTexture(t, { library: m.id });
