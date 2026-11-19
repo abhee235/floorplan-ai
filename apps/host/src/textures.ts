@@ -39,6 +39,11 @@ export class TextureImages {
     private readonly user: { fileFor(hex: string): string | null } | null = null,
   ) {}
 
+  /** Drop what was read, after a library was installed or removed: an id may name another file now. */
+  forget(): void {
+    this.cache.clear();
+  }
+
   /** The image for a texture id, or null when the catalog has no such texture or its file is gone. */
   image(id: string): TextureImage | null {
     if (this.cache.has(id)) return this.cache.get(id) ?? null;

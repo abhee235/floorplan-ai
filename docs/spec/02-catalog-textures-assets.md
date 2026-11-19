@@ -258,8 +258,22 @@ verifies every declared sha256 and byte count first (C-025), copies the tree
 to `<data>/libraries/<id>/<version>/` (C-029) and re-indexes; the highest
 version of an id wins product clashes (C-027); a product id already provided
 by another owner fails the install whole (C-026 reversed); uninstall removes
-one version and re-indexes from what remains. Phase 1 installs from an
-extracted directory; zip extraction arrives with the asset packs in phase 2.
+one version and re-indexes from what remains.
+
+A library is installed from its zip in the editor (File ▸ Libraries…, P3-8),
+sent over the bridge as the `library` message (`list`, `install`,
+`uninstall`); it changes the catalog of every project on the host, so it is a
+person's act and not a tool the agent is offered. The zip may be stored or
+deflated, as any tool writes it, and is read from its central directory, up to
+200 MB and 512 MB unpacked. `library.json` sits at its root or in the one
+folder everything is in; `__MACOSX/` and dot-files are ignored. Every other
+entry must be a plain relative path, without `..`, a drive or a backslash, or
+the whole zip is refused. The ids `seed`, `generated` and `user` are the app's
+own and can neither be installed over nor removed. The zip is unpacked beside
+the libraries and removed afterwards whether the install succeeded or not, so
+a refused library leaves nothing behind. Removing a library keeps every
+product a project placed from it (each project holds a snapshot), and its
+textures show plain until it is installed again.
 Flat `key#index=value` catalogs in centimetres are converted by
 `importFlatCatalog` (ledger C-001..C-029, O-007..O-013, O-084..O-087) into
 product records plus file references for the installer.

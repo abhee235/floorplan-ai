@@ -101,6 +101,18 @@ export const ClientMessage = z.discriminatedUnion("type", [
      */
     data: z.string().optional(),
   }),
+  // Catalog libraries (P3-8): what is installed, a library's zip to install, one version to remove. On
+  // the socket for the reason an imported project is: it is the channel that knows who is on it.
+  z.object({
+    id: Id,
+    type: z.literal("library"),
+    op: z.enum(["list", "install", "uninstall"]),
+    /** A library's zip, base64, for install. */
+    data: z.string().optional(),
+    /** Which library and which version of it, for uninstall. */
+    library: z.string().optional(),
+    version: z.string().optional(),
+  }),
   // The one client message that expects no result: there is nothing to wait for, and a round trip per
   // click would make the log something the editor pays for.
   z.object({

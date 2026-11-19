@@ -11,6 +11,7 @@ import { unzipStore, zipStore } from "@fpv/exporters";
 import { sequentialIdGenerator } from "@fpv/ir";
 import { blankProject } from "@fpv/tools";
 import { describe, expect, it } from "vitest";
+import { makeZip } from "../../../packages/exporters/test/zip-maker.js";
 import { archiveName, packProject, readArchive } from "../src/archive.js";
 import { libraryRoot } from "../src/library.js";
 import { ProjectRegistry } from "../src/projects.js";
@@ -91,6 +92,22 @@ describe("reading a file back", () => {
   it("round-trips a project through the archive", async () => {
     const zip = await packProject(aProject(), null, "0.0.1", NOW);
     const read = readArchive(zip);
+    expect(read.project.meta.name).toBe("Boardroom");
+    expect(read.project.walls).toHaveLength(1);
+  });
+
+  it("reads an archive an operating system re-zipped: deflated, its sizes after the data, in a folder", async () => {
+    const zip = await packProject(aProject(), null, "0.0.1", NOW);
+    const rezipped = makeZip([
+      { name: "Boardroom/" },
+      ...unzipStore(zip).map((e) => ({
+        name: `Boardroom/${e.name}`,
+        data: e.data,
+        deflate: true,
+        streamed: true,
+      })),
+    ]);
+    const read = readArchive(rezipped);
     expect(read.project.meta.name).toBe("Boardroom");
     expect(read.project.walls).toHaveLength(1);
   });

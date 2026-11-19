@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import type { AgentRuns } from "./agent-runs.js";
 import { Bridge, type RecentEntry } from "./bridge.js";
+import type { Libraries } from "./libraries.js";
 import type { Session } from "./session.js";
 import { Workspace } from "./workspace.js";
 
@@ -36,6 +37,8 @@ export interface ServeOptions {
   library?: () => RecentEntry[];
   /** The in-app agent (ADR-022); without one the editor is told there is none. */
   agent?: AgentRuns | null;
+  /** Installs and removes catalog libraries from the editor (P3-8). */
+  libraries?: Libraries | null;
 }
 
 export interface Served {
@@ -119,6 +122,7 @@ export function serve(target: Session | Workspace, options: ServeOptions = {}): 
   const bridge = new Bridge(workspace, {
     ...(options.library ? { library: options.library } : {}),
     ...(options.agent ? { agent: options.agent } : {}),
+    ...(options.libraries ? { libraries: options.libraries } : {}),
   });
   const server = createServer((req, res) => {
     if (req.url?.startsWith("/bridge")) {

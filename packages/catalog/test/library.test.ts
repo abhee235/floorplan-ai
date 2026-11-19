@@ -164,6 +164,35 @@ describe("library precedence (spec 02 section 4, C-027, C-028)", () => {
     store.close();
   });
 
+  it("a texture filed under a library that was never installed outlives every install and uninstall", () => {
+    // the person's own imported pictures sit in a "user" library that has no manifest (P3-8)
+    const store = CatalogStore.open(":memory:");
+    const own: TextureInput = {
+      id: "user/slate",
+      name: "Slate",
+      image: `sha256:${"d".repeat(64)}`,
+      widthMm: 300,
+      heightMm: 300,
+      licence: { id: "own", author: null, sourceUrl: null, attribution: null },
+    };
+    store.upsertTexture(own, { library: "user" });
+    const oak: TextureInput = {
+      ...own,
+      id: "pack/oak",
+      name: "Oak",
+      licence: { ...own.licence, id: "CC0-1.0" },
+    };
+    store.installLibrary(lib("pack", "1.0.0", [], { textures: [oak] }), AT);
+    store.installLibrary(lib("pack", "2.0.0", [], { textures: [] }), LATER);
+    expect(store.getTexture("pack/oak")).toBeNull(); // 2.0.0 no longer ships it
+    store.uninstallLibrary("pack", "2.0.0", LATER);
+    expect(store.getTexture("pack/oak")?.name).toBe("Oak"); // 1.0.0 provides it again
+    store.uninstallLibrary("pack", "1.0.0", LATER);
+    expect(store.getTexture("pack/oak")).toBeNull();
+    expect(store.getTexture("user/slate")?.name).toBe("Slate");
+    store.close();
+  });
+
   it("C-034 localised names are kept with the manifest and never touch dimensions", () => {
     const store = CatalogStore.open(":memory:");
     store.installLibrary(

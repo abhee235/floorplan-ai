@@ -90,6 +90,114 @@ export function zipStore(entries: readonly ZipEntry[]): Uint8Array {
 }
 
 /** Read the entries of a stored ZIP back (for tests and round trips); refuses compressed entries. */
+/** Why a zip could not be read, said so a person can act on it. */
+export class ZipError extends Error {
+  constructor(
+    readonly code: "zip.not-zip" | "zip.unsupported" | "zip.too-big" | "zip.corrupt",
+    message: string,
+  ) {
+    super(message);
+    this.name = "ZipError";
+  }
+}
+
+export interface ReadZipOptions {
+  /**
+   * Inflates raw deflate data, stopping past `maxBytes`. Injected, as encodePng's deflate is, so this
+   * stays pure; the host passes node's inflateRawSync. Without it a deflated entry is refused.
+   */
+  inflateRaw?: (data: Uint8Array, maxBytes: number) => Uint8Array;
+  /** The most the whole archive may unpack to, so a small file cannot claim a disk's worth. */
+  maxBytes?: number;
+  maxEntries?: number;
+}
+
+/** What a zip may unpack to unless told otherwise: far past any library or project. */
+export const ZIP_MAX_BYTES = 512 * 1024 * 1024;
+export const ZIP_MAX_ENTRIES = 20_000;
+
+/**
+ * The files in a zip, as any tool writes one: stored or deflated, read from the central directory at
+ * its end, which is where the sizes are when a tool streamed the entries and wrote them afterwards.
+ * Folders are left out. Every entry's CRC is checked. Encrypted entries, ZIP64 and other compression
+ * methods are refused with a reason rather than read wrongly.
+ */
+export function readZip(bytes: Uint8Array, options: ReadZipOptions = {}): ZipEntry[] {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const maxBytes = options.maxBytes ?? ZIP_MAX_BYTES;
+  const maxEntries = options.maxEntries ?? ZIP_MAX_ENTRIES;
+  // the end-of-directory record is the last 22 bytes, unless a comment of up to 64 KB follows it
+  let end = -1;
+  for (let at = bytes.length - 22; at >= Math.max(0, bytes.length - 22 - 0xffff); at -= 1)
+    if (view.getUint32(at, true) === 0x06054b50) {
+      end = at;
+      break;
+    }
+  if (end < 0) throw new ZipError("zip.not-zip", "the file is not a zip");
+  const count = view.getUint16(end + 10, true);
+  const dirSize = view.getUint32(end + 12, true);
+  const dirAt = view.getUint32(end + 16, true);
+  if (count === 0xffff || dirSize === 0xffffffff || dirAt === 0xffffffff)
+    throw new ZipError("zip.unsupported", "the zip is in the ZIP64 format, which is not read here");
+  if (count > maxEntries)
+    throw new ZipError("zip.too-big", `the zip holds ${count} files; the limit is ${maxEntries}`);
+  if (dirAt + dirSize > end) throw new ZipError("zip.corrupt", "the zip's directory runs past its end");
+  const dec = new TextDecoder();
+  const out: ZipEntry[] = [];
+  let total = 0;
+  let at = dirAt;
+  for (let i = 0; i < count; i += 1) {
+    if (at + 46 > bytes.length || view.getUint32(at, true) !== 0x02014b50)
+      throw new ZipError("zip.corrupt", "the zip's directory is damaged");
+    const flags = view.getUint16(at + 8, true);
+    const method = view.getUint16(at + 10, true);
+    const crc = view.getUint32(at + 16, true);
+    const packed = view.getUint32(at + 20, true);
+    const size = view.getUint32(at + 24, true);
+    const nameLen = view.getUint16(at + 28, true);
+    const extraLen = view.getUint16(at + 30, true);
+    const commentLen = view.getUint16(at + 32, true);
+    const local = view.getUint32(at + 42, true);
+    const name = dec.decode(bytes.subarray(at + 46, at + 46 + nameLen));
+    at += 46 + nameLen + extraLen + commentLen;
+    if (name.endsWith("/")) continue;
+    if (flags & 1) throw new ZipError("zip.unsupported", `${name} is encrypted`);
+    if (packed === 0xffffffff || size === 0xffffffff)
+      throw new ZipError("zip.unsupported", "the zip is in the ZIP64 format, which is not read here");
+    total += size;
+    if (total > maxBytes)
+      throw new ZipError(
+        "zip.too-big",
+        `the zip unpacks to more than ${Math.round(maxBytes / 1024 / 1024)} MB, the limit`,
+      );
+    if (local + 30 > bytes.length || view.getUint32(local, true) !== 0x04034b50)
+      throw new ZipError("zip.corrupt", `${name}: its header is not where the directory says`);
+    const start = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
+    if (start + packed > bytes.length)
+      throw new ZipError("zip.corrupt", `${name} runs past the end of the zip`);
+    const raw = bytes.subarray(start, start + packed);
+    let data: Uint8Array;
+    if (method === 0) data = raw.slice();
+    else if (method === 8) {
+      if (!options.inflateRaw) throw new ZipError("zip.unsupported", `${name} is compressed`);
+      try {
+        data = options.inflateRaw(raw, size);
+      } catch {
+        throw new ZipError("zip.corrupt", `${name} could not be decompressed`);
+      }
+    } else
+      throw new ZipError(
+        "zip.unsupported",
+        `${name} is compressed with method ${method}, which is not read here`,
+      );
+    if (data.length !== size) throw new ZipError("zip.corrupt", `${name} is not the size the zip says`);
+    if (crc32(data) !== crc)
+      throw new ZipError("zip.corrupt", `${name} is damaged (its checksum does not match)`);
+    out.push({ name, data });
+  }
+  return out;
+}
+
 export function unzipStore(bytes: Uint8Array): ZipEntry[] {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const dec = new TextDecoder();

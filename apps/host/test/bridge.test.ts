@@ -3,11 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_PROFILE } from "@fpv/agents";
+import { ensureSeed } from "@fpv/catalog";
+import { CatalogStore } from "@fpv/catalog/store";
 import { PROTOCOL_VERSION } from "@fpv/commands";
 import { Project, sequentialIdGenerator } from "@fpv/ir";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
-import { AgentRuns, createSession, type Served, serve } from "../src/index.js";
+import { makeZip } from "../../../packages/exporters/test/zip-maker.js";
+import { AgentRuns, createSession, Libraries, type Served, serve } from "../src/index.js";
 import { Workspace } from "../src/workspace.js";
 
 const fixtureDir = fileURLToPath(new URL("../../../tools/fixtures/six-wall-room.fpviz/", import.meta.url));
@@ -66,7 +69,7 @@ afterEach(async () => {
   served = null;
 });
 
-async function start(webDir?: string, options: { agent?: unknown } = {}) {
+async function start(webDir?: string, options: { agent?: unknown; libraries?: Libraries } = {}) {
   const session = createSession({
     project: fixture(),
     ids: sequentialIdGenerator(900),
@@ -76,6 +79,7 @@ async function start(webDir?: string, options: { agent?: unknown } = {}) {
     port: 0,
     ...(webDir ? { webDir } : {}),
     ...(options.agent ? { agent: options.agent as never } : {}),
+    ...(options.libraries ? { libraries: options.libraries } : {}),
   });
   const client = new TestClient(`ws://127.0.0.1:${served.port}/bridge`);
   await client.open();
@@ -98,6 +102,70 @@ describe("viewer bridge over a real WebSocket (ADR-005 D4, D5, spec 06 B)", () =
     expect((snap.project as { walls: unknown[] }).walls).toHaveLength(6);
     expect(await client.next("problems")).toMatchObject({ type: "problems" });
     expect(await client.next("selection")).toMatchObject({ ids: [] });
+    await client.close();
+  });
+
+  it("P3-8 lists, installs and removes catalog libraries, each answer carrying the list as it now stands", async () => {
+    const store = CatalogStore.open(":memory:");
+    ensureSeed(store, "2026-11-18T09:00:00.000Z");
+    const libraries = new Libraries(
+      store,
+      mkdtempSync(join(tmpdir(), "fpv-bridge-lib-")),
+      () => "2026-11-18T09:00:00.000Z",
+    );
+    const { client } = await start(undefined, { libraries });
+    await client.send({ type: "hello", clientVersion: "t", capabilities: [] });
+    const listed = await client.send({ type: "library", op: "list" });
+    const builtIn = (listed.result as { libraries: { id: string; builtIn: boolean }[] }).libraries;
+    expect(builtIn.length).toBeGreaterThan(0);
+    expect(builtIn.every((l) => l.builtIn)).toBe(true);
+    const manifest = {
+      id: "acme-empty",
+      name: "Acme empty",
+      version: "2.1.0",
+      licence: { id: "CC0-1.0", author: null, sourceUrl: null, attribution: null },
+      provider: null,
+      products: [],
+    };
+    const zip = makeZip([
+      { name: "library.json", data: new TextEncoder().encode(JSON.stringify(manifest)), deflate: true },
+    ]);
+    const installed = await client.send({
+      type: "library",
+      op: "install",
+      data: Buffer.from(zip).toString("base64"),
+    });
+    expect(installed).toMatchObject({
+      ok: true,
+      result: { library: { id: "acme-empty", version: "2.1.0" }, replaced: false },
+    });
+    expect((installed.result as { libraries: unknown[] }).libraries).toHaveLength(builtIn.length + 1);
+    const refused = await client.send({
+      type: "library",
+      op: "uninstall",
+      library: "seed",
+      version: "1.0.0",
+    });
+    expect(refused).toMatchObject({ ok: false, error: { code: "library.built-in" } });
+    const removed = await client.send({
+      type: "library",
+      op: "uninstall",
+      library: "acme-empty",
+      version: "2.1.0",
+    });
+    expect(removed).toMatchObject({ ok: true, result: { removed: true } });
+    expect((removed.result as { libraries: unknown[] }).libraries).toHaveLength(builtIn.length);
+    await client.close();
+    store.close();
+  });
+
+  it("refuses the library message on a host that does not install libraries", async () => {
+    const { client } = await start();
+    await client.send({ type: "hello", clientVersion: "t", capabilities: [] });
+    expect(await client.send({ type: "library", op: "list" })).toMatchObject({
+      ok: false,
+      error: { code: "unavailable" },
+    });
     await client.close();
   });
 
