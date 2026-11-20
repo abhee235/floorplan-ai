@@ -74,6 +74,7 @@ export function menus(view: string): MenuDefinition[] {
         { separator: true },
         "file.import",
         "file.importTexture",
+        "file.importModel",
         "file.libraries",
         {
           title: "Export",

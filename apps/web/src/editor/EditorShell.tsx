@@ -2,6 +2,7 @@
 // canvases and the three.js viewport mounted into refs and left entirely to the imperative code that
 // already owns them. React never re-renders the canvas; it only renders the chrome around it.
 
+import type { Size3 } from "@fpv/ir";
 import { Maximize2, Minus, Plus } from "lucide-react";
 import type { JSX } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -13,6 +14,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { CLIENT_VERSION, startApp } from "../app.js";
 import type { BridgeClient } from "../bridge/client.js";
 import { drawCompass } from "../plan/compass.js";
+import type { ModelEntry } from "../viewer/models.js";
 import { AppBar } from "./AppBar.js";
 import { AgentPanel } from "./agent/AgentPanel.js";
 import { AgentWindow } from "./agent/AgentWindow.js";
@@ -26,10 +28,13 @@ import { CommandRegistry } from "./commands.js";
 import { GestureLog, recordGesture, setGestureLog } from "./gestures.js";
 import { AboutDialog, ShortcutsDialog } from "./HelpDialogs.js";
 import { bindItemPlacing, type ItemPlacing } from "./item-placing.js";
-import type { Placeable } from "./item-tool.js";
+import { type Placeable, placeableOf } from "./item-tool.js";
 import { isInsidePopup, isTypingTarget } from "./keys.js";
 import { contentsOf, LibrariesDialog, type LibraryRow } from "./LibrariesDialog.js";
+import { ModelImportDialog, type ModelImportSettings } from "./ModelImportDialog.js";
 import { bindMeasureDrawing } from "./measure-drawing.js";
+import { type PickedModel, readModelFiles } from "./model-files.js";
+import { createModelPreview } from "./model-preview.js";
 import { bindOpeningDrawing } from "./opening-drawing.js";
 import { PropertiesPanel } from "./PropertiesPanel.js";
 import { bindRoomDrawing } from "./room-drawing.js";
@@ -122,6 +127,13 @@ export function EditorShell(): JSX.Element {
     textureApply.current = apply ?? null;
     textureFileRef.current?.click();
   }, []);
+  // A 3D model being made into a product (P3-8): the file picker, then the model once read in the browser.
+  const modelFileRef = useRef<HTMLInputElement>(null);
+  const [modelPick, setModelPick] = useState<{
+    model: PickedModel;
+    busy: boolean;
+    error: string | null;
+  } | null>(null);
   // The catalog's libraries (P3-8). A change to them remounts the catalog tab, so its search asks again.
   const libraryFileRef = useRef<HTMLInputElement>(null);
   const [librariesOpen, setLibrariesOpen] = useState(false);
@@ -669,6 +681,13 @@ export function EditorShell(): JSX.Element {
         run: () => importTexture(),
       },
       {
+        id: "file.importModel",
+        title: "Import model…",
+        group: "File",
+        detail: "a glTF model of a piece of furniture, made a product",
+        run: () => modelFileRef.current?.click(),
+      },
+      {
         id: "file.libraries",
         title: "Libraries…",
         group: "File",
@@ -859,6 +878,16 @@ export function EditorShell(): JSX.Element {
         .catch(() => {
           // an older host has no texture list; the rows still offer paint and what the project wears
         });
+      // the models the host serves, which the 3D view draws products with (P3-8)
+      void client
+        .request({ type: "get", what: "models" })
+        .then((reply) => {
+          const list = (reply.result as { models?: unknown } | undefined)?.models;
+          if (Array.isArray(list)) app.setModels(list as ModelEntry[]);
+        })
+        .catch(() => {
+          // an older host has no model list; products are drawn as their categories' shapes
+        });
     };
     const unsubscribe = replica.subscribe(() => {
       setScale(plan.view.scale);
@@ -971,6 +1000,12 @@ export function EditorShell(): JSX.Element {
     const list = (listed?.result as { textures?: unknown } | undefined)?.textures;
     if (Array.isArray(list)) setTextures(list as TextureChoice[]);
   };
+  /** The models the host serves, after a library or an import changed them (P3-8). */
+  const refreshModels = async (): Promise<void> => {
+    const listed = await app?.client.request({ type: "get", what: "models" }).catch(() => null);
+    const list = (listed?.result as { models?: unknown } | undefined)?.models;
+    if (app && Array.isArray(list)) app.setModels(list as ModelEntry[]);
+  };
   /** Ask the host about its libraries; every answer carries the list as it now stands. */
   const libraryRequest = async (
     body: Parameters<NonNullable<typeof app>["client"]["library"]>[0],
@@ -1012,7 +1047,7 @@ export function EditorShell(): JSX.Element {
     setLibraryNotice(said);
     announcer.say(said);
     setCatalogVersion((v) => v + 1);
-    await refreshTextures();
+    await Promise.all([refreshTextures(), refreshModels()]);
   };
   const uninstallLibrary = async (id: string, version: string): Promise<void> => {
     const name = libraryRows?.find((l) => l.id === id && l.version === version)?.name ?? id;
@@ -1025,7 +1060,7 @@ export function EditorShell(): JSX.Element {
     setLibraryNotice(said);
     announcer.say(said);
     setCatalogVersion((v) => v + 1);
-    await refreshTextures();
+    await Promise.all([refreshTextures(), refreshModels()]);
   };
 
   // ---- a picture made into a material (P3-8) ----
@@ -1111,6 +1146,67 @@ export function EditorShell(): JSX.Element {
         `${called} was added, but could not be put on the surface: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
+  };
+
+  const onModelFiles = async (input: HTMLInputElement): Promise<void> => {
+    const files = [...(input.files ?? [])];
+    input.value = "";
+    if (files.length === 0) return;
+    try {
+      setModelPick({ model: await readModelFiles(files), busy: false, error: null });
+    } catch (e) {
+      announcer.alert(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const addModel = async (settings: ModelImportSettings): Promise<void> => {
+    const pick = modelPick;
+    const client = app?.client;
+    if (!pick || !client) return;
+    setModelPick({ ...pick, busy: true, error: null });
+    let made: { productId?: string; name?: string; category?: string; dims?: Size3 } | undefined;
+    let warnings: string[] = [];
+    try {
+      const reply = await client.tool("import_model", {
+        contentBase64: await base64Of(new Blob([pick.model.bytes as BlobPart])),
+        fileName: pick.model.fileName,
+        name: settings.name,
+        category: settings.category,
+        units: settings.units,
+        turn: settings.turn,
+        tip: settings.tip,
+        ...(settings.size ? { size: settings.size } : {}),
+      });
+      if (!reply.ok) {
+        const hint = reply.error?.hint ? ` ${reply.error.hint}.` : "";
+        setModelPick({
+          ...pick,
+          busy: false,
+          error: `${reply.error?.message ?? "The host refused the model."}${hint}`,
+        });
+        return;
+      }
+      const envelope = reply.result as { result?: typeof made; warnings?: string[] } | undefined;
+      made = envelope?.result;
+      warnings = envelope?.warnings ?? [];
+    } catch (e) {
+      setModelPick({ ...pick, busy: false, error: e instanceof Error ? e.message : String(e) });
+      return;
+    }
+    setModelPick(null);
+    // the catalog has one more product and the host one more model; then place it, as the catalog tab does
+    setCatalogVersion((v) => v + 1);
+    await refreshModels();
+    const piece =
+      made?.productId && made.dims
+        ? placeableOf({
+            id: made.productId,
+            name: made.name ?? settings.name,
+            category: made.category ?? settings.category,
+            dims: made.dims,
+          })
+        : null;
+    if (piece) placePiece(piece);
+    if (warnings[0]) announcer.say(warnings[0]);
   };
 
   return (
@@ -1327,6 +1423,22 @@ export function EditorShell(): JSX.Element {
           onImport={(name, widthMm) => void addTexture(name, widthMm)}
         />
         <input
+          ref={modelFileRef}
+          type="file"
+          hidden
+          multiple
+          accept=".glb,.gltf,.bin,model/gltf-binary,model/gltf+json,image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp"
+          onChange={(e) => void onModelFiles(e.currentTarget)}
+        />
+        <ModelImportDialog
+          model={modelPick?.model ?? null}
+          busy={modelPick?.busy ?? false}
+          error={modelPick?.error ?? null}
+          onCancel={() => setModelPick(null)}
+          onImport={(settings) => void addModel(settings)}
+          preview={createModelPreview}
+        />
+        <input
           ref={libraryFileRef}
           type="file"
           hidden
@@ -1481,7 +1593,7 @@ function isControl(target: HTMLElement | null): boolean {
 
 /** A live region that reads and writes through a ref, so the announcer can exist before the DOM does. */
 /** A file's bytes as base64, in chunks so a large plan does not overflow the argument list. */
-async function base64Of(file: File): Promise<string> {
+async function base64Of(file: Blob): Promise<string> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   let binary = "";
   for (let i = 0; i < bytes.length; i += 0x8000)
