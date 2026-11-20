@@ -23,6 +23,7 @@ import type { Item, Level, Point, Project, Wall } from "@fpv/ir";
 import { defaultRoom, defaultWall, derive } from "@fpv/ir";
 import * as THREE from "three";
 import { MaterialCache, type TextureLoad } from "./materials.js";
+import type { ModelSource } from "./models.js";
 
 /** Schedules one flush per frame; the browser uses requestAnimationFrame, tests call flush themselves. */
 export interface Scheduler {
@@ -53,6 +54,8 @@ export interface BindingOptions {
   assets?: AssetRegistry;
   /** Where texture images come from; the host's, in a browser. */
   loadTexture?: TextureLoad;
+  /** Loaded models to clone per item (P3-8); without it a model is drawn as the white box that waits for one. */
+  models?: ModelSource;
 }
 
 export class SceneBinding {
@@ -81,13 +84,27 @@ export class SceneBinding {
   private disposed = false;
   private sizes: derive.SizeSource | null;
   private readonly assets: AssetRegistry | undefined;
+  private readonly models: ModelSource | undefined;
+  /** Items drawn as a box while their model loads, by the model they wait for. */
+  private readonly waiting = new Map<string, string>();
+  /** Models already reported as failing to load, so the log names each once (S-043). */
+  private readonly failedModels = new Set<string>();
+  private readonly stopListening: () => void;
   flushes = 0;
 
   constructor(options: BindingOptions = {}) {
     this.scheduler = options.scheduler ?? immediateScheduler;
     this.sizes = options.sizes ?? null;
     this.assets = options.assets;
+    this.models = options.models;
     this.materials = new MaterialCache(options.loadTexture);
+    // a model that arrives (or fails) redraws the items that were waiting for it, and only those
+    this.stopListening =
+      options.models?.onSettled((key) => {
+        for (const [id, wanted] of this.waiting) if (wanted === key) this.dirty.items.add(id);
+        this.dirty.bounds = true;
+        this.scheduler.schedule(() => this.flush());
+      }) ?? (() => {});
     // S-001, S-003: ground, then rooms, walls, items, overlay; lights last.
     this.ground.name = "ground";
     this.rooms.name = "rooms";
@@ -112,6 +129,12 @@ export class SceneBinding {
   /** Replace the project: everything is rebuilt on the next flush. */
   setProject(project: Project): void {
     this.project = project;
+    this.full = true;
+    this.scheduler.schedule(() => this.flush());
+  }
+
+  /** The models the host has changed (a library, an import): draw everything again on the next flush. */
+  refreshAssets(): void {
     this.full = true;
     this.scheduler.schedule(() => this.flush());
   }
@@ -147,8 +170,14 @@ export class SceneBinding {
     this.flushes += 1;
     const full = this.full;
     this.full = false;
-    if (full) for (const id of [...this.objects.keys()]) this.drop(id);
-    for (const ref of dirty.removed) this.drop(ref.id);
+    if (full) {
+      for (const id of [...this.objects.keys()]) this.drop(id);
+      this.waiting.clear();
+    }
+    for (const ref of dirty.removed) {
+      this.drop(ref.id);
+      this.waiting.delete(ref.id);
+    }
 
     const levels = [...p.levels].sort(derive.compareLevels);
     const lowest = levels[0];
@@ -241,24 +270,29 @@ export class SceneBinding {
     for (const item of items) {
       const inst = byId.get(item.id);
       const size = derive.itemSize(item, sizes);
-      const meshes: THREE.Mesh[] = [];
+      const objects: THREE.Object3D[] = [];
       if (inst && size) {
         // One mesh per part, each with its part's material. Geometry is shared by every item drawn from the
         // same recipe; the material is shared by every part with the same finish. So a chair given its own
         // fabric gets a different material on that one mesh, and no other chair is touched.
+        const model = inst.recipe ? null : this.modelOf(item.id, inst.assetKey);
         const parts = inst.recipe
           ? this.recipeGeometries(inst.assetKey, inst.recipe).map(({ slot, geometry }) => ({
               slot,
               geometry,
               materialKey: inst.materials.find((m) => m.slot === slot)?.materialKey ?? "item",
             }))
-          : [
-              {
-                slot: null,
-                geometry: this.placeholderGeometry(inst.assetKey, size),
-                materialKey: "placeholder",
-              },
-            ];
+          : model
+            ? []
+            : [
+                {
+                  slot: null,
+                  geometry: this.placeholderGeometry(inst.assetKey, size),
+                  // S-043: a model that could not be loaded is a red box, not a white one that never fills in
+                  materialKey: this.failedModels.has(inst.assetKey) ? "failed" : "placeholder",
+                },
+              ];
+        if (model) objects.push(this.modelObject(item, inst, model, level));
         for (const part of parts) {
           const mesh = new THREE.Mesh(part.geometry, this.materials.get(part.materialKey));
           mesh.name = part.slot ? `${item.id}:item:${part.slot}` : `${item.id}:item`;
@@ -270,13 +304,75 @@ export class SceneBinding {
           mesh.receiveShadow = true;
           // S-047: rendered only when the item and its level are visible
           mesh.visible = inst.visible && level.viewable;
-          this.items.add(mesh);
-          meshes.push(mesh);
+          objects.push(mesh);
         }
+        for (const o of objects) this.items.add(o);
       }
       this.drop(item.id);
-      if (meshes.length > 0) this.objects.set(item.id, meshes);
+      if (objects.length > 0) this.objects.set(item.id, objects);
     }
+  }
+
+  /**
+   * The loaded model an item is drawn from, or null while it loads or after it failed, when the item is
+   * drawn as a box at the model's size. A waiting item is redrawn when its model settles.
+   */
+  private modelOf(itemId: string, key: string): THREE.Object3D | null {
+    if (!this.models) return null;
+    const state = this.models.state(key);
+    if (state.status === "ready") {
+      this.waiting.delete(itemId);
+      return state.template;
+    }
+    if (state.status === "loading") this.waiting.set(itemId, key);
+    else {
+      this.waiting.delete(itemId);
+      if (!this.failedModels.has(key)) {
+        this.failedModels.add(key);
+        console.warn(`model ${key} could not be loaded: ${state.reason}`);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * One item's copy of a model: the template cloned, so geometry and materials stay shared, under a group
+   * that carries the item's matrix. A part a finish reaches takes the finish's material; every other part
+   * keeps the model's own (ADR-010 D8).
+   */
+  private modelObject(item: Item, inst: ItemInstance, template: THREE.Object3D, level: Level): THREE.Group {
+    const group = new THREE.Group();
+    group.name = `${item.id}:item`;
+    group.userData = { entityId: item.id, part: "item", model: inst.assetKey };
+    group.matrix.fromArray(inst.matrix);
+    group.matrix.decompose(group.position, group.quaternion, group.scale);
+    const finishes = new Map(inst.materials.map((m) => [m.slot, m.materialKey]));
+    const finished = (m: THREE.Material): THREE.Material => {
+      const key = finishes.get(m.name);
+      return key ? this.materials.get(key) : m;
+    };
+    const copy = template.clone(true);
+    copy.traverse((o) => {
+      if (!(o instanceof THREE.Mesh)) return;
+      const first = (Array.isArray(o.material) ? o.material[0] : o.material) as THREE.Material | undefined;
+      o.userData = {
+        ...o.userData,
+        entityId: item.id,
+        part: "item",
+        ...(first?.name ? { slot: first.name } : {}),
+      };
+      o.castShadow = true;
+      o.receiveShadow = true;
+      if (finishes.size > 0)
+        o.material = Array.isArray(o.material)
+          ? o.material.map((m) => finished(m))
+          : finished(o.material as THREE.Material);
+    });
+    group.add(copy);
+    // S-047: rendered only when the item and its level are visible
+    group.visible = inst.visible && level.viewable;
+    group.updateMatrixWorld(true);
+    return group;
   }
 
   /** A recipe's parts, built once per recipe and shared by every item drawn from it. */
@@ -478,6 +574,10 @@ export class SceneBinding {
     const material = new THREE.LineBasicMaterial({ color: 0x1e88e5 });
     for (const id of this.selection) {
       for (const o of this.objectsOf(id)) {
+        if (o instanceof THREE.Group && o.visible) {
+          this.overlay.add(this.modelOutline(o, id, material));
+          continue;
+        }
         if (!(o instanceof THREE.Mesh) || !o.visible) continue;
         const edges = new THREE.LineSegments(
           new THREE.EdgesGeometry(o.geometry as THREE.BufferGeometry, 20),
@@ -492,6 +592,36 @@ export class SceneBinding {
     }
   }
 
+  /**
+   * A selected model's outline: the box it fills rather than every edge of its mesh, which for a detailed
+   * model is thousands of lines rebuilt on every change and reads as a scribble.
+   */
+  private modelOutline(
+    group: THREE.Group,
+    id: string,
+    material: THREE.LineBasicMaterial,
+  ): THREE.LineSegments {
+    const bbox = this.assets?.bbox(group.userData.model as string);
+    let box: THREE.BoxGeometry;
+    if (bbox) box = new THREE.BoxGeometry(bbox.w, bbox.h, bbox.d).translate(0, bbox.h / 2, 0);
+    else {
+      // a model the registry does not know: its bounds in the world, drawn where they are
+      const world = new THREE.Box3().setFromObject(group);
+      const size = world.getSize(new THREE.Vector3());
+      const centre = world.getCenter(new THREE.Vector3());
+      box = new THREE.BoxGeometry(size.x, size.y, size.z).translate(centre.x, centre.y, centre.z);
+    }
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(box), material);
+    box.dispose();
+    edges.name = `${id}:outline`;
+    if (bbox) {
+      edges.position.copy(group.position);
+      edges.quaternion.copy(group.quaternion);
+      edges.scale.copy(group.scale);
+    }
+    return edges;
+  }
+
   /** Per-frame camera coupling: the ground is visible only from above (S-054). */
   updateCamera(camera: THREE.Camera): void {
     if (this.groundMesh) this.groundMesh.visible = camera.position.y >= this.groundElevation;
@@ -499,11 +629,17 @@ export class SceneBinding {
 
   /** Point in plan mm under a ray, or null. */
   pick(raycaster: THREE.Raycaster): { entityId: string; part: string; point: Point } | null {
+    // recursive, for the meshes inside a model's group; a hit counts only when it and every group above
+    // it are shown
     const hits = raycaster.intersectObjects(
       [...this.walls.children, ...this.rooms.children, ...this.items.children],
-      false,
+      true,
     );
-    const hit = hits.find((h) => h.object.visible);
+    const shown = (o: THREE.Object3D | null): boolean => {
+      for (let at = o; at && at !== this.scene; at = at.parent) if (!at.visible) return false;
+      return true;
+    };
+    const hit = hits.find((h) => shown(h.object) && typeof h.object.userData?.entityId === "string");
     if (!hit) return null;
     const { entityId, part } = hit.object.userData as { entityId: string; part: string };
     return {
@@ -516,6 +652,7 @@ export class SceneBinding {
   /** S-055: release every object, geometry and material; further updates are ignored. */
   dispose(): void {
     this.disposed = true;
+    this.stopListening();
     for (const id of [...this.objects.keys()]) this.drop(id);
     for (const g of this.geometries.values()) g.dispose();
     this.geometries.clear();

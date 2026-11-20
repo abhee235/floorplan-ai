@@ -17,5 +17,13 @@ export default defineConfig({
     ],
   },
   build: { outDir: "dist", emptyOutDir: true, target: "es2022", sourcemap: true },
-  server: { port: 5173, proxy: { "/bridge": { target: "ws://127.0.0.1:4310", ws: true } } },
+  // the host serves the bridge, and the texture pictures and model files the viewer asks for
+  server: {
+    port: 5173,
+    proxy: {
+      "/bridge": { target: "ws://127.0.0.1:4310", ws: true },
+      "/textures": { target: "http://127.0.0.1:4310" },
+      "/models": { target: "http://127.0.0.1:4310" },
+    },
+  },
 });

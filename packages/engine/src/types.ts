@@ -47,7 +47,10 @@ export interface ItemInstance {
   recipe: PrimitiveRecipe | null;
   /** Column-major 4x4 matrix, three.js order, metres. */
   matrix: number[];
-  /** The material key for each of the recipe's parts, in its slot order, with the item's finishes applied. */
+  /**
+   * The material key for each of the recipe's parts, in its slot order, with the item's finishes applied.
+   * For a model, only the parts a finish reaches: the rest keep the model's own materials (ADR-010 D8).
+   */
   materials: { slot: string; materialKey: string }[];
   visible: boolean;
 }

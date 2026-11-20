@@ -61,6 +61,8 @@ import { Replica } from "./replica.js";
 import { mountReviewPanel } from "./review-panel.js";
 import { frameScheduler, SceneBinding } from "./viewer/binding.js";
 import { clippingFor } from "./viewer/clipping.js";
+import { hostModelLoad } from "./viewer/model-loader.js";
+import { ModelCache, type ModelEntry, ModelRegistry, namesUnknownModel } from "./viewer/models.js";
 import { type CapturedImage, renderViews } from "./viewer/render.js";
 
 export const CLIENT_VERSION = "0.0.1";
@@ -135,12 +137,17 @@ export function startApp(el: AppElements): {
   fitCamera: () => void;
   /** Render one view and hand it to the browser to save; resolves with the file name, or null. */
   saveImage: (view: string, focusId: string | null) => Promise<string | null>;
+  /** The models the host has (P3-8), as the bridge lists them; the 3D view draws products with them. */
+  setModels: (list: readonly ModelEntry[]) => void;
   /** Release what startApp attached to the document: the size observer and the window listener. */
   destroy: () => void;
 } {
   const replica = new Replica();
   const raf = (cb: () => void) => requestAnimationFrame(cb);
-  const binding = new SceneBinding({ scheduler: frameScheduler(raf) });
+  // Models (ADR-003 D5): which ones the host has, each loaded once on first use and cloned per item.
+  const models = new ModelRegistry();
+  const modelCache = new ModelCache(hostModelLoad(), (key) => models.entry(key)?.sha256 ?? null);
+  const binding = new SceneBinding({ scheduler: frameScheduler(raf), assets: models, models: modelCache });
 
   // ---- 3D ----
   const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -1084,6 +1091,27 @@ export function startApp(el: AppElements): {
   };
 
   // ---- replica -> binding + plan ----
+  // A product can name a model this tab has not heard of: one imported in another tab, or by the agent,
+  // after this tab asked for the list (P3-8). Without asking again, the tab drew it as its category's
+  // shape until it was reloaded. So a key the list lacks makes the tab ask again, once per key.
+  const modelKeysSeen = new Set<string>();
+  const setModels = (list: readonly ModelEntry[]) => {
+    modelCache.forget(models.set(list));
+    binding.refreshAssets();
+  };
+  replica.subscribe(({ project }) => {
+    if (!namesUnknownModel(project?.catalogRefs ?? {}, modelKeysSeen, models)) return;
+    void client
+      .request({ type: "get", what: "models" })
+      .then((reply) => {
+        const list = (reply.result as { models?: unknown } | undefined)?.models;
+        if (Array.isArray(list)) setModels(list as ModelEntry[]);
+      })
+      .catch(() => {
+        // an older host has no model list; products are drawn as their categories' shapes
+      });
+  });
+
   let firstSnapshot = true;
   // Whether the camera has ever framed actual geometry. A new project's first snapshot is empty, so
   // fitCamera() returns at its own isEmpty() guard and — because it only ran behind `firstSnapshot` —
@@ -1339,7 +1367,11 @@ export function startApp(el: AppElements): {
       const target = handleItem();
       if (target) drawItemHandles(ctx, view, target);
     },
-    destroy: () => sizes.disconnect(),
+    setModels,
+    destroy: () => {
+      sizes.disconnect();
+      modelCache.dispose();
+    },
   };
 }
 

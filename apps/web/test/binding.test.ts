@@ -3,8 +3,16 @@ import { fileURLToPath } from "node:url";
 import { apply, type Ctx } from "@fpv/commands";
 import { Project, type Project as ProjectT, sequentialIdGenerator } from "@fpv/ir";
 import * as THREE from "three";
-import { describe, expect, it } from "vitest";
-import { clippingFor, frameScheduler, SceneBinding } from "../src/index.js";
+import { describe, expect, it, vi } from "vitest";
+import {
+  clippingFor,
+  frameScheduler,
+  ModelCache,
+  type ModelLoad,
+  ModelRegistry,
+  namesUnknownModel,
+  SceneBinding,
+} from "../src/index.js";
 
 const fixtureDir = fileURLToPath(new URL("../../../tools/fixtures/six-wall-room.fpviz/", import.meta.url));
 const fixture = (): ProjectT => Project.parse(JSON.parse(readFileSync(`${fixtureDir}project.json`, "utf8")));
@@ -310,5 +318,173 @@ describe("scene binding (ADR-003 D1, ADR-015 D3)", () => {
     expect(b.objectsOf(other)).toEqual(before.other);
     expect(materialOf(b.objectsOf(other)[0])).toBe(sharedFabric);
     expect(`#${sharedFabric.color.getHexString()}`).not.toBe("#aa3333");
+  });
+});
+
+describe("models in the 3D view (ADR-003 D5, P3-8)", () => {
+  const materialOf = (o: THREE.Object3D | undefined) =>
+    (o as THREE.Mesh).material as THREE.MeshStandardMaterial;
+  const KEY = "user/0123456789abcdef/std";
+  /** A model as a loader hands it over: a seat and a shade, each with its own named material. */
+  const lampTemplate = () => {
+    const root = new THREE.Group();
+    const seat = new THREE.Mesh(
+      new THREE.BoxGeometry(0.5, 0.5, 0.5).translate(0, 0.25, 0),
+      new THREE.MeshStandardMaterial({ name: "fabric", color: 0x336699 }),
+    );
+    const shade = new THREE.Mesh(
+      new THREE.BoxGeometry(0.2, 0.5, 0.2).translate(0, 0.75, 0),
+      new THREE.MeshStandardMaterial({ name: "glass_shade", color: 0xffffff }),
+    );
+    root.add(seat, shade);
+    return root;
+  };
+  const placeLamp = () => {
+    const withCatalog: Ctx = {
+      ...ctx,
+      catalog: {
+        product: (id) => ({
+          id,
+          snapshotAt: ctx.now(),
+          category: "lighting",
+          dims: { w: 1000, d: 1000, h: 2000 },
+          deformable: true,
+          assetKey: KEY,
+          materialSlots: ["fabric", "glass_shade"],
+        }),
+      },
+    };
+    const r = apply(
+      fixture(),
+      {
+        type: "item.place",
+        payload: {
+          levelId: L,
+          ref: { kind: "product", productId: "user-lamp" },
+          position: { x: 3000, y: 2000 },
+          rotation: 0,
+          magnetism: false,
+        },
+      },
+      withCatalog,
+    );
+    if (!r.ok) throw new Error(r.error.message);
+    return r.project;
+  };
+  const registry = () => {
+    const models = new ModelRegistry();
+    models.set([
+      { key: KEY, bbox: { w: 0.5, d: 0.5, h: 1 }, materialSlots: ["fabric", "glass_shade"], sha256: null },
+    ]);
+    return models;
+  };
+  /** A loader the test settles by hand. */
+  const pendingLoads = () => {
+    const settle: { resolve: (o: THREE.Object3D) => void; reject: (e: Error) => void }[] = [];
+    const load: ModelLoad = () =>
+      new Promise<THREE.Object3D>((resolve, reject) => {
+        settle.push({ resolve, reject });
+      });
+    return { load, settle };
+  };
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+
+  it("S-042 draws a box while the model loads, then the model at the item's size; picking finds the item", async () => {
+    const { load, settle } = pendingLoads();
+    const { scheduler, pump } = manualFrames();
+    const b = new SceneBinding({ scheduler, assets: registry(), models: new ModelCache(load) });
+    const p = placeLamp();
+    const id = p.items[0]?.id as string;
+    b.setProject(p);
+    pump();
+    expect(materialOf(b.objectsOf(id)[0]).name).toBe("placeholder");
+    settle[0]?.resolve(lampTemplate());
+    await tick();
+    pump();
+    const [group] = b.objectsOf(id);
+    expect(group).toBeInstanceOf(THREE.Group);
+    // the normalised 0.5 x 1 x 0.5 model scaled onto the product's 1000 x 2000 x 1000
+    const size = new THREE.Box3().setFromObject(group as THREE.Object3D).getSize(new THREE.Vector3());
+    expect([size.x, size.y, size.z].map((v) => Number(v.toFixed(5)))).toEqual([1, 2, 1]);
+    // a ray straight down onto the item lands on one of the model's meshes and names the item
+    const ray = new THREE.Raycaster(new THREE.Vector3(3, 10, -2), new THREE.Vector3(0, -1, 0));
+    expect(b.pick(ray)?.entityId).toBe(id);
+    // selected, it is outlined by its box, not by every edge of its mesh
+    b.setSelection([id]);
+    pump();
+    expect(b.overlay.children).toHaveLength(1);
+  });
+
+  it("shares the model between items, and finishes only the parts a finish reaches (ADR-010 D8)", async () => {
+    const template = lampTemplate();
+    const b = new SceneBinding({ assets: registry(), models: new ModelCache(async () => template) });
+    b.setProject(placeLamp());
+    await tick();
+    const red = {
+      color: "#CC2200",
+      shininess: null,
+      textureId: null,
+      placement: null,
+      mirrorForLeftSide: false,
+    };
+    const placed = placeLamp();
+    const p = run(placed, {
+      type: "item.setFinish",
+      payload: { itemIds: [placed.items[0]?.id], finish: red },
+    }).project;
+    b.setProject(p);
+    const meshes: THREE.Mesh[] = [];
+    b.objectsOf(p.items[0]?.id as string)[0]?.traverse((o) => {
+      if (o instanceof THREE.Mesh) meshes.push(o);
+    });
+    const [seat, shade] = meshes;
+    // the template's geometry is shared, never copied per item
+    expect(seat?.geometry).toBe((template.children[0] as THREE.Mesh).geometry);
+    expect(`#${materialOf(seat).color.getHexString()}`).toBe("#cc2200");
+    // glass keeps its look under a whole-item finish
+    expect(shade?.material).toBe((template.children[1] as THREE.Mesh).material);
+  });
+
+  it("S-043 a model that cannot be loaded is a red box, and the log names it once", async () => {
+    const { load, settle } = pendingLoads();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const b = new SceneBinding({ assets: registry(), models: new ModelCache(load) });
+    const p = placeLamp();
+    b.setProject(p);
+    settle[0]?.reject(new Error("404"));
+    await tick();
+    expect(materialOf(b.objectsOf(p.items[0]?.id as string)[0]).name).toBe("failed");
+    b.refreshAssets();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]?.[0])).toContain(KEY);
+    warn.mockRestore();
+  });
+
+  it("asks for the list again when a project names a model the tab was not told of, once per key", () => {
+    const models = new ModelRegistry();
+    models.set([{ key: KEY, bbox: { w: 1, d: 1, h: 1 }, materialSlots: [], sha256: "a" }]);
+    const seen = new Set<string>();
+    const refs = (...keys: (string | null)[]) =>
+      Object.fromEntries(keys.map((assetKey, i) => [`p${i}`, { assetKey }]));
+    expect(namesUnknownModel(refs(KEY, null), seen, models)).toBe(false);
+    // imported elsewhere after this tab asked: ask again, but only the first time the key is seen
+    expect(namesUnknownModel(refs(KEY, "user/fedcba9876543210/std"), seen, models)).toBe(true);
+    expect(namesUnknownModel(refs(KEY, "user/fedcba9876543210/std"), seen, models)).toBe(false);
+    // a recipe's key is not a model either, and is not asked about twice
+    expect(namesUnknownModel(refs("chair/task/std"), seen, models)).toBe(true);
+    expect(namesUnknownModel(refs("chair/task/std"), seen, models)).toBe(false);
+  });
+
+  it("asks again for a model whose file changed, and drops one that went", () => {
+    const models = new ModelRegistry();
+    models.set([{ key: KEY, bbox: { w: 1, d: 1, h: 1 }, materialSlots: [], sha256: "a" }]);
+    expect(models.set([{ key: KEY, bbox: { w: 1, d: 1, h: 1 }, materialSlots: [], sha256: "a" }])).toEqual(
+      [],
+    );
+    expect(models.set([{ key: KEY, bbox: { w: 1, d: 1, h: 1 }, materialSlots: [], sha256: "b" }])).toEqual([
+      KEY,
+    ]);
+    expect(models.set([])).toEqual([KEY]);
+    expect(models.bbox(KEY)).toBeNull();
   });
 });
