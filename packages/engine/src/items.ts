@@ -13,6 +13,8 @@ export interface AssetRegistry {
   keyFor(productId: string): string | null;
   /** Normalised bounding box of an asset in metres, or null when unknown (scale 1 is assumed). */
   bbox(assetKey: string): { w: number; d: number; h: number } | null;
+  /** A model asset's material slots, which an item's finishes name (ADR-010 D8); absent or null: none. */
+  slots?(assetKey: string): readonly string[] | null;
 }
 
 export const noAssets: AssetRegistry = { keyFor: () => null, bbox: () => null };
@@ -89,9 +91,11 @@ export function drawnAs(
 ): { assetKey: string; recipe: PrimitiveRecipe | null } {
   if (item.ref.kind === "recipe")
     return { assetKey: recipeAssetKey(item.ref.recipe), recipe: item.ref.recipe };
-  const model = assets.keyFor(item.ref.productId);
-  if (model) return { assetKey: model, recipe: null };
   const info = sizes.product(item.ref.productId);
+  // the product's own model, named by its snapshot, when the registry has it to draw (P3-8)
+  const named = info?.assetKey && assets.bbox(info.assetKey) ? info.assetKey : null;
+  const model = assets.keyFor(item.ref.productId) ?? named;
+  if (model) return { assetKey: model, recipe: null };
   const entry = entryFor(
     resolveAssetKey({ category: info?.category ?? "other", dims: size, assetKey: info?.assetKey ?? null }),
   );
@@ -155,6 +159,28 @@ function slotMaterials(
   }));
 }
 
+/**
+ * The parts of a model an item's finishes reach (ADR-010 D8): a part's own finish, else the whole item's,
+ * except on a `glass_` part, which a whole-item finish never recolours. A part no finish reaches is left
+ * out and keeps the model's own material; so is a finish that only changes the shine, which on a model
+ * would otherwise throw its colours away.
+ */
+function modelMaterials(
+  item: Item,
+  slots: readonly string[],
+  textures?: TextureSource,
+): ItemInstance["materials"] {
+  return slots.flatMap((slot) => {
+    const finish = item.materials[slot] ?? (slot.startsWith("glass_") ? null : item.finish);
+    const textured = !!finish?.textureId && !!textures?.(finish.textureId);
+    if (!finish || (finish.color === null && !textured)) return [];
+    return [{ slot, materialKey: finishedMaterialKey(MODEL_PART_BASE, finish, textures) }];
+  });
+}
+
+/** The plain material a finished model part is built on: its finish supplies the colour or the texture. */
+const MODEL_PART_BASE = "item";
+
 /** A recipe's own size in metres: the box its mesh is built to fill. */
 function recipeBox(recipe: PrimitiveRecipe): { w: number; d: number; h: number } {
   const s = derive.recipeSize(recipe);
@@ -178,7 +204,9 @@ export function buildItems(items: readonly Item[], ctx: ItemBuildContext): ItemI
       assetKey,
       recipe,
       matrix: itemMatrix(it, size, ctx.level, bbox),
-      materials: recipe ? slotMaterials(it, recipe, ctx.textures) : [],
+      materials: recipe
+        ? slotMaterials(it, recipe, ctx.textures)
+        : modelMaterials(it, assets.slots?.(assetKey) ?? [], ctx.textures),
       visible: it.visible,
     });
   }

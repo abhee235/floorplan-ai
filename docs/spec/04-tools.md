@@ -549,6 +549,21 @@ that a smaller copy would look the same. The name defaults to the file's, tidied
 (which names what is attached), `args.invalid`, and `unavailable` in a session that cannot keep pictures.
 Advertised to the high and medium profiles.
 
+### import_model (phase 3, P3-8)
+Description: "Make a 3D model a person brings into a product the catalog offers: a binary glTF (.glb) from attachmentId, or contentBase64 with fileName. category says what it is (default other). turn (0-3 quarter turns, counter-clockwise seen from above) brings its front to face +z, the way products face; tip (0-3) stands up a model that arrives lying on its back. units is what the file's numbers mean: m by default, cm or mm for a model that comes in far too big. size in mm overrides the model's own. The same model at the same size returns the product already made of it. Returns the product id to place with place_item."
+Input: `{ attachmentId?: string, contentBase64?: string, fileName?: string, name?: string, category?: Category except door and window, turn?: 0-3, tip?: 0-3, units?: "m" | "cm" | "mm" | "in", size?: { w, d, h }, tags?: string[] }`
+Output: `{ productId, name, category, dims, assetKey, triangles, parts, existing }`
+
+Not mutating: it adds to the catalog, not to the project, which takes the product's snapshot when an
+item is first placed from it. Spec 02 section 3.2 says what the host makes of the file. The name
+defaults to the file's, tidied. A model over 30 000 triangles or 2 MB is taken with a warning that a
+room of copies will slow the 3D view; one whose size was read from declared bounds rather than its
+points says so. Errors: `model.gltf-text` (a .gltf, whose data is in other files), `model.not-glb`,
+`model.version` (not glTF 2.0), `model.corrupt`, `model.draco` and `model.extension` (a compression or
+extension the viewer cannot decode), `model.external` (a file that points outside itself),
+`model.empty`, `model.too-large` (64 MB), `import.attachment-unknown`, `args.invalid`, and `unavailable`
+in a session that cannot keep models. Advertised to the high and medium profiles.
+
 ## 9. Tiers by profile
 
 | Profile toolReliability | Advertised |

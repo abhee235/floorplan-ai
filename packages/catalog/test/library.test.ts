@@ -193,6 +193,44 @@ describe("library precedence (spec 02 section 4, C-027, C-028)", () => {
     store.close();
   });
 
+  it("keeps a person's own model asset beside the libraries, and lists the models the viewer can load", () => {
+    const store = CatalogStore.open(":memory:");
+    const model: AssetEntry = {
+      key: "user/0123456789abcdef/std",
+      kind: "gltf",
+      file: `${"e".repeat(64)}.glb`,
+      recipe: null,
+      bbox: { w: 0.6, d: 0.6, h: 0.9 },
+      triangles: 120_000, // a person's own file is not held to the catalog's budget
+      bytes: 9_000_000,
+      sha256: "e".repeat(64),
+      materialSlots: ["fabric"],
+      articulations: [],
+      presets: {},
+      planIcon: null,
+      licence: { id: "own", author: null, sourceUrl: null, attribution: null },
+      tags: ["imported"],
+    };
+    store.upsertAsset(model, { library: "user", version: "0" });
+    const recipe = { ...model, key: "chair/task/std", kind: "recipe" as const, file: null, sha256: null };
+    store.installLibrary(
+      lib("pack", "1.0.0", [], { assets: { version: 1, entries: [{ ...recipe, recipe: "chair" }] } }),
+      AT,
+    );
+    store.uninstallLibrary("pack", "1.0.0", LATER);
+    expect(store.assetOrigin(model.key)).toMatchObject({ library: "user", version: "0" });
+    expect(store.models().map((m) => m.key)).toEqual([model.key]);
+    // a key an installed library provides is not the person's to take
+    store.installLibrary(
+      lib("pack", "1.0.0", [], { assets: { version: 1, entries: [{ ...recipe, recipe: "chair" }] } }),
+      AT,
+    );
+    expect(() =>
+      store.upsertAsset({ ...model, key: "chair/task/std" }, { library: "user", version: "0" }),
+    ).toThrow(/already provided by library pack/);
+    store.close();
+  });
+
   it("C-034 localised names are kept with the manifest and never touch dimensions", () => {
     const store = CatalogStore.open(":memory:");
     store.installLibrary(

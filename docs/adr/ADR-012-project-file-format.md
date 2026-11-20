@@ -41,6 +41,13 @@ installation, which keeps each picture whose bytes match its name and adds
 the texture from the project's record of it; a folder that cannot be read
 costs the project its imported textures, never its opening.
 
+Amended 2026-11-19 (P3-8): imported 3D models are carried the same way. A
+project whose products name an imported model copies its normalised .glb
+into `assets/` by its hash, listed in the manifest under the model's asset
+key. Opening takes in each file whose bytes match its name, adds its asset
+measured from the file itself, and adds each imported product the catalog
+lacks from the project's snapshot of it.
+
 ### D2. JSON conventions
 
 - Pretty-printed with two spaces and keys in a fixed order per entity type,

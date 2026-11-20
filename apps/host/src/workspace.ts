@@ -22,6 +22,7 @@ import type { EventLog } from "./log.js";
 import { silentLog } from "./log.js";
 import type { ProjectRegistry } from "./projects.js";
 import { createSession, type Session } from "./session.js";
+import type { UserModels } from "./user-models.js";
 import type { UserTextures } from "./user-textures.js";
 
 /** One project open in this host. */
@@ -55,6 +56,8 @@ export interface WorkspaceOptions {
    * files, which carry the ones the project uses in its assets/ folder and take them back in on open.
    */
   textures?: UserTextures | null;
+  /** 3D models a person imported (P3-8), given to sessions and carried by projects the same way. */
+  models?: UserModels | null;
 }
 
 export class Workspace {
@@ -280,15 +283,19 @@ export class Workspace {
 
   private newFileStore(): ProjectFileStore {
     const registry = this.options.registry;
-    const textures = this.options.textures;
+    // the project's own files: imported pictures and imported models, carried alike (ADR-012 D1)
+    const carriers = [this.options.textures, this.options.models].filter((c) => !!c) as (
+      | UserTextures
+      | UserModels
+    )[];
     return new ProjectFileStore({
       ...(this.options.now ? { now: this.options.now } : {}),
       ...(registry ? { remember: (entry) => registry.remember(entry) } : {}),
-      ...(textures
+      ...(carriers.length
         ? {
             assets: {
-              assetsFor: (project) => textures.assetsFor(project),
-              adopt: (project, dir) => textures.adopt(project, dir),
+              assetsFor: (project) => carriers.flatMap((c) => c.assetsFor(project)),
+              adopt: (project, dir) => carriers.map((c) => c.adopt(project, dir)),
             },
           }
         : {}),
@@ -308,6 +315,7 @@ export class Workspace {
       ...(this.options.plans !== undefined ? { plans: this.options.plans } : {}),
       ...(this.options.web !== undefined ? { web: this.options.web } : {}),
       ...(this.options.textures ? { textures: this.options.textures } : {}),
+      ...(this.options.models ? { models: this.options.models } : {}),
       ...(this.options.writer ? { writer: this.options.writer(files) } : {}),
     });
     files.startAutosave();

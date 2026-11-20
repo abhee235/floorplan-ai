@@ -1,5 +1,20 @@
 // @fpv/assets: Primitive recipes, glTF manifest, licence manifest (spec 02 section 3, ADR-010)
 export const PACKAGE = "assets" as const;
+export {
+  checkGltf,
+  describeModel,
+  type GltfDocument,
+  GltfError,
+  type ModelMeasure,
+  type ModelSummary,
+  measureGltf,
+  type NormaliseOptions,
+  nameMaterials,
+  type PreparedModel,
+  prepareModel,
+  readGlb,
+  writeGlb,
+} from "./gltf.js";
 export { CATEGORY_RECIPE, RECIPE_MANIFEST, recipeForCategory } from "./recipes.js";
 export { type AssetKeyInput, entryFor, resolveAssetKey, sizeDistance, withBuiltIns } from "./resolve.js";
 export {

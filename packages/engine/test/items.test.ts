@@ -92,6 +92,46 @@ describe("item matrices", () => {
     expect(inst?.matrix[5]).toBeCloseTo(0.5, 9);
     expect(inst?.matrix[10]).toBeCloseTo(1, 9);
   });
+
+  it("draws a product as the model its snapshot names when the registry has it, finishing the parts asked for", () => {
+    // P3-8: an imported model is named by the product's assetKey; ADR-010 D8 says what a finish reaches
+    const key = "user/0123456789abcdef/std";
+    const registry: AssetRegistry = {
+      keyFor: () => null,
+      bbox: (k) => (k === key ? { w: 0.5, d: 0.5, h: 1 } : null),
+      slots: (k) => (k === key ? ["fabric", "frame", "glass_shade"] : null),
+    };
+    const sizes: derive.SizeSource = {
+      product: (id) =>
+        id === "user-lamp"
+          ? { dims: { w: 500, d: 500, h: 1000 }, deformable: true, category: "lighting", assetKey: key }
+          : null,
+    };
+    const ref = { kind: "product" as const, productId: "user-lamp" };
+    const plain = defaultItem("item_zz0011", L, ref, { x: 0, y: 0 });
+    const [model] = buildItems([plain], { level, sizes, assets: registry });
+    expect(model?.assetKey).toBe(key);
+    expect(model?.recipe).toBeNull();
+    expect(model?.materials).toEqual([]); // nothing finished: every part keeps the model's own material
+    const paint = (color: string | null, shininess: number | null = null) => ({
+      color,
+      shininess,
+      textureId: null,
+      placement: null,
+      mirrorForLeftSide: false,
+    });
+    const finished = { ...plain, finish: paint("#CC2200"), materials: { frame: paint("#222222") } };
+    const [dressed] = buildItems([finished], { level, sizes, assets: registry });
+    expect(dressed?.materials.map((m) => m.slot)).toEqual(["fabric", "frame"]); // glass keeps its look
+    expect(dressed?.materials[0]?.materialKey).toContain("#CC2200");
+    expect(dressed?.materials[1]?.materialKey).toContain("#222222");
+    // a finish that only changes the shine leaves a model's colours alone
+    const shine = { ...plain, finish: paint(null, 0.8) };
+    expect(buildItems([shine], { level, sizes, assets: registry })[0]?.materials).toEqual([]);
+    // where the registry does not have the model, the product is drawn as its category's recipe
+    const [fallback] = buildItems([plain], { level, sizes });
+    expect(fallback?.recipe).not.toBeNull();
+  });
 });
 
 describe("recipes", () => {

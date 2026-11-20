@@ -3,11 +3,11 @@ import { hingeEndFor, parseAnchor, RECIPE_TEMPLATES, TOOLS } from "../src/index.
 import { buildFixtureRoom, harness } from "./helpers.js";
 
 describe("registry conventions (spec 04 section 1, ADR-006 D3, D4)", () => {
-  it("registers the 23 first-release tools, import_plan, the finish tools, the design tools with preview_design, the three reading tools, run_code and import_texture", () => {
+  it("registers the 23 first-release tools, import_plan, the finish tools, the design tools with preview_design, the three reading tools, run_code, import_texture and import_model", () => {
     const h = harness();
     const names = h.registry.list().map((t) => t.name);
-    expect(names).toHaveLength(42);
-    expect(new Set(names).size).toBe(42);
+    expect(names).toHaveLength(43);
+    expect(new Set(names).size).toBe(43);
     for (const name of [
       "design_layout",
       "plan_rooms",
@@ -20,6 +20,7 @@ describe("registry conventions (spec 04 section 1, ADR-006 D3, D4)", () => {
       "read_page",
       "run_code",
       "import_texture",
+      "import_model",
     ])
       expect(names, name).toContain(name);
     expect(TOOLS.every((t) => t.description.length > 20)).toBe(true);
@@ -134,7 +135,7 @@ describe("registry conventions (spec 04 section 1, ADR-006 D3, D4)", () => {
 
   it("profiles advertise a subset while every tool stays callable (ADR-006 D6)", async () => {
     const h = harness();
-    expect(h.registry.advertised("high")).toHaveLength(42);
+    expect(h.registry.advertised("high")).toHaveLength(43);
     expect(h.registry.advertised("medium").map((t) => t.name)).not.toContain("modify_wall");
     const low = h.registry.advertised("low").map((t) => t.name);
     // run_code is offered to every profile (ADR-030 D7).

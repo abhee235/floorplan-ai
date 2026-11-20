@@ -55,8 +55,10 @@ export {
 } from "./libraries.js";
 export { createLog, type EventLog, type LogLevel, silentLog } from "./log.js";
 export { createMcpServer, HOST_VERSION, type McpOptions, serveStdio, toCallToolResult } from "./mcp.js";
+export { GLB_TYPE, type ModelFile, ModelFiles, type ModelLookup } from "./models.js";
 export { createReader, loadReaderConfig, READER_TIMEOUT_MS } from "./reader.js";
 export { DEFAULT_PORT, defaultWebDir, type Served, type ServeOptions, serve } from "./server.js";
 export { createSession, type Session, type SessionOptions } from "./session.js";
 export { type TextureImage, TextureImages } from "./textures.js";
+export { USER_VERSION, UserModels, userModelKey } from "./user-models.js";
 export { hasTransparency, type ProjectAsset, USER_LIBRARY, UserTextures } from "./user-textures.js";

@@ -33,6 +33,8 @@ export interface ServeOptions {
   webDir?: string;
   /** Texture images by id, served at /textures/<id> for the viewer (P3-5). */
   textures?: (id: string) => { bytes: Uint8Array; type: string } | null;
+  /** Model files by asset key, served at /models/<key> for the viewer (P3-8). */
+  models?: (key: string) => { path: string; bytes: number; type: string } | null;
   /** Everything in this installation's library, newest first; read fresh on every request. */
   library?: () => RecentEntry[];
   /** The in-app agent (ADR-022); without one the editor is told there is none. */
@@ -109,6 +111,23 @@ function serveTexture(textures: ServeOptions["textures"], req: IncomingMessage, 
     .end(image.bytes);
 }
 
+/** A model file: `/models/<category>/<variant>/<size>`, the model's asset key after the prefix. */
+function serveModel(models: ServeOptions["models"], req: IncomingMessage, res: ServerResponse): void {
+  const url = new URL(req.url ?? "/", "http://localhost");
+  const key = decodeURIComponent(url.pathname.slice("/models/".length));
+  const file = /^[a-z0-9-]+\/[a-z0-9-]+\/[a-z0-9x-]+$/.test(key) ? models?.(key) : null;
+  if (!file) {
+    res.writeHead(404, { "content-type": "text/plain" }).end(`no model ${key}`);
+    return;
+  }
+  res.writeHead(200, {
+    "content-type": file.type,
+    "content-length": file.bytes,
+    "cache-control": "no-cache",
+  });
+  createReadStream(file.path).pipe(res);
+}
+
 /**
  * Start serving: the static web app, plus `/bridge`.
  *
@@ -131,6 +150,10 @@ export function serve(target: Session | Workspace, options: ServeOptions = {}): 
     }
     if (req.url?.startsWith("/textures/")) {
       serveTexture(options.textures, req, res);
+      return;
+    }
+    if (req.url?.startsWith("/models/")) {
+      serveModel(options.models, req, res);
       return;
     }
     serveStatic(webDir, req, res);

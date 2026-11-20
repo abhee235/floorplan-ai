@@ -233,7 +233,37 @@ finished like any recipe's (P3-5). Recipes are built one part per slot:
 | box, cylinder, video-bar, ceiling-speaker, ceiling-mic | body |
 
 A product whose model the viewer has not loaded is a white box at its size
-(S-042).
+(S-042), and one whose model failed to load is a red box (S-043).
+
+### 3.2 A person's own models
+
+A glTF model a person brings (P3-8, ADR-010 D10) is made a product by
+`import_model` (spec 04). The host normalises it: one root node over the
+file's scene stands it up (`tip`) and turns it (`turn`) in quarter turns,
+scales it to metres from the file's units, stands it on y = 0 with its
+footprint centred, and every material gets a unique name, `material-<n>`
+for one without. Its front is +z, as glTF and the recipes have it. The
+normalised file is kept once at `<data>/user/models/<sha256>.glb`; its asset
+entry, in the `user` library at version `0.0.0`, has the key
+`user/<first 16 hex of the hash>/std`, the box measured from the model's
+points, its triangle count, its material names as `materialSlots`, and the
+licence `own`. The product is `user-<slug>` from its name, numbered when
+taken, made `Own model` with the model's name, the category asked for (any
+but door and window), the measured size in whole millimetres or the size
+asked for, mounted on the wall for a display, whiteboard, touch panel or
+scheduler, on the ceiling for a ceiling speaker or microphone, on a table
+for a table microphone and on the floor otherwise, `deformable`, verified
+`manual`, and tagged `imported`. The same file at the same size is the
+product already made of it; at another size it is a new product on the
+same asset.
+
+A product names its model by `assetKey`, and the viewer draws it with that
+model when the host lists the key (bridge `get models`: key, box, slots and
+hash), loading `/models/<key>` once and cloning it per item. An item's
+finishes reach a model's parts by material name: a part's own finish, else
+the item's, except on a `glass_` part; a finish that only changes the shine
+leaves a model's colours alone. A project that places an imported product
+carries its file in `assets/` (ADR-012 D1).
 
 ## 4. Library package
 

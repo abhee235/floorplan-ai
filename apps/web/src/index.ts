@@ -153,6 +153,15 @@ export {
 export { type Clipping, clippingFor } from "./viewer/clipping.js";
 export { MaterialCache } from "./viewer/materials.js";
 export {
+  ModelCache,
+  type ModelEntry,
+  type ModelLoad,
+  ModelRegistry,
+  type ModelSource,
+  type ModelState,
+  namesUnknownModel,
+} from "./viewer/models.js";
+export {
   type Capture,
   type CapturedImage,
   camerasFor,
