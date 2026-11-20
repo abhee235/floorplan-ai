@@ -20,6 +20,7 @@ import { importPlan } from "./tools/import.js";
 import { describeRoom, getScene, measure, searchCatalog, validateTool } from "./tools/inspect.js";
 import { arrange, finishItem, modifyItem, placeItem } from "./tools/items.js";
 import { lookAt } from "./tools/look.js";
+import { importModel } from "./tools/model.js";
 import { createRoomFromBrief, furnishRoom } from "./tools/semantic.js";
 import { batch, getBom, history, project, render, verifyProduct } from "./tools/session.js";
 import {
@@ -86,6 +87,8 @@ export const TOOLS = [
   runCode,
   // A person's own surface, from a picture they bring (ADR-010 D10, P3-8).
   importTexture,
+  // A person's own furniture, from a glTF model they bring (ADR-010 D10, P3-8).
+  importModel,
 ] as const;
 
 /** Tools that only make sense with something the session may not have; the host advertises them or not. */
@@ -109,6 +112,9 @@ export {
   catalogSourceOf,
   type DraftPresentation,
   type ExportWriter,
+  type ModelImporter,
+  type ModelImportRequest,
+  type ModelImportResult,
   memoryCatalog,
   type OpenInfo,
   type OpenOptions,
@@ -168,6 +174,7 @@ export {
 } from "./registry.js";
 export { LOOK_HEADINGS, lookChecklist, lookMissing, type Walk, walkOf } from "./tools/design.js";
 export { doorSwingWarnings, itemRefFor, parseAnchor } from "./tools/items.js";
+export { IMPORTABLE_CATEGORY, MAX_MODEL_BYTES, MODEL_UNITS } from "./tools/model.js";
 export { hingeEndFor } from "./tools/structure.js";
 export { DEFAULT_TEXTURE_WIDTH_MM, LARGE_TEXTURE_PX, nameFromFile } from "./tools/texture.js";
 export { createTranscript, replay, type Transcript } from "./transcript.js";

@@ -3,8 +3,9 @@
 // from the editor's file picker or from a file attached to the agent's conversation.
 import { imageInfo } from "@fpv/importers";
 import { z } from "zod";
-import { invalidArg, ToolError, unavailable } from "../envelope.js";
+import { ToolError, unavailable } from "../envelope.js";
 import { defineTool, TIMEOUTS } from "../registry.js";
+import { broughtFile, nameFromFile as named } from "./brought.js";
 
 /** A real-world width when none is given: a typical tile or board, which a person then corrects. */
 export const DEFAULT_TEXTURE_WIDTH_MM = 200;
@@ -15,21 +16,7 @@ const MIMES = { png: "image/png", jpeg: "image/jpeg", webp: "image/webp" } as co
 
 /** A texture's name from a file's: "oak-plank_02.jpg" reads "Oak plank 02". */
 export function nameFromFile(fileName: string | undefined): string {
-  const bare = (fileName ?? "")
-    .replace(/^.*[\\/]/, "")
-    .replace(/\.[^.]+$/, "")
-    .replace(/[_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 60);
-  return bare ? bare.charAt(0).toUpperCase() + bare.slice(1) : "Imported texture";
-}
-
-function decodeBase64(text: string): Uint8Array {
-  const binary = atob(text.replace(/^data:[^,]*,/, "").replace(/\s+/g, ""));
-  const out = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) out[i] = binary.charCodeAt(i);
-  return out;
+  return named(fileName, "Imported texture");
 }
 
 export const importTexture = defineTool({
@@ -73,33 +60,7 @@ export const importTexture = defineTool({
         "this session cannot keep pictures",
         "choose one of the catalog's textures",
       );
-    let bytes: Uint8Array;
-    let fileName = args.fileName;
-    if (args.attachmentId !== undefined) {
-      const found = ctx.attachments?.get(args.attachmentId) ?? null;
-      if (!found) {
-        const have = (ctx.attachments?.list() ?? []).map((a) => `${a.id} (${a.name})`);
-        throw new ToolError(
-          "import.attachment-unknown",
-          `no attachment "${args.attachmentId}" in this conversation`,
-          null,
-          have.length ? `attached: ${have.join(", ")}` : "nothing is attached to this conversation",
-        );
-      }
-      bytes = found.bytes;
-      fileName ??= found.name;
-    } else if (args.contentBase64 !== undefined) {
-      try {
-        bytes = decodeBase64(args.contentBase64);
-      } catch {
-        throw invalidArg("contentBase64", "is not base64", "send the file's bytes in base64");
-      }
-    } else
-      throw invalidArg(
-        "attachmentId",
-        "no picture was given",
-        "give attachmentId, or contentBase64 with fileName",
-      );
+    const { bytes, fileName } = broughtFile(args, ctx, "picture");
 
     // What the bytes are, not what the name says: a renamed file is still the file it was.
     const info = imageInfo(bytes);

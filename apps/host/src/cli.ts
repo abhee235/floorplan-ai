@@ -19,12 +19,14 @@ import { libraryRoot } from "./library.js";
 import { createLog, type LogLevel } from "./log.js";
 import { formatEntry, formatRuns, pickRun, readFrom, readRun, runs } from "./log-read.js";
 import { serveStdio } from "./mcp.js";
+import { ModelFiles } from "./models.js";
 import { dataPaths } from "./paths.js";
 import { FilePlanReader } from "./plans.js";
 import { ProjectRegistry } from "./projects.js";
 import { createReader, loadReaderConfig } from "./reader.js";
 import { DEFAULT_PORT, serve } from "./server.js";
 import { TextureImages } from "./textures.js";
+import { UserModels } from "./user-models.js";
 import { UserTextures } from "./user-textures.js";
 import { createVerifier, createWeb, loadHostConfig } from "./verifier.js";
 import { Workspace } from "./workspace.js";
@@ -258,8 +260,11 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   // to begin with, and a tab can open others without disturbing it.
   // Pictures a person imports as textures (P3-8), kept in the data directory by their hash.
   const userTextures = new UserTextures(catalog.store, catalog.dir);
+  // And 3D models a person imports (P3-8), kept the same way and made products.
+  const userModels = new UserModels(catalog.store, catalog.dir, now);
   const workspace = new Workspace({
     textures: userTextures,
+    models: userModels,
     now,
     log,
     registry: projects,
@@ -284,8 +289,12 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
   }
   if (args.serve) {
     const images = new TextureImages(catalog.store, catalog.dir, userTextures);
-    // Catalog libraries installed from the editor (P3-8); a change drops the images read so far.
-    const libraries = new Libraries(catalog.store, catalog.dir, now, () => images.forget());
+    const modelFiles = new ModelFiles(catalog.store, catalog.dir, userModels);
+    // Catalog libraries installed from the editor (P3-8); a change drops the files found so far.
+    const libraries = new Libraries(catalog.store, catalog.dir, now, () => {
+      images.forget();
+      modelFiles.forget();
+    });
     // The in-app agent (P4-1). Without a configured model the editor still opens and says why the
     // chat is unavailable, which is more use than a chat box that refuses every message.
     const agentConfig = loadAgentConfig({ dataDir: catalog.dir });
@@ -317,6 +326,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
       agent,
       libraries,
       textures: (id) => images.image(id),
+      models: (key) => modelFiles.file(key),
       // Read fresh per request: another host may have opened something since this one started.
       library: () => projects.recentPresent(),
     });

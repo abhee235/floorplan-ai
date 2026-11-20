@@ -57,7 +57,7 @@ Vendor CAD and BIM files are out of scope for now.
 - Input: source model in any format Blender can read.
 - Blender headless: import, apply transforms, recentre so the footprint
   centre is at the origin and the base sits on y = 0, rotate to y up with
-  the front facing -z, scale to metres, decimate above 30,000 triangles,
+  the front facing +z, scale to metres, decimate above 30,000 triangles,
   bake or drop textures above 1024 pixels, export glTF binary with
   meshopt compression.
 - Post-process: validate with the glTF validator, compute the bounding box,
@@ -191,6 +191,42 @@ is the person's act from the editor, not a tool the agent is offered, because
 it changes the catalog under every project on the host. The zip reader that
 came with it reads deflated zips, which also lets a project archive re-zipped
 by an operating system be imported.
+
+Amended 2026-11-19, when model import was built (P3-8, third part):
+
+- **Front is +z.** D3 said a model's front faces -z, which disagreed with the
+  engine: a recipe's front is local -y in the plan, which is +z in the
+  three.js frame, and +z is also where glTF itself says a model's front is.
+  D3 now says +z, so a well-made glTF file faces the right way untouched.
+- **Normalising an import** is one root node added over the file's scene
+  that stands the model up and turns it in quarter turns, scales it to
+  metres from the units the person says the file is in, stands it on y = 0
+  and centres its footprint. The rest of the file is kept byte for byte,
+  and every material is given a unique name so each part is a slot (D8).
+  The size is measured from the model's points through its node
+  transforms, and from its accessors' declared bounds only where the
+  points are compressed.
+- **Formats.** The host takes a binary glTF (.glb) with everything inside
+  it. A .gltf chosen in the editor with its .bin and pictures is loaded
+  and written out as one .glb in the browser first. Files that need Draco
+  or KTX2 decoders, or that point at files outside them, are refused with
+  a hint. OBJ and FBX come next, through the same browser conversion
+  rather than an in-process converter on the host.
+- **Budgets** (D6) hold for library models. A person's own model above
+  them is taken with a warning, since few downloaded models fit them; a
+  file over 64 MB is refused.
+- **What it becomes.** The file is kept once by its hash under
+  `<data>/user/models/`, its asset filed in the catalog's `user` library
+  under `user/<first 16 hex of the hash>/std`, so the same file is the
+  same key on every installation, and a product `user-<name>` tagged
+  `imported` is made of it at its measured size or the size asked for.
+  The rendered catalog and plan icons are not made yet: the catalog shows
+  no pictures, and the plan draws an imported product's footprint.
+- **Runtime** follows D5: the viewer loads a model once per key, with the
+  meshopt decoder D3's pipeline needs, and clones it per item. While it
+  loads the item is a white box at its size, and a model that fails to
+  load is a red box, named once in the log. D8's precedence is applied to
+  a model's parts by material name.
 
 ## Alternatives considered
 

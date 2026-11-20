@@ -57,6 +57,8 @@ export interface CatalogSearch {
   texture?(id: string): object | null;
   /** Every texture the catalog has, for the editor's pickers. */
   textures?(): readonly object[];
+  /** The model assets (glTF) the catalog has, for the viewer to load by key (P3-8). */
+  models?(): readonly object[];
 }
 
 export interface RenderRequest {
@@ -158,6 +160,42 @@ export interface TextureImportRequest {
 export interface TextureImporter {
   /** Keep the picture and add it as a texture; the same picture again is the texture already made of it. */
   add(request: TextureImportRequest): { texture: Texture; existing: boolean };
+}
+
+/** A 3D model a person brought, to be kept and made a product the catalog offers (ADR-010 D10, P3-8). */
+export interface ModelImportRequest {
+  /** A binary glTF. */
+  bytes: Uint8Array;
+  name: string;
+  category: string;
+  /** Quarter turns about the vertical, counter-clockwise from above, bringing its front to face +z. */
+  turn: number;
+  /** Quarter turns that stand up a model made lying down (with z up). */
+  tip: number;
+  /** Metres in one of the file's units: 1 when it is in metres, as glTF says it should be. */
+  metresPerUnit: number;
+  /** The product's size in millimetres; null takes the model's own. */
+  size: Size3 | null;
+  tags: string[];
+}
+
+export interface ModelImportResult {
+  product: { id: string; name: string; category: string; dims: Size3 };
+  assetKey: string;
+  triangles: number;
+  /** The model's material names: the parts a person can finish. */
+  slots: string[];
+  /** The same model at the same size was imported before; that product is the one returned. */
+  existing: boolean;
+  warnings: string[];
+}
+
+/**
+ * Where imported models are kept, by their hash, and made products (ADR-010 D10). Declared here and
+ * implemented by the host, which owns the data directory and the catalog store. Throws GltfError.
+ */
+export interface ModelImporter {
+  add(request: ModelImportRequest): ModelImportResult;
 }
 
 export interface OpenOptions {
@@ -310,6 +348,8 @@ export interface ToolContext {
   attachments?: AttachmentStore | null;
   /** Keeps imported pictures as textures; absent or null in a session that cannot keep files. */
   textures?: TextureImporter | null;
+  /** Keeps imported models as products; absent or null in a session that cannot keep files. */
+  models?: ModelImporter | null;
   /** Search and a guarded fetcher (ADR-027 D4); absent or null when the host has no search provider. */
   web?: WebAccess | null;
   transcript: TranscriptRecorder | null;

@@ -10,6 +10,7 @@ import {
   createRegistry,
   createTranscript,
   type ExportWriter,
+  type ModelImporter,
   memoryCatalog,
   type PlanReader,
   type ProductVerifier,
@@ -42,6 +43,8 @@ export interface SessionOptions {
   web?: WebAccess | null;
   /** Keeps pictures a person imports as textures (P3-8); without it import_texture is unavailable. */
   textures?: TextureImporter | null;
+  /** Keeps 3D models a person imports (P3-8); without it import_model is unavailable. */
+  models?: ModelImporter | null;
   /** Where the session writes what it did (ADR-019); nothing is written without one. */
   log?: EventLog | null;
 }
@@ -92,6 +95,7 @@ export function createSession(options: SessionOptions = {}): Session {
     plans: options.plans ?? null,
     web: options.web ?? null,
     textures: options.textures ?? null,
+    models: options.models ?? null,
     // The tools' own recorder keeps entries for replay (ADR-007 D4); the log gets a line each as well,
     // so an agent's calls and a person's commands sit in one file in the order they happened.
     transcript: {

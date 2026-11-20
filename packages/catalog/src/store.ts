@@ -2,7 +2,7 @@
 // file in the user's data directory, product JSON in a column with indexed columns for search, an FTS5
 // table for ranking, and libraries whose highest installed version wins product clashes.
 import { DatabaseSync } from "node:sqlite";
-import { type AssetEntry, AssetManifest, resolveAssetKey, validateManifest } from "@fpv/assets";
+import { AssetEntry, AssetManifest, resolveAssetKey, validateManifest } from "@fpv/assets";
 import type { Size3 } from "@fpv/ir";
 import {
   LibraryManifest,
@@ -663,6 +663,41 @@ export class CatalogStore implements VerifyStore {
       | { json: string }
       | undefined;
     return row ? (JSON.parse(row.json) as AssetEntry) : null;
+  }
+
+  /**
+   * Write one asset outside any installed library: a model a person imported (P3-8), filed under the
+   * "user" library, which has no manifest, so re-indexing leaves it alone. A key a library provides is
+   * refused rather than taken over.
+   */
+  upsertAsset(input: AssetEntry, owner: { library: string; version: string }): AssetEntry {
+    const entry = AssetEntry.parse(input);
+    const row = this.db.prepare("select library from assets where key = ?").get(entry.key) as
+      | { library: string }
+      | undefined;
+    if (row && row.library !== owner.library)
+      throw new CatalogError("asset.duplicate", `${entry.key}: already provided by library ${row.library}`);
+    this.db
+      .prepare(
+        "insert into assets(key, library, version, json) values (?, ?, ?, ?) on conflict(key) do update set version = excluded.version, json = excluded.json",
+      )
+      .run(entry.key, owner.library, owner.version, JSON.stringify(entry));
+    return entry;
+  }
+
+  /** Where an asset comes from: the library and version that hold its file under the data directory. */
+  assetOrigin(key: string): { entry: AssetEntry; library: string; version: string } | null {
+    const row = this.db.prepare("select library, version, json from assets where key = ?").get(key) as
+      | { library: string; version: string; json: string }
+      | undefined;
+    return row
+      ? { entry: JSON.parse(row.json) as AssetEntry, library: row.library, version: row.version }
+      : null;
+  }
+
+  /** The model assets (glTF files) the catalog holds, for the viewer to load by key. */
+  models(): AssetEntry[] {
+    return this.assetEntries().filter((e) => e.kind === "gltf");
   }
 
   /** The asset key a product draws with (spec 02 section 3.1), considering installed packs and built-ins. */

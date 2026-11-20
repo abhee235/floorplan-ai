@@ -403,7 +403,9 @@ export class Bridge {
                 ? { problems: session.registry.problems() }
                 : msg.what === "textures"
                   ? { textures: textureList(session) }
-                  : { seq: this.seqs.get(held.id) ?? 0 };
+                  : msg.what === "models"
+                    ? { models: modelList(session) }
+                    : { seq: this.seqs.get(held.id) ?? 0 };
         this.reply(state, msg.id, true, { result });
         return;
       }
@@ -893,4 +895,40 @@ function textureList(
         ]
       : [],
   );
+}
+
+/** A model the viewer can load: its key, the box it fills, its parts, and a version to tell files apart. */
+export interface ModelListing {
+  key: string;
+  bbox: { w: number; d: number; h: number };
+  materialSlots: string[];
+  sha256: string | null;
+}
+
+/** What the viewer needs to know about each model asset the catalog has (P3-8). */
+export function modelList(session: Session): ModelListing[] {
+  const all = (session.ctx.catalog.models?.() ?? []) as {
+    key?: unknown;
+    bbox?: { w?: unknown; d?: unknown; h?: unknown };
+    materialSlots?: unknown;
+    sha256?: unknown;
+  }[];
+  return all.flatMap((m) => {
+    const b = m.bbox;
+    return typeof m.key === "string" &&
+      typeof b?.w === "number" &&
+      typeof b.d === "number" &&
+      typeof b.h === "number"
+      ? [
+          {
+            key: m.key,
+            bbox: { w: b.w, d: b.d, h: b.h },
+            materialSlots: Array.isArray(m.materialSlots)
+              ? m.materialSlots.filter((x): x is string => typeof x === "string")
+              : [],
+            sha256: typeof m.sha256 === "string" ? m.sha256 : null,
+          },
+        ]
+      : [];
+  });
 }
